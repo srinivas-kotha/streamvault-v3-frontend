@@ -26,3 +26,22 @@ Reason: scripts/seed-user.js does not exist in streamvault-backend yet; creating
 a separate backend PR not required until Phase 3 auth E2E tests run (weeks away).
 Plan: create sv_e2e_test alongside any backend PR needed for change-password endpoint
 confirmation. SV_TEST_USER=sv_e2e_test + SV_TEST_PASS documented in .env.example.
+
+## 2026-04-15 — Paperclip Option C cleanup complete (Task 0.3 remainder)
+
+- Tagged 3 issues [V2-RESEARCH-REFERENCE] (2x SRI-156 matches + SRI-27 reference issue).
+  Note: SRI-157 and SRI-158 do not exist in Paperclip — not created in prior sessions.
+- Tagged 52 issues [V2-ARCHIVED] (all remaining done/cancelled SV-tagged issues).
+- Created child goal "[V3] StreamVault v3.0 Private MVP" under a44cd232 (company goal).
+  New goal ID: 7b95430c-6235-428b-b58b-12335505d45d (level: team, status: active).
+  Architecture decision: created as CHILD of a44cd232 (not sibling) — a44cd232 is the
+  company-wide ambition; this MVP goal is a scoped delivery milestone. Child is correct.
+  Level enum: valid values are company/team/agent/task — used "team" (sub-company milestone).
+- Program-level skill-audit comment: NOT POSTED via comments endpoint.
+  All comment endpoints for goals return 404 or "API route not found":
+  - /api/companies/{companyId}/goals/{goalId}/comments → API route not found
+  - /api/goals/{goalId}/comments → API route not found
+  - /api/issues/{goalId}/comments → Issue not found (goals not in issue namespace)
+    Fallback: skill-audit text appended to goal description instead.
+    Required skills embedded: superpowers:executing-plans, superpowers:test-driven-development,
+    superpowers:subagent-driven-development, ship-it, quality-reviewer.
