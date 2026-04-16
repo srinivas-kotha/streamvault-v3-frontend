@@ -12,6 +12,10 @@ All perf testing is throttled Chrome until hardware acquired.
 If Fire Stick 4K Max not acquired before MVP tag: this entry blocks v3.1 release.
 Status: user plans to buy before MVP release.
 
+## KR-03: (reserved — intentionally skipped)
+
+Reserved in v3 plan sequence. No current risk attached.
+
 ## KR-04: Dual-HLS memory pressure on Fire TV 4K Max
 
 Phase 5a.7 runs `useHlsPlayer` inside SplitGuide for a live preview alongside

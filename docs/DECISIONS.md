@@ -15,7 +15,7 @@
 
 ## 2026-04-15 — Admin password rotation
 
-Temporary password Test123 (from backend PR #37) confirmed as current prod admin password.
+Temporary password from backend PR #37 confirmed as current prod admin password (value redacted; tracked as weak plan-debt — rotate before OSS).
 User-chosen. Flagged as weak plan-debt — rotate before v3 goes OSS/public.
 Verified via POST /api/auth/login returning 200 with valid session cookies.
 
