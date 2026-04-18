@@ -1,0 +1,112 @@
+@layer base {
+  :root {
+    /* ──────────────────────────────────────────────
+       Backgrounds
+       Source: design spec §6 + plan Task 1.1 Step 2
+       ────────────────────────────────────────────── */
+    --sv-bg-base: #12100e;
+    --sv-bg-surface: #1e1a16;
+    --sv-bg-elevated: #2a2520;
+
+    /* ──────────────────────────────────────────────
+       Accent — Oxide copper
+       ────────────────────────────────────────────── */
+    --sv-accent-copper: #c87941;
+    --sv-accent-copper-dim: #a35f2e;
+
+    /* ──────────────────────────────────────────────
+       Text
+       FIX M7: text-secondary opacity raised 0.65 → 0.80
+       to guarantee WCAG AA ≥4.5:1 on --sv-bg-base
+       (composite ≈ 9.83:1, clears margin before Phase 1)
+       ────────────────────────────────────────────── */
+    --sv-text-primary: #ede4d3;
+    --sv-text-secondary: rgba(237, 228, 211, 0.8);
+    --sv-text-tertiary: rgba(237, 228, 211, 0.4);
+
+    /* ──────────────────────────────────────────────
+       Semantic
+       ────────────────────────────────────────────── */
+    --sv-live-indicator: #e85a2b;
+    --sv-danger: #d84343;
+
+    /* ──────────────────────────────────────────────
+       Typography scale
+       Source: design spec §6 Typography table
+       ────────────────────────────────────────────── */
+    --sv-text-hero-size: 48px;
+    --sv-text-hero-line: 1.1;
+    --sv-text-hero-weight: 700;
+
+    --sv-text-title-size: 32px;
+    --sv-text-title-line: 1.2;
+    --sv-text-title-weight: 600;
+
+    --sv-text-body-lg-size: 24px;
+    --sv-text-body-lg-line: 1.4;
+    --sv-text-body-lg-weight: 500;
+
+    --sv-text-body-size: 20px;
+    --sv-text-body-line: 1.45;
+    --sv-text-body-weight: 400;
+
+    --sv-text-label-size: 14px;
+    --sv-text-label-line: 1;
+    --sv-text-label-weight: 500;
+    --sv-text-label-tracking: 1.5px;
+
+    --sv-text-caption-size: 16px;
+    --sv-text-caption-line: 1.3;
+    --sv-text-caption-weight: 400;
+
+    /* ──────────────────────────────────────────────
+       Spacing — 8px base
+       Scale: 4 · 8 · 12 · 16 · 24 · 32 · 48 · 64 · 96
+       Source: design spec §6 Spacing
+       ────────────────────────────────────────────── */
+    --sv-space-1: 4px;
+    --sv-space-2: 8px;
+    --sv-space-3: 12px;
+    --sv-space-4: 16px;
+    --sv-space-6: 24px;
+    --sv-space-8: 32px;
+    --sv-space-12: 48px;
+    --sv-space-16: 64px;
+    --sv-space-24: 96px;
+
+    /* ──────────────────────────────────────────────
+       Radius — 4 · 8 · 12 · 24
+       dock pill=24, cards=8, buttons=8, toasts=12
+       Source: design spec §6 Radius
+       ────────────────────────────────────────────── */
+    --sv-radius-xs: 4px;
+    --sv-radius-sm: 8px;
+    --sv-radius-md: 12px;
+    --sv-radius-pill: 24px;
+
+    /* ──────────────────────────────────────────────
+       Motion — no parallax, no bounce, no spring
+       Source: design spec §6 Motion
+       ────────────────────────────────────────────── */
+    --sv-motion-focus: 150ms ease-out;
+    --sv-motion-page: 250ms ease-out;
+    --sv-motion-dock: 400ms ease-out;
+
+    /* ──────────────────────────────────────────────
+       Layout
+       Source: design spec §7 Layout System
+       ────────────────────────────────────────────── */
+    --sv-gutter-tv: 48px;
+    --sv-gutter-mobile: 24px;
+    --sv-safe-inset: 5%;
+    --sv-dock-height: 80px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    :root {
+      --sv-motion-focus: 0ms;
+      --sv-motion-page: 0ms;
+      --sv-motion-dock: 0ms;
+    }
+  }
+}

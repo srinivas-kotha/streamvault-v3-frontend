@@ -1,3 +1,49 @@
+@import "tailwindcss";
+@import "./brand/tokens.css";
+
+/**
+ * Tailwind 4 theme extension — map Oxide CSS vars into Tailwind's design system.
+ * Components use `bg-sv-base`, `text-sv-primary`, `text-accent-copper`, etc.
+ * Values are CSS var references so Tailwind utilities inherit the cascade,
+ * media queries, and reduced-motion overrides from tokens.css automatically.
+ */
+@theme {
+  /* Backgrounds */
+  --color-sv-base: var(--sv-bg-base);
+  --color-sv-surface: var(--sv-bg-surface);
+  --color-sv-elevated: var(--sv-bg-elevated);
+
+  /* Accent */
+  --color-sv-copper: var(--sv-accent-copper);
+  --color-sv-copper-dim: var(--sv-accent-copper-dim);
+
+  /* Text */
+  --color-sv-primary: var(--sv-text-primary);
+  --color-sv-secondary: var(--sv-text-secondary);
+  --color-sv-tertiary: var(--sv-text-tertiary);
+
+  /* Semantic */
+  --color-sv-live: var(--sv-live-indicator);
+  --color-sv-danger: var(--sv-danger);
+
+  /* Spacing tokens surfaced as Tailwind spacing steps */
+  --spacing-sv-1: var(--sv-space-1);
+  --spacing-sv-2: var(--sv-space-2);
+  --spacing-sv-3: var(--sv-space-3);
+  --spacing-sv-4: var(--sv-space-4);
+  --spacing-sv-6: var(--sv-space-6);
+  --spacing-sv-8: var(--sv-space-8);
+  --spacing-sv-12: var(--sv-space-12);
+  --spacing-sv-16: var(--sv-space-16);
+  --spacing-sv-24: var(--sv-space-24);
+
+  /* Border radius */
+  --radius-sv-xs: var(--sv-radius-xs);
+  --radius-sv-sm: var(--sv-radius-sm);
+  --radius-sv-md: var(--sv-radius-md);
+  --radius-sv-pill: var(--sv-radius-pill);
+}
+
 :root {
   --text: #6b6375;
   --text-h: #08060d;
@@ -11,8 +57,8 @@
   --shadow:
     rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
+  --sans: system-ui, "Segoe UI", Roboto, sans-serif;
+  --heading: system-ui, "Segoe UI", Roboto, sans-serif;
   --mono: ui-monospace, Consolas, monospace;
 
   font: 18px/145% var(--sans);
