@@ -1,4 +1,5 @@
 import React from "react";
+import { cx } from "./cx";
 
 export interface FocusRingProps {
   children: React.ReactElement<{ className?: string }>;
@@ -30,14 +31,12 @@ export function FocusRing({
   const child = React.Children.only(children);
   const existingClass = child.props.className ?? "";
 
-  const classes = [
+  const classes = cx(
     existingClass,
     "focus-ring",
-    variant === "imagery" ? "focus-ring--imagery" : "",
+    variant === "imagery" ? "focus-ring--imagery" : false,
     className,
-  ]
-    .filter(Boolean)
-    .join(" ");
+  );
 
   return React.cloneElement(child, { className: classes });
 }

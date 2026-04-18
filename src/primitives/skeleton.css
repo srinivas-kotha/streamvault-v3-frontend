@@ -1,0 +1,45 @@
+/**
+ * Oxide Skeleton — decorative loading placeholder CSS (Task 1.5)
+ *
+ * .skeleton — pulsing placeholder block
+ *
+ * All colour values reference Oxide tokens from src/brand/tokens.css.
+ * No hardcoded hex — CSS custom properties only.
+ *
+ * Accessibility: always rendered with aria-hidden="true" in Skeleton.tsx.
+ * Motion: animation is disabled for users who prefer reduced motion.
+ *
+ * Spec: plan Task 1.5 + design spec §skeleton.
+ */
+
+/* ─────────────────────────────────────────────────────
+   Keyframes
+   ───────────────────────────────────────────────────── */
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* ─────────────────────────────────────────────────────
+   Base
+   ───────────────────────────────────────────────────── */
+.skeleton {
+  background: var(--bg-elevated);
+  border-radius: var(--radius-sm);
+  animation: skeleton-pulse 1.8s ease-in-out infinite;
+}
+
+/* ─────────────────────────────────────────────────────
+   Reduced motion — respect user preference
+   ───────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+    opacity: 0.7;
+  }
+}

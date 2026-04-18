@@ -1,0 +1,61 @@
+/**
+ * Oxide Card — primitive CSS (Task 1.5)
+ *
+ * Variants:
+ *   .card                — base surface card (div or button)
+ *   .card--focusable     — pointer cursor + hover lift (only when rendered as button)
+ *   .card--ar-poster     — 2:3 aspect ratio (poster artwork)
+ *   .card--ar-backdrop   — 16:9 aspect ratio (widescreen backdrop)
+ *   .card--ar-square     — 1:1 aspect ratio (avatar / square tile)
+ *
+ * All colour values reference Oxide tokens from src/brand/tokens.css.
+ * No hardcoded hex — CSS custom properties only.
+ *
+ * Spec: plan Task 1.5 + design spec §card.
+ */
+
+/* ─────────────────────────────────────────────────────
+   Base
+   ───────────────────────────────────────────────────── */
+.card {
+  background: var(--bg-surface);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  transition: transform var(--motion-focus) ease-out;
+}
+
+/* ─────────────────────────────────────────────────────
+   Focusable (rendered as <button>)
+   ───────────────────────────────────────────────────── */
+.card--focusable {
+  cursor: pointer;
+  /* Reset browser default button styles */
+  border: none;
+  padding: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  width: 100%;
+  display: block;
+}
+
+.card--focusable:hover {
+  transform: translateY(-2px);
+}
+
+/* focus-visible handled by .focus-ring class from focus-ring.css */
+
+/* ─────────────────────────────────────────────────────
+   Aspect Ratio variants
+   ───────────────────────────────────────────────────── */
+.card--ar-poster {
+  aspect-ratio: 2 / 3;
+}
+
+.card--ar-backdrop {
+  aspect-ratio: 16 / 9;
+}
+
+.card--ar-square {
+  aspect-ratio: 1 / 1;
+}
