@@ -45,3 +45,9 @@ confirmation. SV_TEST_USER=sv_e2e_test + SV_TEST_PASS documented in .env.example
     Fallback: skill-audit text appended to goal description instead.
     Required skills embedded: superpowers:executing-plans, superpowers:test-driven-development,
     superpowers:subagent-driven-development, ship-it, quality-reviewer.
+
+## 2026-04-18 — Inter Display passes 2m TV-distance typography gate (Task 1.2)
+
+Verified via Playwright screenshot `/tmp/typography-gate-1080p.png` rendered at 1920×1080 and reviewed in-session. All 6 type scales (Hero 48px/700, Title 32px/600, BodyLg 24px/500, Body 20px/400, Label 14px/500 uppercase+tracking, Caption 16px/400 tertiary) legible. Label at 14px is in-spec floor; letter-spacing + uppercase compensate. Caption tertiary 40% opacity is intentional low-priority tone.
+
+Outcome: Inter Display kept as primary UI font. Roboto fallback NOT triggered.
