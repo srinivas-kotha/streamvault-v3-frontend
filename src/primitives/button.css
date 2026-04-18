@@ -34,7 +34,6 @@
 .btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
-  pointer-events: none; /* belt + suspenders — keyboard events still fire via native disabled */
 }
 
 /* ─────────────────────────────────────────────────────

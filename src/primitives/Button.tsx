@@ -34,7 +34,7 @@ export interface ButtonProps extends Omit<
 
 const variantClass: Record<NonNullable<ButtonProps["variant"]>, string> = {
   primary: "btn--primary",
-  outlined: "btn--outlined outlined",
+  outlined: "btn--outlined",
   ghost: "btn--ghost",
 };
 

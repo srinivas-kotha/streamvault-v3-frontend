@@ -31,7 +31,7 @@ describe("Button", () => {
 
   it("renders copper-bordered variant", () => {
     render(<Button variant="outlined">Back</Button>);
-    expect(screen.getByRole("button").className).toContain("outlined");
+    expect(screen.getByRole("button").className).toContain("btn--outlined");
   });
 
   it("has visible text label (no icon-only without aria-label)", () => {
