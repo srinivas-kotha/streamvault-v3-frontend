@@ -5,6 +5,9 @@
  *   <div>   — default, non-interactive surface
  *   <button> — when focusable={true}, enables keyboard + TV-remote focus
  *
+ * Focusable Card renders as native `<button type="button">` — prevents accidental
+ * form submission on TV OK-press. Mirrors Button primitive's guard.
+ *
  * Props:
  *   focusable    — renders as <button> with focus-ring; false = <div>
  *   aspectRatio  — "2/3" | "16/9" | "1/1" via CSS class (not inline style)
@@ -57,11 +60,18 @@ export function Card({
     className,
   );
 
+  // When rendered as <button>, explicitly set type="button" to prevent
+  // accidental form submission on TV OK-press (mirrors Button primitive).
+  // Conditional spread keeps `exactOptionalPropertyTypes` happy — we never
+  // pass `type` to a <div>.
+  const typeAttr = focusable ? ({ type: "button" as const } as const) : {};
+
   return (
     <Tag
       className={classes}
       style={{ background: "var(--bg-surface)" }}
       onClick={onClick}
+      {...typeAttr}
     >
       {children}
     </Tag>
