@@ -5,11 +5,12 @@
  *         plan Task 1.1 Step 3 (2026-04-15-streamvault-v3-implementation.md)
  *
  * Use these constants for programmatic access (e.g. hls.js colour config,
- * canvas rendering, unit tests). For styling, always prefer the CSS vars
- * (--sv-*) so that the cascade and media queries work correctly.
+ * canvas rendering, unit tests). For styling, always prefer the bare CSS vars
+ * (e.g. var(--bg-base), var(--accent-copper), var(--space-4)) so that the
+ * cascade, media queries, and prefers-reduced-motion overrides work correctly.
  *
  * FIX M7: textSecondary opacity raised from 0.65 → 0.80 to guarantee
- * WCAG AA ≥4.5:1 contrast on --sv-bg-base (composite ≈ 9.83:1).
+ * WCAG AA ≥4.5:1 contrast on --bg-base (composite ≈ 9.83:1).
  */
 export const OXIDE = {
   // Backgrounds
