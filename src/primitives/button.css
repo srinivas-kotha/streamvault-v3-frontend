@@ -1,0 +1,114 @@
+/**
+ * Oxide Button — primitive CSS (Task 1.4)
+ *
+ * Three variants: primary | outlined | ghost
+ * Three sizes:    sm | md | lg
+ *
+ * All colour values reference Oxide tokens from src/brand/tokens.css.
+ * No hardcoded hex — CSS custom properties only.
+ *
+ * Spec: plan Task 1.4 + design spec §6 Spacing / Radius / Motion.
+ */
+
+/* ─────────────────────────────────────────────────────
+   Base
+   ───────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-ui);
+  font-weight: 500;
+  border-radius: var(--radius-sm); /* buttons = 8px per spec §6 Radius */
+  border: 1.5px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background var(--motion-focus),
+    color var(--motion-focus),
+    border-color var(--motion-focus),
+    filter var(--motion-focus);
+  /* focus-ring class handles :focus-visible outline via focus-ring.css */
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ─────────────────────────────────────────────────────
+   Variants
+   ───────────────────────────────────────────────────── */
+
+/* Primary — copper fill */
+.btn--primary {
+  background: var(--accent-copper);
+  color: var(--bg-base);
+  border-color: transparent;
+}
+
+.btn--primary:hover:not(:disabled) {
+  filter: brightness(0.92);
+}
+
+.btn--primary:active:not(:disabled) {
+  filter: brightness(0.84);
+}
+
+/* Outlined — copper border, transparent fill */
+.btn--outlined {
+  background: transparent;
+  color: var(--accent-copper);
+  border-color: var(--accent-copper);
+}
+
+.btn--outlined:hover:not(:disabled) {
+  background: var(--bg-elevated);
+}
+
+.btn--outlined:active:not(:disabled) {
+  background: var(--bg-surface);
+}
+
+/* Ghost — no border, muted text */
+.btn--ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border-color: transparent;
+}
+
+.btn--ghost:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+}
+
+.btn--ghost:active:not(:disabled) {
+  background: var(--bg-surface);
+}
+
+/* ─────────────────────────────────────────────────────
+   Sizes — padding + font-size
+   Spec §6 Spacing + Typography scale
+   TV minimum: 14px text (design spec §6 Typography note)
+   ───────────────────────────────────────────────────── */
+
+/* sm — 14px text, 6px/12px padding */
+.btn--sm {
+  font-size: var(--text-label-size); /* 14px */
+  line-height: var(--text-label-line);
+  padding: 6px 12px;
+}
+
+/* md — 16px text (caption scale), 8px/16px padding */
+.btn--md {
+  font-size: var(--text-caption-size); /* 16px */
+  line-height: var(--text-caption-line);
+  padding: 8px 16px;
+}
+
+/* lg — 20px text (body scale), 12px/24px padding */
+.btn--lg {
+  font-size: var(--text-body-size); /* 20px */
+  line-height: var(--text-body-line);
+  padding: 12px 24px;
+}
