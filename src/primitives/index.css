@@ -1,0 +1,11 @@
+/**
+ * Oxide Primitives — CSS aggregator (Task 1.4)
+ *
+ * Import this single file from src/main.tsx instead of individual
+ * primitive stylesheets. Each new primitive adds one @import here —
+ * main.tsx stays stable.
+ *
+ * Order matters: focus-ring first (other primitives reference .focus-ring class).
+ */
+@import "./focus-ring.css";
+@import "./button.css";
