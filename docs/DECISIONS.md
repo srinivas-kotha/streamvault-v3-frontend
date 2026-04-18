@@ -48,6 +48,12 @@ confirmation. SV_TEST_USER=sv_e2e_test + SV_TEST_PASS documented in .env.example
 
 ## 2026-04-18 — Inter Display passes 2m TV-distance typography gate (Task 1.2)
 
-Verified via Playwright screenshot `/tmp/typography-gate-1080p.png` rendered at 1920×1080 and reviewed in-session. All 6 type scales (Hero 48px/700, Title 32px/600, BodyLg 24px/500, Body 20px/400, Label 14px/500 uppercase+tracking, Caption 16px/400 tertiary) legible. Label at 14px is in-spec floor; letter-spacing + uppercase compensate. Caption tertiary 40% opacity is intentional low-priority tone.
+Verified via Playwright screenshot `/tmp/typography-gate-1080p.png` rendered at 1920×1080 (DPR 1, Chromium) and reviewed in-session. All 6 type scales (Hero 48px/700, Title 32px/600, BodyLg 24px/500, Body 20px/400, Label 14px/500 uppercase+tracking, Caption 16px/400 tertiary) legible. Label at 14px is in-spec floor; letter-spacing + uppercase compensate. Caption tertiary 40% opacity is intentional low-priority tone.
 
 Outcome: Inter Display kept as primary UI font. Roboto fallback NOT triggered.
+
+Font loading strategy: static discrete weights (400/500/600/700) via Google Fonts CSS2 API with `display=optional` — chosen over variable-font `opsz,wght@14..32,400..700` to avoid weight-collapse on TV browsers with partial variable-font support (Fire OS 5/6 WebKit), and over `display=swap` to avoid cold-load FOUT reflow on TV remote-controlled UX.
+
+Follow-up before OSS/public release: self-host Inter woff2 from `/public/fonts/` and drop the Google Fonts CDN link (GDPR / privacy, offline-cache resilience, and removes residual UA-sniff risk). Tracked as plan-debt alongside admin-password rotation.
+
+Fire Stick verification still pending — gate evidence above is Chromium-only. Before Phase 5a player work, run the same 6-scale render on Fire TV Stick 4K Max and append the confirmation here.
