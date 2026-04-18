@@ -1,0 +1,82 @@
+/**
+ * Oxide ErrorShell — primitive CSS (Task 1.6)
+ *
+ * Full-page / full-section error state layout.
+ *
+ * All colour values reference Oxide tokens from src/brand/tokens.css.
+ * No hardcoded hex — CSS custom properties only.
+ *
+ * Spec: plan Task 1.6 + design spec §7.5 (D-pad default focus).
+ */
+
+/* ─────────────────────────────────────────────────────
+   Root container
+   ───────────────────────────────────────────────────── */
+.error-shell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 400px;
+  padding: var(--gutter-tv);
+  gap: var(--space-4);
+  background: var(--bg-base);
+  color: var(--text-primary);
+  text-align: center;
+}
+
+/* ─────────────────────────────────────────────────────
+   Icon — 64px copper, aria-hidden (decorative)
+   ───────────────────────────────────────────────────── */
+.error-shell__icon {
+  display: block;
+  font-size: 64px;
+  line-height: 1;
+  color: var(--accent-copper);
+  /* Prevent icon from shrinking on very small containers */
+  flex-shrink: 0;
+}
+
+/* ─────────────────────────────────────────────────────
+   Title — h2, title scale
+   ───────────────────────────────────────────────────── */
+.error-shell__title {
+  margin: 0;
+  font-size: var(--text-title-size);
+  line-height: var(--text-title-line);
+  font-weight: var(--text-title-weight);
+  color: var(--text-primary);
+  max-width: 560px;
+}
+
+/* ─────────────────────────────────────────────────────
+   Subtext — body scale, secondary colour
+   ───────────────────────────────────────────────────── */
+.error-shell__subtext {
+  margin: 0;
+  font-size: var(--text-body-size);
+  line-height: var(--text-body-line);
+  color: var(--text-secondary);
+  max-width: 480px;
+}
+
+/* ─────────────────────────────────────────────────────
+   Action row — Retry (outlined, autoFocus) + optional Back (ghost)
+   ───────────────────────────────────────────────────── */
+.error-shell__actions {
+  display: flex;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+  align-items: center;
+  justify-content: center;
+}
+
+/* ─────────────────────────────────────────────────────
+   Report button — below main actions, caption scale
+   ───────────────────────────────────────────────────── */
+.error-shell__report {
+  margin-top: var(--space-2);
+  font-size: var(--text-caption-size) !important;
+  color: var(--text-tertiary) !important;
+}
