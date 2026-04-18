@@ -1,3 +1,62 @@
+@import "tailwindcss";
+
+/**
+ * Tailwind 4 theme extension — map Oxide CSS vars into Tailwind's design system.
+ * Components use `bg-sv-base`, `text-sv-primary`, `text-sv-copper`, etc.
+ * Values are CSS var references so Tailwind utilities inherit the cascade,
+ * media queries, and reduced-motion overrides from tokens.css automatically.
+ *
+ * tokens.css is imported once from src/main.tsx (single entry point) — do NOT
+ * re-import it here to avoid duplicate CSS in the bundle.
+ *
+ * Layout tokens (--gutter-tv, --gutter-mobile, --safe-inset, --dock-height)
+ * are intentionally NOT surfaced in @theme — they're consumed via inline
+ * style/`var()` in shell components, not Tailwind utility classes.
+ */
+@theme {
+  /* Backgrounds */
+  --color-sv-base: var(--bg-base);
+  --color-sv-surface: var(--bg-surface);
+  --color-sv-elevated: var(--bg-elevated);
+
+  /* Accent */
+  --color-sv-copper: var(--accent-copper);
+  --color-sv-copper-dim: var(--accent-copper-dim);
+
+  /* Text */
+  --color-sv-primary: var(--text-primary);
+  --color-sv-secondary: var(--text-secondary);
+  --color-sv-tertiary: var(--text-tertiary);
+
+  /* Semantic */
+  --color-sv-live: var(--live-indicator);
+  --color-sv-danger: var(--danger);
+
+  /* Spacing tokens surfaced as Tailwind spacing steps */
+  --spacing-sv-1: var(--space-1);
+  --spacing-sv-2: var(--space-2);
+  --spacing-sv-3: var(--space-3);
+  --spacing-sv-4: var(--space-4);
+  --spacing-sv-6: var(--space-6);
+  --spacing-sv-8: var(--space-8);
+  --spacing-sv-12: var(--space-12);
+  --spacing-sv-16: var(--space-16);
+  --spacing-sv-24: var(--space-24);
+
+  /* Border radius */
+  --radius-sv-xs: var(--radius-xs);
+  --radius-sv-sm: var(--radius-sm);
+  --radius-sv-md: var(--radius-md);
+  --radius-sv-pill: var(--radius-pill);
+
+  /* Motion — exposes Tailwind `duration-focus` / `duration-page` / `duration-dock`
+     utilities bound to the Oxide motion tokens. Picks up the prefers-reduced-motion
+     override in tokens.css automatically. */
+  --duration-focus: var(--motion-focus);
+  --duration-page: var(--motion-page);
+  --duration-dock: var(--motion-dock);
+}
+
 :root {
   --text: #6b6375;
   --text-h: #08060d;
@@ -11,8 +70,8 @@
   --shadow:
     rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
+  --sans: system-ui, "Segoe UI", Roboto, sans-serif;
+  --heading: system-ui, "Segoe UI", Roboto, sans-serif;
   --mono: ui-monospace, Consolas, monospace;
 
   font: 18px/145% var(--sans);
