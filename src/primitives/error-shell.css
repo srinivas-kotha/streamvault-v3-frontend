@@ -78,5 +78,7 @@
 .error-shell__report {
   margin-top: var(--space-2);
   font-size: var(--text-caption-size) !important;
-  color: var(--text-tertiary) !important;
+  /* FIX T1.7: was var(--text-tertiary) at 40% opacity → 3.28:1 contrast (WCAG fail).
+     Using var(--text-secondary) at 80% opacity → ≥9.76:1 on --bg-base (WCAG AAA). */
+  color: var(--text-secondary) !important;
 }
