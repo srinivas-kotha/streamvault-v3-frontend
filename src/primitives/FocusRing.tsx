@@ -1,7 +1,7 @@
 import React from "react";
 
 export interface FocusRingProps {
-  children: React.ReactElement;
+  children: React.ReactElement<{ className?: string }>;
   /**
    * 'standard' — 2px copper outline + glow on --bg-base / --bg-surface backgrounds.
    * 'imagery'  — compound ring (copper + white separator + dark outer halo) for elements
@@ -28,7 +28,7 @@ export function FocusRing({
   className = "",
 }: FocusRingProps): React.ReactElement {
   const child = React.Children.only(children);
-  const existingClass = (child.props as { className?: string }).className ?? "";
+  const existingClass = child.props.className ?? "";
 
   const classes = [
     existingClass,
@@ -39,7 +39,5 @@ export function FocusRing({
     .filter(Boolean)
     .join(" ");
 
-  return React.cloneElement(child, {
-    className: classes,
-  } as Partial<unknown>);
+  return React.cloneElement(child, { className: classes });
 }
