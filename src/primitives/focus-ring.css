@@ -1,0 +1,40 @@
+/**
+ * Oxide Focus Ring — primitive CSS
+ *
+ * Two variants:
+ *   .focus-ring          — Standard: copper outline + glow. For elements on --bg-base / --bg-surface.
+ *   .focus-ring--imagery — Compound: copper + white separator + dark outer halo.
+ *                          For focusable elements overlaying poster backdrops (Detail page §7.6).
+ *
+ * Uses :focus-visible (keyboard-only) — never :focus — so pointer users see no ring.
+ * All colour values reference Oxide tokens from src/brand/tokens.css (no hardcoded hex for copper).
+ *
+ * Source: design spec §8 + §7.6; plan Task 1.3 Step 2.
+ */
+
+.focus-ring:focus-visible {
+  outline: 2px solid var(--accent-copper);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(200, 121, 65, 0.25);
+  transition:
+    outline var(--motion-focus),
+    box-shadow var(--motion-focus);
+}
+
+/**
+ * Compound ring for elements over imagery (Detail page action buttons, poster cards).
+ * Guarantees visible ring against any poster palette (warm-toned backgrounds make a
+ * single copper ring invisible — see spec §7.6).
+ *
+ * Layer order (inner → outer):
+ *   1. 2px copper outline (via `outline`)
+ *   2. 4px white separator at rgba(255,255,255,0.9) — creates visual gap from imagery
+ *   3. 6px dark outer halo at rgba(0,0,0,0.4) — grounds the ring on any background
+ */
+.focus-ring--imagery:focus-visible {
+  outline: 2px solid var(--accent-copper);
+  outline-offset: 2px;
+  box-shadow:
+    0 0 0 4px rgba(255, 255, 255, 0.9),
+    0 0 0 6px rgba(0, 0, 0, 0.4);
+}
