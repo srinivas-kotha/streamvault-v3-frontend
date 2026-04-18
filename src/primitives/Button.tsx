@@ -15,6 +15,7 @@
  * Spec: plan Task 1.4 + design spec §8 focus ring.
  */
 import React from "react";
+import { cx } from "./cx";
 import "./button.css";
 
 export interface ButtonProps extends Omit<
@@ -52,15 +53,13 @@ export function Button({
   children,
   ...rest
 }: ButtonProps): React.ReactElement {
-  const classes = [
+  const classes = cx(
     "btn",
     "focus-ring",
     variantClass[variant],
     sizeClass[size],
     className,
-  ]
-    .filter(Boolean)
-    .join(" ");
+  );
 
   return (
     <button type={type} className={classes} {...rest}>
