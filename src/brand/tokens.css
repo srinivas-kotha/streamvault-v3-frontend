@@ -1,6 +1,13 @@
 @layer base {
   :root {
     /* ──────────────────────────────────────────────
+       Typography — base font
+       Inter (optical-size 14–32) via Google Fonts
+       Task 1.2: TV-distance gate (2026-04-18)
+       ────────────────────────────────────────────── */
+    --font-ui: "Inter", system-ui, sans-serif;
+
+    /* ──────────────────────────────────────────────
        Backgrounds
        Source: design spec §6 + plan Task 1.1 Step 2
        ────────────────────────────────────────────── */
@@ -108,5 +115,9 @@
       --motion-page: 0ms;
       --motion-dock: 0ms;
     }
+  }
+
+  body {
+    font-family: var(--font-ui);
   }
 }
