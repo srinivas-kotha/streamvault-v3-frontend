@@ -2,17 +2,20 @@ const ACCESS_TOKEN_KEY = "sv_access_token";
 const REFRESH_TOKEN_KEY = "sv_refresh_token";
 
 export class ApiError extends Error {
-  constructor(
-    public status: number,
-    message: string,
-  ) {
+  readonly status: number;
+  constructor(status: number, message: string) {
     super(message);
+    this.status = status;
     this.name = "ApiError";
   }
 }
 
 export class ApiClient {
-  constructor(private baseUrl: string) {}
+  private readonly baseUrl: string;
+
+  constructor(baseUrl: string) {
+    this.baseUrl = baseUrl;
+  }
 
   private getAccessToken(): string | null {
     return sessionStorage.getItem(ACCESS_TOKEN_KEY);
