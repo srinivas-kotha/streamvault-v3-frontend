@@ -88,7 +88,13 @@ function DockTab({
   isActive: boolean;
   onSelect: () => void;
 }) {
-  const { ref, focused } = useFocusable({ onEnterPress: onSelect });
+  // Task 2.4: explicit focusKey per tab. Without this, norigin can't uniquely
+  // identify siblings under DOCK, so ArrowRight can't route spatial focus —
+  // verified via E2E debug (pre-fix, ArrowRight stayed on the initial tab).
+  const { ref, focused } = useFocusable({
+    focusKey: `DOCK_${item.id.toUpperCase()}`,
+    onEnterPress: onSelect,
+  });
   const active = isActive || focused;
 
   return (

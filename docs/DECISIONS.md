@@ -92,3 +92,22 @@ Installed `react-router-dom@6`. Added 5 route shells under `src/routes/` (Live/M
 3. **Deferred**: Unit test for `AppShell`'s URL→DockItem derivation edge cases (`/unknown`, `/test-primitives`, bare `/`). Current E2E coverage proves the golden path; a fast vitest spec would catch regressions cheaper than Playwright.
 
 Follow-ups deferred: (2) + (3) above. Both tracked here only — not urgent enough for KNOWN-RISK.md.
+
+## 2026-04-21 — Task 2.4: BottomDock D-pad E2E + norigin focusKey + test-only setFocus hook
+
+Shipped `tests/e2e/dock-nav.spec.ts` with 4 Playwright tests: ArrowRight moves focus Live→Movies, Enter on a dock item navigates via React Router, dock visibility on content routes, dock hidden on `/test-primitives` + `/silk-probe`.
+
+**Root cause found during test debugging**: DockTab's `useFocusable` was missing `focusKey`, so norigin couldn't uniquely identify siblings under DOCK — ArrowRight was a no-op because norigin had no current focus to navigate FROM. Additional finding: DOM focus (via `.click()` or `.focus()`) does NOT sync norigin's internal `lastFocused` pointer. Only `setFocus("key")` or `focusSelf()` primes norigin's focus tree.
+
+**Fixes**:
+1. `src/nav/BottomDock.tsx` — DockTab now uses `useFocusable({ focusKey: \`DOCK_${item.id.toUpperCase()}\`, onEnterPress })`. Keys: `DOCK_LIVE`, `DOCK_MOVIES`, `DOCK_SERIES`, `DOCK_SEARCH`, `DOCK_SETTINGS`.
+2. `src/main.tsx` — dev/test-only `window.__svSetFocus = setFocus` (gated by `import.meta.env.DEV`). Lets Playwright prime norigin the same way a first remote-button press does on a real TV.
+
+**Test pattern** (dock-nav.spec.ts): `page.evaluate(() => window.__svSetFocus("DOCK_LIVE"))` → `waitForFunction(activeElement.aria-label === "Live")` → `keyboard.press("ArrowRight")` → `waitForFunction(aria-label === "Movies")`.
+
+**All gates green**: tsc clean, vitest 43/43, Playwright chromium 7/7 (3 routing + 4 dock-nav), build 85.59 KB gzip (unchanged).
+
+**Expert-Level Clause** (3 senior additions):
+1. **Shipped**: Dev-only `window.__svSetFocus` — future E2E tests of dock + content-focus handoffs will need this same priming pattern.
+2. **Deferred**: WebKit-project run for dock-nav (Desktop Safari + iPad Pro 11). Silk-probe already validates norigin on WebKit; dock-nav will ride the next CI run which includes webkit by default.
+3. **Deferred**: Unit test for DockTab's focusKey derivation. Current E2E proves the spatial-nav wiring — a jsdom test can't verify norigin focus anyway.
