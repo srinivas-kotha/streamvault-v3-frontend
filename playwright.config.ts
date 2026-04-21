@@ -16,6 +16,12 @@ export default defineConfig({
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
     },
+    {
+      // WebKit engine — closest to Amazon Silk (Fire TV) browser.
+      // iPad Pro 11 device profile provides a realistic viewport + UA baseline.
+      name: "webkit",
+      use: { ...devices["iPad Pro 11"] },
+    },
   ],
   webServer: {
     command: "npm run dev",
