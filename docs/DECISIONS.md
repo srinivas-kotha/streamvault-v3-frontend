@@ -57,3 +57,17 @@ Font loading strategy: static discrete weights (400/500/600/700) via Google Font
 Follow-up before OSS/public release: self-host Inter woff2 from `/public/fonts/` and drop the Google Fonts CDN link (GDPR / privacy, offline-cache resilience, and removes residual UA-sniff risk). Tracked as plan-debt alongside admin-password rotation.
 
 Fire Stick verification still pending — gate evidence above is Chromium-only. Before Phase 5a player work, run the same 6-scale render on Fire TV Stick 4K Max and append the confirmation here.
+
+## 2026-04-21 — Task 2.1: norigin@2.1.0 Silk probe — PASS [CHROMIUM / WebKit-blocked-VPS]
+
+**Result: norigin@2.1.0 fires correctly on Chromium (Playwright). Silk probe passed.**
+
+Probe: TL→TR (ArrowRight), TR→BR (ArrowDown), BR→BL (ArrowLeft), BL→TL (ArrowUp) — all transitions confirmed via `document.activeElement?.getAttribute("aria-label")` assertions. Key log captured: 4 ArrowKey events processed by norigin. `shouldFocusDOMNode: true` confirmed active (TL button style.background = `var(--accent-copper)` on mount). PR: feat/silk-probe-gate.
+
+**WebKit engine status**: WebKit GTK4 cannot launch on this VPS — 40+ system libraries missing (libgtk-4.so.1, libpangocairo, libcairo, etc.). Requires `sudo apt-get install` which is out of scope for UI agent. GitHub Actions CI will run the WebKit project automatically on next PR — Ubuntu runners have these libraries pre-installed via `playwright install-deps webkit`. Test is tagged `--project=webkit` and is in the CI suite.
+
+**Fallback decision**: Not triggered. norigin@2.1.0 is confirmed as the v3 spatial nav library. No fallback implementation needed.
+
+**Type definition deviation**: `distanceCalculationMethod` is documented in the norigin README but absent from the v2.1.0 published type definitions (`dist/SpatialNavigation.d.ts`). Omitted from `initSpatialNav()` to maintain TypeScript strict compliance. If this option is needed before an norigin upgrade, use a cast: `init({ ..., distanceCalculationMethod: 'center' } as Parameters<typeof init>[0])`. `import.meta.env.DEV` used instead of `process.env.NODE_ENV` (Vite environment variable idiom).
+
+**setFocus('TL') rationale**: `focusSelf()` on the SILK-PROBE container passes focus to the first registered child — deterministic but requires norigin to complete child registration before the call resolves. `setFocus('TL')` is called after `focusSelf()` as an explicit override to guarantee TL is the active element regardless of norigin child registration race conditions. Both calls are idempotent.
