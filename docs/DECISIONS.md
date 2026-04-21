@@ -129,3 +129,35 @@ This session did NOT auto-build the backend endpoint because:
 3. The plan's Task 3.0 gate explicitly says "escalate; do not proceed" when the endpoint is missing.
 
 Next session: write + review + merge the backend PR (or establish a manual-deploy path given the CI outage), then re-probe, tick the plan checkbox, and begin Task 3.1 (Zod schemas).
+
+## 2026-04-21 — Phase 3 shipped: Auth + API Client + JWT contract
+
+**PRs merged:** streamvault-backend #39 (change-password endpoint), streamvault-v3-frontend #18 (Zod schemas), #19 (ApiClient), #20 (this PR — auth feature + Phase 3 DoD).
+
+### JWT security contract (from spec §11) — documented state
+
+1. **Access token lifetime: 15 min.** Signed with `jti` (RFC 7519) to prevent same-second refresh-hash collision (streamvault-backend PR #38). Stored in `sessionStorage` under key `sv_access_token` — cleared on tab close.
+2. **Refresh token lifetime: 90 days.** Stored in `localStorage` under `sv_refresh_token` — persists across tabs/restarts. Hashed on backend (`sha256`), revoked rows flagged not deleted.
+3. **Rotation on refresh.** `POST /api/auth/refresh` returns a NEW refresh token; old token is revoked atomically. Prevents replay if a refresh token is captured in transit.
+4. **Automatic retry on 401.** `ApiClient.request` detects 401, calls `tryRefresh()`, and retries the original request with the new access token. On refresh failure, throws `ApiError(401)` so the caller can route to login.
+5. **Refresh-token purge on password change.** `POST /api/auth/change-password` invalidates ALL refresh tokens for the user (backend UPDATE `revoked=true WHERE user_id=$1`). Frontend `changePassword()` follows with `apiClient.clearTokens()` so the current session is also terminated.
+6. **CSRF.** Backend `csurf` middleware fires before auth. Change-password path is NOT in `CSRF_EXEMPT_PATHS` — protected by double-submit cookie. Login/refresh are exempt (by design: first-auth and token-only flows, bearer auth is the CSRF substitute).
+7. **Rate limiting.** `loginLimiter` + `changePasswordLimiter` both cap at 5 req/15 min per IP (backend `express-rate-limit`) — blocks brute-force without locking out the user's token.
+8. **CI secrets for E2E.** `SV_TEST_USER` + `SV_TEST_PASS` must point at a dedicated `sv_e2e_test` account, NOT the rotated prod admin password. Stored in GitHub Actions repo secrets; sourced in `ci.yml` Playwright step.
+
+### Bundle budget — Phase 3 cap
+
+`scripts/check-bundle-budget.js`: `TOTAL_LIMIT_KB` tightened from 800 → **600 KB** per Phase 3 DoD. Adds headroom check against Phase 5a (hls.js code-split).
+
+### E2E auth suite — fail-fast guard
+
+`tests/e2e/auth.spec.ts` runs `test.skip(!SV_TEST_USER || !SV_TEST_PASS, ...)` at the describe level. In CI without secrets configured, the suite skips with a clear reason instead of falling back to `admin/changeme` placeholders (which would pass locally and fail silently in prod).
+
+### Shared E2E helper
+
+`tests/e2e/helpers.ts` exports `seedFakeAuth(page)` — pre-seeds dummy tokens in `sessionStorage` + `localStorage` via `page.addInitScript`, so existing E2E suites (routing, dock-nav, axe-primitives, silk-probe) bypass the new App.tsx auth gate. Only `auth.spec.ts` exercises the real login flow.
+
+### Known plan-debt resolved this session
+
+- `.env.example` already carried `SV_TEST_USER` / `SV_TEST_PASS` placeholders from Task 0.4 scaffold — no change needed.
+- sv_e2e_test account seeding STILL deferred (backend seed script not yet written). Auth E2E will skip in CI until the seed lands + `SV_TEST_*` secrets are populated. **This is the only Phase 3 DoD item that stays plan-debt.**

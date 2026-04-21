@@ -1,6 +1,11 @@
 import { test, expect } from "@playwright/test";
+import { seedFakeAuth } from "./helpers";
 
 test.describe("Routing", () => {
+  test.beforeEach(async ({ page }) => {
+    await seedFakeAuth(page);
+  });
+
   test("/ redirects to /live", async ({ page }) => {
     await page.goto("/");
     await expect(page).toHaveURL(/\/live/);

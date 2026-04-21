@@ -1,9 +1,14 @@
 import { test, expect } from "@playwright/test";
+import { seedFakeAuth } from "./helpers";
 
 test.describe("Silk Probe — norigin on WebKit", () => {
   test.use({
     userAgent:
       "Mozilla/5.0 (Linux; Android 9; AFTWMST22) AppleWebKit/537.36 (KHTML, like Gecko) Silk/100 like Chrome/100",
+  });
+
+  test.beforeEach(async ({ page }) => {
+    await seedFakeAuth(page);
   });
 
   // FIX: B3 — assertions verify focus actually moves TL→TR→BR→BL→TL.

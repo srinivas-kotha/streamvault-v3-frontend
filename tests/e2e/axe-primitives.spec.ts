@@ -10,8 +10,13 @@
  */
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { seedFakeAuth } from "./helpers";
 
 test.describe("Oxide primitives — WCAG a11y gate", () => {
+  test.beforeEach(async ({ page }) => {
+    await seedFakeAuth(page);
+  });
+
   test("0 color-contrast violations on /test-primitives", async ({ page }) => {
     await page.goto("/test-primitives");
 

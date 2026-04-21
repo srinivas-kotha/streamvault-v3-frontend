@@ -8,6 +8,7 @@
  * Preserved dev-time routes: /test-primitives and /silk-probe (permanent
  * Playwright probe targets — Task 1.7 + Task 2.1).
  */
+import { useState } from "react";
 import {
   BrowserRouter,
   Routes,
@@ -24,6 +25,8 @@ import { SearchRoute } from "./routes/SearchRoute";
 import { SettingsRoute } from "./routes/SettingsRoute";
 import { TestPrimitivesRoute } from "./routes";
 import { SilkProbe } from "./nav/SilkProbe";
+import { LoginPage } from "./features/auth/LoginPage";
+import { hasStoredToken } from "./api/auth";
 
 const DOCK_IDS: readonly DockItem[] = [
   "live",
@@ -70,6 +73,12 @@ function AppShell() {
 }
 
 export default function App() {
+  const [authed, setAuthed] = useState<boolean>(hasStoredToken());
+
+  if (!authed) {
+    return <LoginPage onLoginSuccess={() => setAuthed(true)} />;
+  }
+
   // Opt-in to v7 behavior early to silence Future Flag warnings and smooth the
   // React Router 6 → 7 upgrade when we take it.
   return (
