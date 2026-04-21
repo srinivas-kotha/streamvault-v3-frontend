@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { seedFakeAuth } from "./helpers";
 
 /**
  * BottomDock D-pad navigation E2E (Task 2.4).
@@ -20,6 +21,7 @@ import { test, expect } from "@playwright/test";
  */
 test.describe("BottomDock D-pad navigation", () => {
   test.beforeEach(async ({ page }) => {
+    await seedFakeAuth(page);
     await page.goto("/live");
     // Wait for norigin init + App mount + BottomDock DockTabs registered.
     await page.waitForTimeout(300);

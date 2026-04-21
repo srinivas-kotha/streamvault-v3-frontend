@@ -14,7 +14,7 @@ import { join, extname } from "node:path";
 import zlib from "node:zlib";
 
 const DIST = "dist/assets";
-const TOTAL_LIMIT_KB = 800; // Phase 1 cap — primitives landed (Task 1.7 DoD requirement).
+const TOTAL_LIMIT_KB = 600; // Phase 3 cap — API client + auth landed (Phase 3 DoD requirement).
 
 if (!existsSync(DIST)) {
   console.error(`dist/ missing — run 'npm run build' first.`);
