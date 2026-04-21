@@ -39,6 +39,8 @@ export function BottomDock({
           bottom: "var(--space-6)",
           left: "var(--safe-inset)",
           right: "var(--safe-inset)",
+          // Task 2.3 follow-up A: iOS/Android safe-area inset so the dock clears notches.
+          paddingBottom: "env(safe-area-inset-bottom, 0px)",
           height: "var(--dock-height)",
           background: "var(--bg-surface)",
           backdropFilter: "blur(12px)",

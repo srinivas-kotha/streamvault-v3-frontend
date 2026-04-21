@@ -71,3 +71,24 @@ Probe: TL→TR (ArrowRight), TR→BR (ArrowDown), BR→BL (ArrowLeft), BL→TL (
 **Type definition deviation**: `distanceCalculationMethod` is documented in the norigin README but absent from the v2.1.0 published type definitions (`dist/SpatialNavigation.d.ts`). Omitted from `initSpatialNav()` to maintain TypeScript strict compliance. If this option is needed before an norigin upgrade, use a cast: `init({ ..., distanceCalculationMethod: 'center' } as Parameters<typeof init>[0])`. `import.meta.env.DEV` used instead of `process.env.NODE_ENV` (Vite environment variable idiom).
 
 **setFocus('TL') rationale**: `focusSelf()` on the SILK-PROBE container passes focus to the first registered child — deterministic but requires norigin to complete child registration before the call resolves. `setFocus('TL')` is called after `focusSelf()` as an explicit override to guarantee TL is the active element regardless of norigin child registration race conditions. Both calls are idempotent.
+
+## 2026-04-21 — Task 2.3: React Router 6 + 5 route shells + dock follow-ups
+
+Installed `react-router-dom@6`. Added 5 route shells under `src/routes/` (Live/Movies/Series/Search/Settings), each a minimal `<main data-page="<id>">` wrapped in a `<FocusContext.Provider value="CONTENT_AREA_<ID>">` so that future Esc-key logic can route focus out of `BottomDock` via `setFocus("CONTENT_AREA_LIVE")` etc. Preserved `/test-primitives` and `/silk-probe` as permanent dev-time routes under the same `<Routes>`.
+
+`App.tsx` now wraps everything in `<BrowserRouter>` with v7 future flags (`v7_startTransition`, `v7_relativeSplatPath`) opted-in early to silence React Router 6 → 7 migration warnings. An inner `<AppShell>` uses `useNavigate` + `useLocation` — `useNavigate` can't be called at the top `<App>` level because `<BrowserRouter>` must wrap it first. `activeTab` is derived from `pathname.split("/")[1]` (not local state) so browser back/forward and deep links keep the dock indicator in sync. A type guard (`isDockItem`) narrows the `noUncheckedIndexedAccess` string to `DockItem`. The dock is hidden on `/test-primitives` and `/silk-probe` via the existing `hidden` prop so it doesn't overlap the fixture / probe.
+
+**Follow-up A shipped**: Added `paddingBottom: "env(safe-area-inset-bottom, 0px)"` to the dock `<nav>` inline style — protects against iOS/Android safe-area notches.
+
+**Follow-up B shipped**: `CONTENT_AREA_<ID>` FocusContext.Provider wrapping in each route shell (5 providers). Does not introduce runtime focus movement yet — the providers just EXIST so Phase 5a / Task 2.4 can target them. Each `<main>` gets `tabIndex={-1}` for programmatic focus.
+
+**Bundle size**: 85.60 KB gzip (up from 77.83 KB baseline; +7.77 KB for react-router-dom@6 + 5 shells + FocusContext wiring). Phase 2 cap is 800 KB, comfortable headroom.
+
+**Test gates green**: `npx tsc --noEmit` clean, `npx vitest run` 43/43, `npx playwright test tests/e2e/routing.spec.ts --project=chromium` 3/3 (/ → /live redirect, /movies + /search shells visible).
+
+**Expert-Level Clause** (3 things a senior would add):
+1. **Shipped**: v7 future flags on BrowserRouter to silence migration warnings.
+2. **Deferred**: Error boundary per route — currently a route render throw would crash the whole app. Phase 3 or later can add an `<ErrorBoundary>` wrapper inside each `<Route element={...}>`.
+3. **Deferred**: Unit test for `AppShell`'s URL→DockItem derivation edge cases (`/unknown`, `/test-primitives`, bare `/`). Current E2E coverage proves the golden path; a fast vitest spec would catch regressions cheaper than Playwright.
+
+Follow-ups deferred: (2) + (3) above. Both tracked here only — not urgent enough for KNOWN-RISK.md.
