@@ -111,3 +111,21 @@ Shipped `tests/e2e/dock-nav.spec.ts` with 4 Playwright tests: ArrowRight moves f
 1. **Shipped**: Dev-only `window.__svSetFocus` — future E2E tests of dock + content-focus handoffs will need this same priming pattern.
 2. **Deferred**: WebKit-project run for dock-nav (Desktop Safari + iPad Pro 11). Silk-probe already validates norigin on WebKit; dock-nav will ride the next CI run which includes webkit by default.
 3. **Deferred**: Unit test for DockTab's focusKey derivation. Current E2E proves the spatial-nav wiring — a jsdom test can't verify norigin focus anyway.
+
+## 2026-04-21 — Task 3.0 pre-check: change-password endpoint MISSING → Phase 3 BLOCKED
+
+Probed `http://localhost:3001/api/auth/change-password` per plan Task 3.0 Step 1:
+
+- `POST` with placeholder Bearer token + `{"currentPassword":"x","newPassword":"y"}` → HTTP 403 `{"error":"Forbidden","message":"CSRF token mismatch"}`
+- `POST` with no Authorization header → same 403 CSRF response (CSRF middleware fires before auth middleware)
+- `GET /api/auth/change-password` → HTTP 501 `{"error":"Not Implemented","message":"Not implemented yet — coming in Phase 2/3"}` — strong signal the endpoint is known-and-planned but not yet wired
+- `grep -rn "change-password|changePassword" /home/crawler/streamvault-backend/src/` → 0 hits
+
+**Endpoint MISSING. Per plan: Phase 3 BLOCKED** until a backend PR lands on `streamvault-backend`. Full resume plan + operational constraints captured in `docs/KNOWN-RISK.md` entry `KR-CHANGEPW`.
+
+This session did NOT auto-build the backend endpoint because:
+1. Auth-sensitive changes (bcrypt, refresh-token revocation, CSRF) should not ship unsupervised.
+2. `streamvault-backend` CI has been red since 2026-03-14 — changes cannot be automatically validated.
+3. The plan's Task 3.0 gate explicitly says "escalate; do not proceed" when the endpoint is missing.
+
+Next session: write + review + merge the backend PR (or establish a manual-deploy path given the CI outage), then re-probe, tick the plan checkbox, and begin Task 3.1 (Zod schemas).
