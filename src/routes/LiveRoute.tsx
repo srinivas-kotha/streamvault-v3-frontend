@@ -34,6 +34,7 @@ import { ErrorShell } from "../primitives/ErrorShell";
 import { Skeleton } from "../primitives/Skeleton";
 import { fetchChannels, fetchCategories } from "../api/live";
 import type { Channel } from "../api/schemas";
+import { usePlayerOpener } from "../player/usePlayerOpener";
 
 // ─── Sort button (per-button norigin registration — D6a) ────────────────────
 
@@ -93,6 +94,7 @@ export function LiveRoute() {
   // Dropping this breaks BottomDock's setFocus("CONTENT_AREA_LIVE") Esc flow
   // wired in Task 2.4.
   const { ref, focusKey } = useFocusable({ focusKey: "CONTENT_AREA_LIVE" });
+  const { openPlayer } = usePlayerOpener();
 
   const [channels, setChannels] = useState<Channel[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -107,6 +109,34 @@ export function LiveRoute() {
   );
 
   const sorted = useSortedChannels(channels, sortBy, categories);
+
+  // When user presses Enter on an already-selected channel (or a channel is
+  // clicked for play), open the player. First Enter selects; second Enter plays.
+  const handlePlayChannel = useCallback(
+    (id: string) => {
+      const channel = channels.find((c) => c.id === id);
+      if (!channel) return;
+      void openPlayer({
+        id: channel.id,
+        title: channel.name,
+        kind: "live",
+      });
+    },
+    [channels, openPlayer],
+  );
+
+  const handleSelectOrPlay = useCallback(
+    (id: string) => {
+      if (id === selectedChannelId) {
+        // Already selected → play
+        handlePlayChannel(id);
+      } else {
+        // First press → select
+        setSelectedChannelId(id);
+      }
+    },
+    [selectedChannelId, handlePlayChannel],
+  );
 
   // Initial fetch — channels + categories in parallel. We seed
   // `selectedChannelId` from the first channel on first load only; retries
@@ -239,7 +269,7 @@ export function LiveRoute() {
             <SplitGuide
               channels={sorted}
               selectedChannelId={selectedChannelId}
-              onSelectChannel={setSelectedChannelId}
+              onSelectChannel={handleSelectOrPlay}
               onRetry={handleRetry}
             />
           </>

@@ -201,3 +201,15 @@ export const RecordHistoryBodySchema = z.object({
   duration_seconds: z.number(),
 });
 export type RecordHistoryBody = z.infer<typeof RecordHistoryBodySchema>;
+
+/**
+ * StreamUrlSchema — used if the backend ever returns a JSON body with
+ * a stream URL (current backend streams directly, no JSON wrapper).
+ * Defined here for future use and type-safety.
+ */
+export const StreamUrlSchema = z.object({
+  url: z.string().url(),
+  format: z.enum(["m3u8", "ts", "mp4"]).optional(),
+  isLive: z.boolean().optional(),
+});
+export type StreamUrl = z.infer<typeof StreamUrlSchema>;
