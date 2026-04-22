@@ -14,6 +14,14 @@ conventions. No code in this doc.
 
 ---
 
+## Virtualization mandate
+
+`react-virtuoso` (`VirtuosoGrid`) is **required** for the Movies poster grid. The DOM card count must stay under ~150 regardless of catalog size. Rationale: the VOD catalog has 61,442 rows; without virtualization, the Silk browser on Fire TV OOMs at ~600–1000 rendered cards.
+
+Implementation reference: `MoviesRoute → MovieGrid uses VirtuosoGrid (Issue #59)`.
+
+---
+
 ## 1. `/movies` page structure
 
 Three stacked zones, same spatial grammar as `LiveRoute`:
