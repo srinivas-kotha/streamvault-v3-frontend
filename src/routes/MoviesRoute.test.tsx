@@ -53,6 +53,13 @@ vi.mock("../player", () => ({
   usePlayerOpener: () => ({ openPlayer: openPlayerMock }),
 }));
 
+// Mock langPref: return "all" so language filter passes all mock streams
+// (mock category names like "Action"/"Comedy" don't match language patterns).
+vi.mock("../lib/langPref", () => ({
+  getLangPref: () => "all",
+  setLangPref: vi.fn(),
+}));
+
 import { MoviesRoute } from "./MoviesRoute";
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────

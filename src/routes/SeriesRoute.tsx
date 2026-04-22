@@ -2,7 +2,8 @@
  * SeriesRoute — Series browse screen (Phase 6).
  *
  * Layout:
- *  - SeriesCategoryStrip at top (horizontal, D-pad ArrowLeft/Right).
+ *  - LanguageRail at very top (global chip row, persists to sv_lang_pref).
+ *  - SeriesCategoryStrip below (horizontal, D-pad ArrowLeft/Right).
  *    Each chip has focusKey: SERIES_CAT_<id>.
  *  - SeriesGrid below (poster cards, D-pad 2D nav).
  *    Each card has focusKey: SERIES_CARD_<id>.
@@ -11,8 +12,14 @@
  *  - Empty state when no items in a category.
  *  - Bottom padding clears the dock.
  *
+ * Language filtering uses the same LANGUAGE_PATTERNS logic as LiveRoute and
+ * MoviesRoute applied client-side against the resolved category name. Moving
+ * this to backend is tracked in issue #52.
+ *
  * MUST PRESERVE: CONTENT_AREA_SERIES FocusContext registration
  * (BottomDock Esc-key routing — Task 2.4 lesson).
+ *
+ * NOTE: Do NOT touch /series/:id (SeriesDetailRoute) — that is issue #49.
  */
 import type { RefObject } from "react";
 import { useCallback, useEffect, useState } from "react";
@@ -27,6 +34,18 @@ import { SeriesGrid } from "../features/series/SeriesGrid";
 import { fetchSeriesCategories, fetchSeriesList } from "../api/series";
 import { usePlayerOpener } from "../player";
 import type { SeriesCategory, SeriesItem } from "../api/schemas";
+import { LanguageRail } from "../components/LanguageRail";
+import { getLangPref, setLangPref } from "../lib/langPref";
+import type { LangId } from "../lib/langPref";
+
+// Language → category-name match patterns (same logic as LiveRoute/MoviesRoute).
+// Sports is omitted: no sports feed concept on Series.
+const LANGUAGE_PATTERNS: Record<Exclude<LangId, "all" | "sports">, string[]> =
+  {
+    telugu: ["telugu"],
+    hindi: ["hindi", "india entertainment", "indian", "bollywood"],
+    english: ["english", "netflix", "amazon", "hbo", "usa ", "uk "],
+  };
 
 export function SeriesRoute() {
   // MUST PRESERVE: norigin root registration for the content area.
@@ -44,6 +63,34 @@ export function SeriesRoute() {
   const [loading, setLoading] = useState(true);
   const [itemsLoading, setItemsLoading] = useState(false);
   const [error, setError] = useState(false);
+  // Language filter — reads from unified sv_lang_pref. Falls back to "all"
+  // when stored pref is "sports" (Live-only concept).
+  const [languageFilter, setLanguageFilter] = useState<LangId>(() => {
+    const stored = getLangPref();
+    return stored === "sports" ? "all" : stored;
+  });
+
+  const handleLanguageChange = useCallback((lang: LangId) => {
+    setLangPref(lang);
+    setLanguageFilter(lang);
+  }, []);
+
+  // Build category-name lookup for language filtering.
+  const catNameById = new Map<string, string>();
+  for (const c of categories) catNameById.set(c.id, c.name);
+
+  // Apply language filter client-side.
+  const filteredItems: SeriesItem[] =
+    languageFilter === "all" || languageFilter === "sports"
+      ? items
+      : items.filter((item) => {
+          const hay = (
+            catNameById.get(item.categoryId) ?? item.categoryId
+          ).toLowerCase();
+          return LANGUAGE_PATTERNS[languageFilter].some((pat) =>
+            hay.includes(pat),
+          );
+        });
 
   // ─── Initial fetch — categories ──────────────────────────────────────────
   useEffect(() => {
@@ -177,6 +224,13 @@ export function SeriesRoute() {
           />
         ) : (
           <>
+            {/* Language rail — above category strip (layout option (a), issue #50).
+                Sports chip hidden: no sports feed concept on Series. */}
+            <LanguageRail
+              value={languageFilter}
+              onChange={handleLanguageChange}
+            />
+
             {/* Category strip */}
             <SeriesCategoryStrip
               categories={categories}
@@ -197,7 +251,7 @@ export function SeriesRoute() {
                 <Skeleton width="100%" height={360} />
               </div>
             ) : (
-              <SeriesGrid items={items} onCardClick={handleCardClick} />
+              <SeriesGrid items={filteredItems} onCardClick={handleCardClick} />
             )}
           </>
         )}

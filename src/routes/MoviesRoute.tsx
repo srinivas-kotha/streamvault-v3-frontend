@@ -4,14 +4,23 @@
  * Structure:
  *   FocusContext(CONTENT_AREA_MOVIES)
  *     <main>
+ *       LanguageRail  — global language chip row (above category strip)
  *       CategoryStrip — horizontal D-pad navigable category chips
  *       MovieGrid     — responsive poster grid (6 cols @ 1920px)
+ *
+ * Layout decision (issue #50): LanguageRail sits ABOVE CategoryStrip (two
+ * stacked rows — option (a)). CategoryStrip remains unchanged; revisit
+ * replacing it with a secondary filter via issue #51.
+ *
+ * Language filtering uses the same LANGUAGE_PATTERNS regex logic as LiveRoute
+ * applied client-side against each stream's resolved category name. Moving
+ * this to the backend (with a lang_tags column) is tracked in issue #52.
  *
  * States:
  *   loading  → Skeleton rows (category strip height + grid height)
  *   error    → ErrorShell with onRetry (NO page reload — SPA state preserved)
  *   empty    → "No movies in this category" inside MovieGrid
- *   content  → CategoryStrip + MovieGrid
+ *   content  → LanguageRail + CategoryStrip + MovieGrid
  *
  * Data fetching:
  *   - On mount: fetchVodCategories() → auto-select first VOD category →
@@ -35,6 +44,19 @@ import { ErrorShell } from "../primitives/ErrorShell";
 import { Skeleton } from "../primitives/Skeleton";
 import { fetchVodCategories, fetchVodStreams } from "../api/vod";
 import type { VodCategory, VodStream } from "../api/schemas";
+import { LanguageRail } from "../components/LanguageRail";
+import { getLangPref, setLangPref } from "../lib/langPref";
+import type { LangId } from "../lib/langPref";
+
+// Language → category-name match patterns.
+// Matched case-insensitively against the stream's resolved category name.
+// Sports is omitted: no sports concept on VOD (issue #52 will move to backend).
+const LANGUAGE_PATTERNS: Record<Exclude<LangId, "all" | "sports">, string[]> =
+  {
+    telugu: ["telugu"],
+    hindi: ["hindi", "india entertainment", "indian", "bollywood"],
+    english: ["english", "netflix", "amazon", "hbo", "usa ", "uk "],
+  };
 
 export function MoviesRoute() {
   // MUST PRESERVE: norigin root registration for the content area.
@@ -52,6 +74,36 @@ export function MoviesRoute() {
   const [activeCategoryId, setActiveCategoryId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  // Language filter — reads from the unified sv_lang_pref key so it picks up
+  // whatever the user last set on Live or Series.
+  // If the stored pref is "sports" (Live-only), fall back to "all" since
+  // sports has no meaning on the VOD surface.
+  const [languageFilter, setLanguageFilter] = useState<LangId>(() => {
+    const stored = getLangPref();
+    return stored === "sports" ? "all" : stored;
+  });
+
+  const handleLanguageChange = useCallback((lang: LangId) => {
+    setLangPref(lang);
+    setLanguageFilter(lang);
+  }, []);
+
+  // Build the category-name lookup once per category list change.
+  const catNameById = new Map<string, string>();
+  for (const c of categories) catNameById.set(c.id, c.name);
+
+  // Apply language filter client-side against resolved category name.
+  const filteredStreams: VodStream[] =
+    languageFilter === "all" || languageFilter === "sports"
+      ? streams
+      : streams.filter((stream) => {
+          const hay = (
+            catNameById.get(stream.categoryId) ?? stream.categoryId
+          ).toLowerCase();
+          return LANGUAGE_PATTERNS[languageFilter].some((pat) =>
+            hay.includes(pat),
+          );
+        });
 
   // ─── Initial fetch ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -182,12 +234,18 @@ export function MoviesRoute() {
           />
         ) : (
           <>
+            {/* Language rail — above category strip (layout option (a), issue #50).
+                Sports chip hidden: no sports-category concept on VOD. */}
+            <LanguageRail
+              value={languageFilter}
+              onChange={handleLanguageChange}
+            />
             <CategoryStrip
               categories={categories}
               activeCategoryId={activeCategoryId}
               onSelectCategory={(id) => void handleCategorySelect(id)}
             />
-            <MovieGrid streams={streams} />
+            <MovieGrid streams={filteredStreams} />
           </>
         )}
       </main>
