@@ -59,6 +59,40 @@ export const SeriesPreviewSchema = z.object({
 });
 export type SeriesPreview = z.infer<typeof SeriesPreviewSchema>;
 
+// ─── Phase 6: Series browse schemas ─────────────────────────────────────────
+
+/**
+ * SeriesCategory — shape returned by GET /api/series/categories.
+ * Mirrors the backend CatalogCategory / XtreamCategory type.
+ */
+export const SeriesCategorySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  parentId: z.string().nullable().optional(),
+  type: z.string().optional(),
+  count: z.number().optional(),
+});
+export type SeriesCategory = z.infer<typeof SeriesCategorySchema>;
+
+/**
+ * SeriesItem — shape returned by GET /api/series/list/:categoryId.
+ * Mirrors the backend CatalogItem / XtreamSeriesItem type.
+ */
+export const SeriesItemSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  type: z.string().optional(),
+  categoryId: z.string(),
+  /** Poster / cover image URL — nullable from provider. */
+  icon: z.string().nullable().optional(),
+  added: z.string().nullable().optional(),
+  isAdult: z.boolean().optional(),
+  rating: z.string().optional(),
+  genre: z.string().optional(),
+  year: z.string().optional(),
+});
+export type SeriesItem = z.infer<typeof SeriesItemSchema>;
+
 export const UserMeSchema = z.object({
   id: z.number(),
   username: z.string(),
