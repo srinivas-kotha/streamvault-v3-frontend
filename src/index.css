@@ -62,12 +62,24 @@
 html,
 body {
   margin: 0;
-  background: var(--bg-base);
+  /* Deep-space gradient background — atmosphere from #1a1410 top → #12100e base */
+  background: var(--bg-shell-gradient);
+  /* Fallback: solid base colour (also what reduced-motion users get via
+     the same token since the gradient is purely decorative) */
+  background-color: var(--bg-base);
   color: var(--text-primary);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Reduced-motion: strip decorative gradient, keep solid colour */
+@media (prefers-reduced-motion: reduce) {
+  html,
+  body {
+    background: var(--bg-base);
+  }
 }
 
 #root {
@@ -77,4 +89,16 @@ body {
 
 p {
   margin: 0;
+}
+
+/* ─── Typography breathing — cinematic heading feel ───────────────────────── */
+h1,
+h2 {
+  letter-spacing: var(--heading-letter-spacing);
+}
+
+/* Tabular digits for timestamps, counts, ratings */
+time,
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
 }

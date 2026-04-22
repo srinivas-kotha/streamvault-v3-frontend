@@ -42,8 +42,9 @@ export function BottomDock({
           // Task 2.3 follow-up A: iOS/Android safe-area inset so the dock clears notches.
           paddingBottom: "env(safe-area-inset-bottom, 0px)",
           height: "var(--dock-height)",
-          background: "var(--bg-surface)",
-          backdropFilter: "blur(12px)",
+          // Polish: floating control bar — darker glass, copper top edge
+          background: "var(--dock-glass-bg, rgba(18,16,14,0.85))",
+          borderTop: "var(--dock-top-border, 1px solid rgba(200,121,65,0.18))",
           borderRadius: "var(--radius-pill)",
           display: "flex",
           alignItems: "center",
@@ -106,7 +107,14 @@ function DockTab({
       onClick={onSelect}
       className="focus-ring"
       style={{
-        background: active ? "var(--accent-copper)" : "transparent",
+        // Active: copper fill + light-sweep gradient for depth. Inactive: transparent.
+        background: active
+          ? `var(--accent-copper)`
+          : "transparent",
+        // Light-sweep layered on top for active tabs (depth without extra element)
+        backgroundImage: active
+          ? "var(--dock-tab-active-gradient, linear-gradient(90deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0) 100%))"
+          : "none",
         color: active ? "var(--bg-base)" : "var(--text-secondary)",
         border: "none",
         borderRadius: "var(--radius-sm)",
@@ -114,7 +122,8 @@ function DockTab({
         cursor: "pointer",
         fontSize: "var(--text-body-size)",
         fontWeight: active ? 600 : 400,
-        transition: "background var(--motion-focus), color var(--motion-focus)",
+        transition:
+          "background var(--motion-focus), color var(--motion-focus), box-shadow var(--motion-focus)",
         display: "flex",
         flexDirection: "column",
         alignItems: "center",

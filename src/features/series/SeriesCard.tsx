@@ -34,18 +34,21 @@ export function SeriesCard({ item, onClick }: SeriesCardProps) {
         display: "flex",
         flexDirection: "column",
         gap: "var(--space-2)",
-        background: "none",
-        border: focused ? "2px solid var(--accent-copper)" : "2px solid transparent",
+        // Glass-panel fill — warm gradient
+        background: "var(--card-glass-bg, var(--bg-surface))",
+        border: focused
+          ? "1px solid var(--accent-copper)"
+          : "var(--card-glass-border, 1px solid rgba(237,228,211,0.06))",
         borderRadius: "var(--radius-sm)",
         padding: 0,
         cursor: "pointer",
-        /* scale + shadow — NO transition-all; scope to transform + box-shadow */
-        transform: focused ? "scale(1.04)" : "scale(1)",
+        /* scale + copper glow on focus — NO transition-all */
+        transform: focused ? "scale(1.03)" : "scale(1)",
         boxShadow: focused
-          ? "0 8px 24px rgba(0,0,0,0.5)"
+          ? "var(--focus-glow, 0 0 0 2px var(--accent-copper), 0 8px 32px -8px rgba(200,121,65,0.45))"
           : "0 2px 6px rgba(0,0,0,0.2)",
         transition:
-          "transform var(--motion-focus), box-shadow var(--motion-focus), border-color var(--motion-focus)",
+          "transform 150ms ease-out, box-shadow 150ms ease-out, border-color 150ms ease-out",
         outline: "none",
         textAlign: "left",
         overflow: "hidden",
@@ -116,6 +119,7 @@ export function SeriesCard({ item, onClick }: SeriesCardProps) {
             padding: "0 var(--space-2) var(--space-1)",
             fontSize: "var(--text-label-size)",
             color: "var(--text-secondary)",
+            fontVariantNumeric: "tabular-nums",
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",

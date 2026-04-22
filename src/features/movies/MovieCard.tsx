@@ -30,20 +30,22 @@ export function MovieCard({ stream, onSelect }: MovieCardProps) {
         position: "relative",
         display: "flex",
         flexDirection: "column",
-        background: "var(--bg-surface)",
-        borderRadius: "var(--radius-sm, 6px)",
+        // Glass-panel fill — warm gradient over surface
+        background: "var(--card-glass-bg, var(--bg-surface))",
         border: focused
-          ? "2px solid var(--accent-copper)"
-          : "2px solid transparent",
+          ? "1px solid var(--accent-copper)"
+          : "var(--card-glass-border, 1px solid rgba(237,228,211,0.06))",
+        borderRadius: "var(--radius-sm, 6px)",
         padding: 0,
         cursor: "pointer",
-        // Scale + shadow on focus — no transform on ancestors
-        transform: focused ? "scale(1.04)" : "scale(1)",
+        // Scale on focus — no transform on ancestors (AC constraint respected)
+        transform: focused ? "scale(1.03)" : "scale(1)",
+        // Copper glow on focus; subtle shadow at rest
         boxShadow: focused
-          ? "0 8px 24px rgba(0,0,0,0.6)"
+          ? "var(--focus-glow, 0 0 0 2px var(--accent-copper), 0 8px 32px -8px rgba(200,121,65,0.45))"
           : "0 2px 8px rgba(0,0,0,0.3)",
         transition:
-          "transform var(--motion-focus, 150ms), box-shadow var(--motion-focus, 150ms), border-color var(--motion-focus, 150ms)",
+          "transform 150ms ease-out, box-shadow 150ms ease-out, border-color 150ms ease-out",
         overflow: "hidden",
         textAlign: "left",
       }}
@@ -99,6 +101,7 @@ export function MovieCard({ stream, onSelect }: MovieCardProps) {
             padding: "0 var(--space-3) var(--space-2)",
             color: "var(--text-secondary)",
             fontSize: "var(--text-caption-size)",
+            fontVariantNumeric: "tabular-nums",
             display: "flex",
             gap: "var(--space-2)",
           }}

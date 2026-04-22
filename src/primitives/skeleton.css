@@ -13,15 +13,15 @@
  */
 
 /* ─────────────────────────────────────────────────────
-   Keyframes
+   Keyframes — single color-stop sweep, ~30fps visual cap
+   (2s duration = smooth but not CPU-hungry on Fire Stick)
    ───────────────────────────────────────────────────── */
-@keyframes skeleton-pulse {
-  0%,
-  100% {
-    opacity: 0.6;
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: -200% 0;
   }
-  50% {
-    opacity: 1;
+  100% {
+    background-position: 200% 0;
   }
 }
 
@@ -29,16 +29,23 @@
    Base
    ───────────────────────────────────────────────────── */
 .skeleton {
-  background: var(--bg-elevated);
+  background: linear-gradient(
+    90deg,
+    var(--bg-elevated) 25%,
+    rgba(200, 121, 65, 0.07) 50%,
+    var(--bg-elevated) 75%
+  );
+  background-size: 200% 100%;
   border-radius: var(--radius-sm);
-  animation: skeleton-pulse 1.8s ease-in-out infinite;
+  animation: skeleton-shimmer var(--motion-shimmer, 2s) linear infinite;
 }
 
 /* ─────────────────────────────────────────────────────
-   Reduced motion — respect user preference
+   Reduced motion — no animation, static placeholder
    ───────────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   .skeleton {
+    background: var(--bg-elevated);
     animation: none;
     opacity: 0.7;
   }

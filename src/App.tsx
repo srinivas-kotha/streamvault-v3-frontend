@@ -97,7 +97,7 @@ function AppShell() {
   }, []);
 
   return (
-    <div style={{ background: "var(--bg-base)", minHeight: "100vh" }}>
+    <div style={{ background: "var(--bg-shell-gradient, var(--bg-base))", minHeight: "100vh" }}>
       <Routes>
         <Route path="/" element={<Navigate to="/live" replace />} />
         <Route path="/live" element={<LiveRoute />} />
