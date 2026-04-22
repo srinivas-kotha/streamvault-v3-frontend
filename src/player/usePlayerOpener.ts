@@ -25,7 +25,14 @@ export function usePlayerOpener() {
     async (opts: OpenPlayerOptions) => {
       const { id, title, kind, season, episode } = opts;
 
-      const streamUrl = fetchStreamUrl({ kind, id, season, episode });
+      // tsconfig has exactOptionalPropertyTypes:true — spread season/episode
+      // only when defined so the optional field isn't set to `undefined`.
+      const streamUrl = fetchStreamUrl({
+        kind,
+        id,
+        ...(season !== undefined && { season }),
+        ...(episode !== undefined && { episode }),
+      });
 
       open({
         src: streamUrl,

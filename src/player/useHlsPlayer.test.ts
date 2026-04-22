@@ -5,7 +5,7 @@
  * Verifies: attach, load, destroy on unmount, quality switch uses nextLevel.
  */
 import { renderHook, act } from "@testing-library/react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 import { useHlsPlayer } from "./useHlsPlayer";
 import type React from "react";
 
