@@ -2,6 +2,21 @@
 
 > Rule: never delete entries. Append only. Each entry: date · decision · rationale.
 
+## 2026-04-22 (follow-up) — norigin preventDefaults Enter; onEnterPress is mandatory, not optional
+
+Smoke test of PR #29 in the live browser caught a second bug: pressing Enter on the focused "Sign in" button did nothing. Root cause: **norigin's keyboard handler calls `event.preventDefault()` on Enter**, which blocks the browser's native `Enter-on-focused-button → click → form-submit` path. A `<button type="submit">` under `useFocusable` without an `onEnterPress` is a dead-end on OK press.
+
+Retrofit (LoginPage only — ErrorShell already wired `onEnterPress={onRetry}` on all three buttons):
+
+- `formRef` on the `<form>` + `submitForm()` helper that calls `formRef.current?.requestSubmit()` (re-enters `onSubmit` AND runs HTML5 required-field validation).
+- Username input `onEnterPress: () => setFocus("LOGIN_PASSWORD")` — Enter advances to next field (TV input convention).
+- Password input `onEnterPress: submitForm` — Enter on final field submits.
+- Submit Button `onEnterPress: submitForm` — Enter on the button submits.
+
+3 new LoginPage unit tests assert each focusKey's `onEnterPress` is a function, invoke it directly, and verify the expected side effect (setFocus or login call).
+
+**Rule for future TV work:** every `useFocusable`-registered target that the user can land on must supply an `onEnterPress` if OK is supposed to do anything. Not a browser fallback. This also means `<a href>` links under norigin need onEnterPress → navigate.
+
 ## 2026-04-22 — Button primitive made norigin-aware; LoginPage + ErrorShell retrofitted
 
 Discovered by user during first real-browser smoke test of v3 on streamvault.srinivaskotha.uk after the NPM proxy flip (2026-04-22 night): ArrowUp/ArrowDown did not move focus on LoginPage, only Tab worked. Tab is browser-native, not a TV-remote key — Fire TV remotes cannot fire Tab. This meant **the entire app was unreachable on the primary target device** (Fire TV Stick 4K Max).
