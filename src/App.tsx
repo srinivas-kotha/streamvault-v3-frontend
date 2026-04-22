@@ -96,6 +96,31 @@ function AppShell() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Back / Escape → jump to the active dock tab. Without this, the user has
+  // to ArrowDown through the entire channel list / poster grid to reach the
+  // dock and switch to Movies/Series/etc. Fire TV remote Back and browser
+  // Escape both land here. The player overlay's own back handler takes
+  // precedence when open (see PlayerProvider popstate listener) — this one
+  // only fires when a route content area owns focus.
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      // Escape anywhere OR Backspace on elements that aren't text inputs.
+      const t = e.target as HTMLElement | null;
+      const isTextInput =
+        t?.tagName === "INPUT" || t?.tagName === "TEXTAREA";
+      if (e.key === "Escape" || (e.key === "Backspace" && !isTextInput)) {
+        const active = document.activeElement?.getAttribute("aria-label");
+        // Already on the dock? nothing to do.
+        const dockLabels = Object.values(DOCK_LABELS);
+        if (active && dockLabels.includes(active)) return;
+        setFocus(`DOCK_${activeTab.toUpperCase()}`);
+        e.preventDefault();
+      }
+    };
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [activeTab]);
+
   return (
     <div style={{ background: "var(--bg-shell-gradient, var(--bg-base))", minHeight: "100vh" }}>
       <Routes>
