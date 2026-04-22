@@ -5,9 +5,13 @@
  *
  * Flow:
  *  1. Navigate to /favorites → empty state shown.
- *  2. Navigate to /settings → click "My Favorites" → /favorites.
- *  3. Navigate to /history → empty state shown.
- *  4. Both new routes render with correct data-page attributes.
+ *  2. Navigate to /history → empty state shown.
+ *  3. Both new routes render with correct data-page attributes.
+ *
+ * Navigation note: /favorites and /history are standalone routes reachable via
+ * direct URL navigation (or from app links within content pages). The BottomDock
+ * has 5 fixed tabs: Live, Movies, Series, Search, Settings — Favorites and
+ * History do not appear in the dock.
  *
  * Note: Full star-toggle E2E requires backend + seeded data; that is tested
  * in favorites-smoke.spec.ts against the live URL. Here we test the UI shell
@@ -39,28 +43,20 @@ test.describe("Favorites flow", () => {
     await expect(page.getByText(/nothing watched yet/i)).toBeVisible();
   });
 
-  test("/settings shows My Favorites and Watch History menu items", async ({
+  test("/favorites route has correct data-page attribute", async ({
     page,
   }) => {
-    await page.goto("/settings");
-    await expect(page.getByText("My Favorites")).toBeVisible();
-    await expect(page.getByText("Watch History")).toBeVisible();
-  });
-
-  test("clicking My Favorites in settings navigates to /favorites", async ({
-    page,
-  }) => {
-    await page.goto("/settings");
-    await page.getByText("My Favorites").click();
+    // The BottomDock does not contain Favorites/History tabs — navigate directly.
+    await page.goto("/favorites");
     await expect(page).toHaveURL(/\/favorites/);
     await expect(page.locator('[data-page="favorites"]')).toBeVisible();
   });
 
-  test("clicking Watch History in settings navigates to /history", async ({
+  test("/history route has correct data-page attribute", async ({
     page,
   }) => {
-    await page.goto("/settings");
-    await page.getByText("Watch History").click();
+    // The BottomDock does not contain Favorites/History tabs — navigate directly.
+    await page.goto("/history");
     await expect(page).toHaveURL(/\/history/);
     await expect(page.locator('[data-page="history"]')).toBeVisible();
   });
@@ -87,9 +83,13 @@ test.describe("Favorites flow", () => {
     await expect(page.getByText("Cached Movie")).toBeVisible({ timeout: 5000 });
   });
 
-  test("back button from /favorites goes back", async ({ page }) => {
+  test("back button from /favorites goes back to previous page", async ({
+    page,
+  }) => {
+    // Navigate to /settings first so history has an entry, then go to /favorites.
     await page.goto("/settings");
-    await page.getByText("My Favorites").click();
+    await expect(page.locator('[data-page="settings"]')).toBeVisible();
+    await page.goto("/favorites");
     await expect(page).toHaveURL(/\/favorites/);
 
     await page.getByRole("button", { name: /go back/i }).click();

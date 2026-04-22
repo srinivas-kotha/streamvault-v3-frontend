@@ -93,9 +93,10 @@ press on the same chip (parity with how the dock tabs toggle).
 │                    │            │  [*Action*] [ Drama ] [ Comedy ] │
 │                    │            │  [ Romance] [ Thriller ] [ +more]│
 │                    │            │                                  │
-│                    │            │ Year                             │
-│                    │            │  ├──●━━━━━━━━━━━━●───┤           │
-│                    │            │  2005         2024               │
+│                    │            │ Year — From                      │
+│                    │            │  [*2020*] [2015] [2010] [2005]   │
+│                    │            │ Year — To                        │
+│                    │            │  [2024] [*2022*] [2020] [2018]   │
 │                    │            │                                  │
 │                    │            │ Minimum rating                   │
 │                    │            │  [ ☆ ][ ☆ ][*★*][ ★ ][ ★ ]       │
@@ -384,10 +385,12 @@ budget = 5. One-time cost.
 ### Multi-facet filter — 8
 
 Up → Right → Enter (drawer) + Right×N → Enter (genre) + Down →
-Right-drag (year) + Down×2 → Enter (Apply).
+Right (Year-From chip) + Down → Right (Year-To chip) + Down×2 → Enter (Apply).
 
-Fire TV year slider is a known pain point — fall back to "From/To" chip
-pickers if it benchmarks badly.
+**Year picker = From/To chip rows** (closes #56). Fire TV remote cannot drive a
+two-handle range slider — D-pad has no chord for "select handle, then drag".
+Chip pickers are D-pad-trivial and accessible. Earlier draft showed a slider
+in §1c; the wireframe in §1c is now the source of truth.
 
 ---
 

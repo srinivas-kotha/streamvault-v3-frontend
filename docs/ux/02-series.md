@@ -384,7 +384,7 @@ Today `GET /api/series/info/:id` hits `provider.getSeriesInfo()` which already r
 | `episodes[].icon` (still_url) | same | Thumbnail | `info.movie_image` or `info.cover_big` |
 | `episodes[].added` (ISO date) | same | Aired-date column + NEW badge | `info.releasedate` or `added` timestamp |
 
-**Note to backend:** the `adaptSeriesInfo()` function in `xtream.adapters.ts` already exists (see `xtream.provider.ts:233`). Verify it maps all of the above. If any field is dropped, surface it — frontend will degrade gracefully (e.g. fallback poster, no synopsis) but tell us so the empty-state isn't mysterious.
+**Backend verified 2026-04-22** (closes #54): `adaptSeriesInfo()` at `streamvault-backend/src/providers/xtream/xtream.adapters.ts:89-135` already maps every field in the table above; `xtream.provider.ts:210-234` wires the route. **No backend changes required for the P0** — frontend can build straight against the existing contract. (Earlier draft asked to "verify" — that verification is now done; if a field looks missing on a real response, treat as a regression and file a backend bug, don't redesign the spec.)
 
 ### Nice-to-have (P1)
 
