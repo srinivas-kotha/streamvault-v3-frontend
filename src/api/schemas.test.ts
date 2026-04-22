@@ -2,16 +2,23 @@ import { describe, it, expect } from "vitest";
 import { LoginResponseSchema, ChannelSchema } from "./schemas";
 
 describe("API Zod schemas", () => {
-  it("parses valid login response", () => {
+  it("parses valid login response (cookie-based backend shape)", () => {
     const raw = {
-      accessToken: "abc.def.ghi",
-      refreshToken: "xyz",
-      expiresIn: 900,
+      message: "Login successful",
+      userId: 1,
+      username: "admin",
     };
     expect(() => LoginResponseSchema.parse(raw)).not.toThrow();
   });
-  it("rejects login response missing accessToken", () => {
-    expect(() => LoginResponseSchema.parse({ refreshToken: "x" })).toThrow();
+  it("rejects login response missing username", () => {
+    expect(() =>
+      LoginResponseSchema.parse({ message: "ok", userId: 1 }),
+    ).toThrow();
+  });
+  it("rejects login response with wrong userId type", () => {
+    expect(() =>
+      LoginResponseSchema.parse({ message: "ok", userId: "1", username: "a" }),
+    ).toThrow();
   });
   it("parses valid channel", () => {
     const raw = {

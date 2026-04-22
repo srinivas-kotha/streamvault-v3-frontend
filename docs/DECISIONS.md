@@ -2,6 +2,26 @@
 
 > Rule: never delete entries. Append only. Each entry: date · decision · rationale.
 
+## 2026-04-22 — E2E un-deferred (Phase 4 D5)
+
+Resolves the plan-debt from the 2026-04-15 deferral below.
+
+- **sv_e2e_test user seeded** via existing `seed-admin` script (backend) run
+  inside the `streamvault_api` container with `ADMIN_USERNAME=sv_e2e_test` +
+  freshly-generated 32-char password. No new seed script was invented; the
+  existing upsert-by-username flow covered the case. (user id=3)
+- **CI secrets renamed** `SV_TEST_USER`/`SV_TEST_PASS` → `E2E_USER`/`E2E_PASS`
+  to match the Phase 4 D5 convention in the session handoff. Both stored in
+  GitHub Actions repo secrets; sourced in `ci.yml` Playwright step.
+- **Skip guard removed** from `tests/e2e/auth.spec.ts`. Tests now always run;
+  missing env vars cause a loud failure (no more silently-green CI).
+- `.env.example` updated to describe the new variable names and seeding flow.
+- Raw password is NOT stored in any repo file or memory file — only in GH
+  secrets. To rotate, re-run the seed-admin script with a new password and
+  update both secrets.
+
+Unblocks D-pad / remote-button E2E gating for Tasks 4.3 + 4.4.
+
 ## 2026-04-15 — Locked Decisions (from brainstorm)
 
 1. Scope: Fork new repo streamvault-v3-frontend; archive old as streamvault-v2-archived. No code ported.

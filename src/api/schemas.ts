@@ -1,16 +1,19 @@
 import { z } from "zod";
 
+// Backend auth is cookie-based (httpOnly access_token / refresh_token cookies).
+// /api/auth/login returns only a confirmation body; the session itself lives in
+// cookies set by the Set-Cookie header. The frontend must NOT expect JWT strings
+// in the response body — see streamvault-backend src/routers/auth.router.ts.
 export const LoginResponseSchema = z.object({
-  accessToken: z.string(),
-  refreshToken: z.string(),
-  expiresIn: z.number().optional(),
+  message: z.string(),
+  userId: z.number(),
+  username: z.string(),
 });
 export type LoginResponse = z.infer<typeof LoginResponseSchema>;
 
+// /api/auth/refresh rotates cookies and returns `{ message: "Tokens refreshed" }`.
 export const RefreshResponseSchema = z.object({
-  accessToken: z.string(),
-  refreshToken: z.string(),
-  expiresIn: z.number().optional(),
+  message: z.string(),
 });
 
 export const ChannelSchema = z.object({

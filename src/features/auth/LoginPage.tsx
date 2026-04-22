@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Button } from "../../primitives";
 import { login } from "../../api/auth";
-import { apiClient } from "../../api/client";
 
 interface LoginPageProps {
   onLoginSuccess: () => void;
@@ -27,8 +26,9 @@ export function LoginPage({ onLoginSuccess }: LoginPageProps) {
     setLoading(true);
     setError(null);
     try {
-      const resp = await login(username, password);
-      apiClient.setTokens(resp.accessToken, resp.refreshToken);
+      // Backend sets httpOnly auth cookies; login() records the session
+      // sentinel used by the App-level auth gate. Nothing else to do here.
+      await login(username, password);
       onLoginSuccess();
     } catch {
       setError("Invalid username or password");

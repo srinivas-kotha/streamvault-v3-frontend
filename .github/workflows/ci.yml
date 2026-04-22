@@ -16,8 +16,8 @@ jobs:
       - run: npx playwright install --with-deps chromium webkit
       - name: Run Playwright
         env:
-          SV_TEST_USER: ${{ secrets.SV_TEST_USER }}
-          SV_TEST_PASS: ${{ secrets.SV_TEST_PASS }}
+          E2E_USER: ${{ secrets.E2E_USER }}
+          E2E_PASS: ${{ secrets.E2E_PASS }}
         run: npx playwright test
       - name: Bundle budget check
         run: |
