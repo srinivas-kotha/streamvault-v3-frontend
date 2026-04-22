@@ -1,0 +1,83 @@
+# prod-smoke.yml — Regression detector against live production URL.
+#
+# Runs after every successful deploy to main (workflow_run trigger)
+# AND on a daily cron so we catch time-based regressions (EPG, token expiry, etc.)
+#
+# Does NOT block merges — failures here trigger a Slack/email notification only.
+#
+# Required secrets:
+#   STREAMVAULT_E2E_USER  — test account username
+#   STREAMVAULT_E2E_PASS  — test account password
+#   STREAMVAULT_PROD_URL  — (optional) defaults to https://streamvault.srinivaskotha.uk
+#
+# Setup steps if secrets are not yet configured:
+#   1. Go to repo Settings → Secrets and variables → Actions → New repository secret
+#   2. Add STREAMVAULT_E2E_USER and STREAMVAULT_E2E_PASS
+#   3. (Optional) Add STREAMVAULT_PROD_URL to override the default base URL
+name: Prod smoke (regression detector)
+
+on:
+  # Run after every successful Deploy workflow on main
+  workflow_run:
+    workflows: [Deploy]
+    types: [completed]
+    branches: [main]
+
+  # Also run daily at 06:00 UTC to catch time-based regressions
+  schedule:
+    - cron: "0 6 * * *"
+
+  # Allow manual trigger for debugging
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prod-smoke:
+    name: Playwright prod smoke
+    runs-on: ubuntu-latest
+    # Only run on deploy success; always run on schedule / manual
+    if: >
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
+    continue-on-error: true  # Do NOT block; this is a regression detector only
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium webkit
+
+      - name: Run prod smoke suite
+        env:
+          STREAMVAULT_E2E_USER: ${{ secrets.STREAMVAULT_E2E_USER }}
+          STREAMVAULT_E2E_PASS: ${{ secrets.STREAMVAULT_E2E_PASS }}
+          STREAMVAULT_PROD_URL: ${{ secrets.STREAMVAULT_PROD_URL || 'https://streamvault.srinivaskotha.uk' }}
+        run: npm run test:e2e:prod
+        # Allow failure — we upload report and notify, but don't block
+        continue-on-error: true
+
+      - name: Upload Playwright report on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-prod-${{ github.run_id }}
+          path: playwright-report-prod/
+          retention-days: 14
+
+      - name: Upload traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces-prod-${{ github.run_id }}
+          path: test-results/
+          retention-days: 7

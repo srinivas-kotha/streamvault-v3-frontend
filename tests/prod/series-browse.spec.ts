@@ -1,104 +1,86 @@
-import { test, expect } from "@playwright/test";
-
 /**
- * Series browse — PRODUCTION smoke test.
+ * series-browse.spec.ts — Production smoke test for the SeriesRoute.
  *
- * Runs against the live URL (streamvault.srinivaskotha.uk).
- * Requires valid credentials via env vars:
- *   PROD_USERNAME  — IPTV account username
- *   PROD_PASSWORD  — IPTV account password
- *
- * What this covers:
- *  - Real login via UI (cookie-auth flow).
- *  - Navigate to /series via dock.
- *  - Category strip renders from live API.
- *  - Arrow across category chips (D-pad simulation).
- *  - Series grid loads cards from the real backend.
- *  - Visual screenshot: tests/prod/screenshots/series-grid.png.
- *
- * Skip automatically when credentials are not provided — safe in CI.
+ * Exercises the real deployed app at STREAMVAULT_PROD_URL.
+ * Credentials: STREAMVAULT_E2E_USER / STREAMVAULT_E2E_PASS.
  */
-
-const PROD_URL = process.env["PROD_URL"] ?? "https://streamvault.srinivaskotha.uk";
-const PROD_USERNAME = process.env["PROD_USERNAME"];
-const PROD_PASSWORD = process.env["PROD_PASSWORD"];
+import { test, expect } from "@playwright/test";
+import { loginViaUI } from "./helpers";
 
 test.describe("Series browse — production", () => {
-  test.skip(
-    !PROD_USERNAME || !PROD_PASSWORD,
-    "PROD_USERNAME / PROD_PASSWORD env vars not set — skipping prod test",
-  );
+  test.beforeEach(async ({ page }) => {
+    await loginViaUI(page);
+  });
 
-  async function loginViaUI(page: import("@playwright/test").Page) {
-    await page.goto(PROD_URL);
-    await page.waitForSelector('input[type="text"], input[name="username"]', {
-      timeout: 10_000,
-    });
-
-    // Fill login form — field selectors match the LoginPage component.
-    const userInput = page.locator(
-      'input[name="username"], input[placeholder*="username" i], input[type="text"]',
-    ).first();
-    const passInput = page.locator('input[type="password"]').first();
-
-    await userInput.fill(PROD_USERNAME!);
-    await passInput.fill(PROD_PASSWORD!);
-
-    // Submit — try Enter, then button click.
-    await passInput.press("Enter");
-    await page.waitForURL(/\/(live|movies|series|search|settings|$)/, {
-      timeout: 15_000,
-    });
-  }
-
-  test("login → navigate to /series → category strip → grid screenshot", async ({
+  test("dock Enter on Series navigates to /series and grid loads", async ({
     page,
   }) => {
-    await loginViaUI(page);
+    // Walk dock: Live(0) → Movies(1) → Series(2)
+    await page.waitForTimeout(750);
+    await page.keyboard.press("ArrowRight"); // → Movies
+    await page.keyboard.press("ArrowRight"); // → Series
+    await page.waitForFunction(
+      () => document.activeElement?.getAttribute("aria-label") === "Series",
+      { timeout: 3_000 },
+    );
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(/\/series/, { timeout: 10_000 });
 
-    // Navigate to /series via dock button.
-    const dockSeries = page.getByRole("tab", { name: /series/i });
-    if (await dockSeries.isVisible()) {
-      await dockSeries.click();
-    } else {
-      await page.goto(`${PROD_URL}/series`);
-    }
+    // Wait for real data
+    await page.waitForSelector('[data-page="series"]', { timeout: 10_000 });
+    const card = page.locator('[data-page="series"] button').first();
+    await expect(card).toBeVisible({ timeout: 15_000 });
+  });
 
-    await page.waitForURL(/\/series/, { timeout: 10_000 });
+  test("category strip renders and ArrowRight walks chips", async ({ page }) => {
+    await page.goto("/series");
+    await page.waitForSelector('[data-page="series"]', { timeout: 10_000 });
 
-    // Wait for category strip to appear (real data from backend).
-    const strip = page.getByRole("toolbar", { name: /series categories/i });
+    const strip = page
+      .getByRole("tablist")
+      .or(page.getByRole("toolbar"))
+      .first();
     await expect(strip).toBeVisible({ timeout: 15_000 });
 
-    // Arrow across a few chips (D-pad simulation).
-    const chips = strip.getByRole("button");
-    const count = await chips.count();
+    const chips = strip.locator("button");
+    expect(await chips.count()).toBeGreaterThan(0);
 
-    if (count >= 2) {
-      await chips.nth(0).click();
-      await page.waitForTimeout(300);
-      await page.keyboard.press("ArrowRight");
-      await page.waitForTimeout(300);
-      await page.keyboard.press("ArrowRight");
-      await page.waitForTimeout(300);
-    }
+    await chips.first().focus();
+    await page.keyboard.press("ArrowRight");
+    const focused = await page.evaluate(
+      () => document.activeElement?.getAttribute("aria-label"),
+    );
+    expect(focused).toBeTruthy();
+  });
 
-    // Wait for grid to load.
-    await page.waitForTimeout(2_000);
+  test("ArrowRight walks series cards", async ({ page }) => {
+    await page.goto("/series");
+    await page.waitForSelector('[data-page="series"]', { timeout: 10_000 });
 
-    // Visual screenshot for QA review.
-    await page.screenshot({
-      path: "tests/prod/screenshots/series-grid.png",
+    const firstCard = page.locator('[data-page="series"] button').first();
+    await expect(firstCard).toBeVisible({ timeout: 15_000 });
+
+    await firstCard.focus();
+    const labelBefore = await page.evaluate(
+      () => document.activeElement?.getAttribute("aria-label") ?? "",
+    );
+    await page.keyboard.press("ArrowRight");
+    await page.waitForTimeout(300);
+    const labelAfter = await page.evaluate(
+      () => document.activeElement?.getAttribute("aria-label") ?? "",
+    );
+    expect(labelAfter).not.toBe(labelBefore);
+  });
+
+  test("visual: series page screenshot", async ({ page }) => {
+    await page.goto("/series");
+    await page.waitForSelector('[data-page="series"]', { timeout: 10_000 });
+    const firstCard = page.locator('[data-page="series"] button').first();
+    await expect(firstCard).toBeVisible({ timeout: 15_000 });
+
+    await expect(page).toHaveScreenshot("series-grid.png", {
       fullPage: false,
+      mask: [page.locator('[data-page="series"] button')],
     });
-
-    // Assert grid OR empty state is visible.
-    const grid = page.getByRole("list", { name: /series grid/i });
-    const emptyState = page.getByText(/no series in this category/i);
-
-    const gridVisible = await grid.isVisible().catch(() => false);
-    const emptyVisible = await emptyState.isVisible().catch(() => false);
-
-    expect(gridVisible || emptyVisible).toBe(true);
   });
 });

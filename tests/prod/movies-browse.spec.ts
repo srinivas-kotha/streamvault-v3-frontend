@@ -1,116 +1,94 @@
 /**
  * movies-browse.spec.ts — Production smoke test for the MoviesRoute.
  *
- * Runs against a live VPS deployment (PROD_BASE_URL env var).
- * Logs in with real credentials, navigates to /movies via the dock,
- * verifies a MovieCard renders, walks the grid with D-pad.
- *
- * Run with:
- *   PROD_BASE_URL=https://streamvault.srinivaskotha.uk \
- *   PROD_USERNAME=<user> PROD_PASSWORD=<pass> \
- *   npx playwright test --config=playwright.prod.config.ts
- *
- * This spec is NOT run in CI (it requires live credentials).
- * It is a manual pre-deploy smoke gate per the "E2E not done until proven" rule.
+ * Exercises the real deployed app at STREAMVAULT_PROD_URL.
+ * Credentials: STREAMVAULT_E2E_USER / STREAMVAULT_E2E_PASS.
  */
 import { test, expect } from "@playwright/test";
+import { loginViaUI } from "./helpers";
 
-const BASE_URL =
-  process.env["PROD_BASE_URL"] ?? "https://streamvault.srinivaskotha.uk";
-const USERNAME = process.env["PROD_USERNAME"] ?? "";
-const PASSWORD = process.env["PROD_PASSWORD"] ?? "";
-
-async function loginViaUI(
-  page: import("@playwright/test").Page,
-): Promise<void> {
-  await page.goto(`${BASE_URL}/login`);
-  await page.getByLabel(/username/i).fill(USERNAME);
-  await page.getByLabel(/password/i).fill(PASSWORD);
-  await page.getByRole("button", { name: /log in|sign in/i }).click();
-  // Wait for redirect away from /login
-  await page.waitForURL((url) => !url.pathname.startsWith("/login"), {
-    timeout: 10_000,
-  });
-}
-
-test.describe("Movies browse — production smoke", () => {
-  test.skip(
-    !USERNAME || !PASSWORD,
-    "PROD_USERNAME / PROD_PASSWORD env vars not set — skipping prod smoke",
-  );
-
-  test("navigate to /movies via dock and see a MovieCard", async ({ page }) => {
-    test.info().annotations.push({
-      type: "prod-smoke",
-      description:
-        "Logs into live VPS, navigates to /movies via dock, verifies a " +
-        "movie card renders, walks the grid with D-pad ArrowRight.",
-    });
-
+test.describe("Movies browse — production", () => {
+  test.beforeEach(async ({ page }) => {
     await loginViaUI(page);
-
-    // Navigate to /movies via dock — from DOCK_LIVE, press ArrowRight to DOCK_MOVIES
-    await page.evaluate(() => {
-      (
-        window as unknown as { __svSetFocus: (key: string) => void }
-      ).__svSetFocus("DOCK_MOVIES");
-    });
-    await page.keyboard.press("Enter");
-
-    // Wait for the movies page to render
-    await page.waitForURL(`${BASE_URL}/movies`, { timeout: 10_000 });
-
-    // Wait for a movie card to appear (poster grid populated)
-    const grid = page.getByLabel("Movie poster grid");
-    await expect(grid).toBeVisible({ timeout: 15_000 });
-
-    const firstCard = grid.locator("button").first();
-    await expect(firstCard).toBeVisible({ timeout: 5_000 });
-
-    // Press ArrowDown from dock into grid, then ArrowRight to walk cards
-    await page.evaluate(() => {
-      (
-        window as unknown as { __svSetFocus: (key: string) => void }
-      ).__svSetFocus("DOCK_MOVIES");
-    });
-    await page.keyboard.press("ArrowUp");
-
-    // Walk a couple of cards with ArrowRight
-    await page.keyboard.press("ArrowRight");
-    await page.keyboard.press("ArrowRight");
-
-    // Screenshot visual gate
-    await page.screenshot({
-      path: "test-results/movies-grid.png",
-      fullPage: false,
-    });
-
-    // Verify no error shell appeared
-    expect(
-      await page.locator("[role='alert']").isVisible().catch(() => false),
-    ).toBe(false);
   });
 
-  test("category strip is visible and ArrowRight walks chips", async ({
+  test("dock Enter on Movies navigates to /movies and grid loads", async ({
     page,
   }) => {
-    await loginViaUI(page);
-    await page.goto(`${BASE_URL}/movies`);
+    // Walk dock: Live(0) → Movies(1)
+    await page.waitForTimeout(750);
+    await page.keyboard.press("ArrowRight"); // → Movies
+    await page.waitForFunction(
+      () => document.activeElement?.getAttribute("aria-label") === "Movies",
+      { timeout: 3_000 },
+    );
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(/\/movies/, { timeout: 10_000 });
 
-    const strip = page.getByRole("tablist", { name: /movie categories/i });
+    // Wait for real data: at least one movie card button
+    const movieCard = page
+      .locator('[data-page="movies"]')
+      .locator("button")
+      .first();
+    await expect(movieCard).toBeVisible({ timeout: 15_000 });
+  });
+
+  test("ArrowRight walks movie cards (D-pad traversal)", async ({ page }) => {
+    await page.goto("/movies");
+    await page.waitForSelector('[data-page="movies"]', { timeout: 10_000 });
+
+    // Wait for cards to appear
+    const firstCard = page.locator('[data-page="movies"] button').first();
+    await expect(firstCard).toBeVisible({ timeout: 15_000 });
+
+    // Focus first card and walk right
+    await firstCard.focus();
+    const labelBefore = await page.evaluate(
+      () => document.activeElement?.getAttribute("aria-label") ?? "",
+    );
+    await page.keyboard.press("ArrowRight");
+    await page.waitForTimeout(300);
+    const labelAfter = await page.evaluate(
+      () => document.activeElement?.getAttribute("aria-label") ?? "",
+    );
+
+    // Focus moved (different card label)
+    expect(labelAfter).not.toBe(labelBefore);
+  });
+
+  test("category strip renders and ArrowRight walks chips", async ({ page }) => {
+    await page.goto("/movies");
+    await page.waitForSelector('[data-page="movies"]', { timeout: 10_000 });
+
+    // Category strip or tablist must be present
+    const strip = page
+      .getByRole("tablist")
+      .or(page.getByRole("toolbar"))
+      .first();
     await expect(strip).toBeVisible({ timeout: 15_000 });
 
     const chips = strip.locator("button");
-    await expect(chips.first()).toBeVisible();
+    const count = await chips.count();
+    expect(count).toBeGreaterThan(0);
 
     // Walk chips with keyboard
     await chips.first().focus();
     await page.keyboard.press("ArrowRight");
-
-    // Focus should have moved — activeElement changes
     const focused = await page.evaluate(
       () => document.activeElement?.getAttribute("aria-label"),
     );
     expect(focused).toBeTruthy();
+  });
+
+  test("visual: movies page renders without overflow", async ({ page }) => {
+    await page.goto("/movies");
+    await page.waitForSelector('[data-page="movies"]', { timeout: 10_000 });
+    const firstCard = page.locator('[data-page="movies"] button').first();
+    await expect(firstCard).toBeVisible({ timeout: 15_000 });
+
+    await expect(page).toHaveScreenshot("movies-grid.png", {
+      fullPage: false,
+      mask: [page.locator('[data-page="movies"] button')],
+    });
   });
 });
