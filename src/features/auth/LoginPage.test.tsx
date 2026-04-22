@@ -116,4 +116,66 @@ describe("LoginPage", () => {
       expect(setFocusSpy).toHaveBeenCalledWith("LOGIN_USERNAME");
     });
   });
+
+  // ─── norigin preventDefaults Enter, so onEnterPress must be wired on
+  //     every TV-reachable target (Username / Password / Sign-in). ────────
+
+  it("wires onEnterPress on LOGIN_USERNAME that advances focus to LOGIN_PASSWORD", () => {
+    render(<LoginPage onLoginSuccess={() => {}} />);
+    const calls = useFocusableSpy.mock.calls as Array<
+      [{ focusKey?: string; onEnterPress?: () => void }]
+    >;
+    const username = calls.find((c) => c[0]?.focusKey === "LOGIN_USERNAME");
+    expect(username?.[0].onEnterPress).toBeInstanceOf(Function);
+
+    setFocusSpy.mockClear();
+    username![0].onEnterPress!();
+    expect(setFocusSpy).toHaveBeenCalledWith("LOGIN_PASSWORD");
+  });
+
+  it("wires onEnterPress on LOGIN_PASSWORD that submits the form", async () => {
+    vi.spyOn(authApi, "login").mockImplementation(async (u) => {
+      apiClient.setSession(u);
+      return { message: "ok", userId: 1, username: u };
+    });
+    const onSuccess = vi.fn();
+    render(<LoginPage onLoginSuccess={onSuccess} />);
+    fireEvent.change(screen.getByLabelText("Username"), {
+      target: { value: "admin" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "pw" },
+    });
+    const calls = useFocusableSpy.mock.calls as Array<
+      [{ focusKey?: string; onEnterPress?: () => void }]
+    >;
+    const password = calls.find((c) => c[0]?.focusKey === "LOGIN_PASSWORD");
+    expect(password?.[0].onEnterPress).toBeInstanceOf(Function);
+
+    password![0].onEnterPress!();
+    await waitFor(() => expect(onSuccess).toHaveBeenCalled());
+  });
+
+  it("wires onEnterPress on LOGIN_SUBMIT that submits the form (norigin Enter path)", async () => {
+    vi.spyOn(authApi, "login").mockImplementation(async (u) => {
+      apiClient.setSession(u);
+      return { message: "ok", userId: 1, username: u };
+    });
+    const onSuccess = vi.fn();
+    render(<LoginPage onLoginSuccess={onSuccess} />);
+    fireEvent.change(screen.getByLabelText("Username"), {
+      target: { value: "admin" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "pw" },
+    });
+    const calls = useFocusableSpy.mock.calls as Array<
+      [{ focusKey?: string; onEnterPress?: () => void }]
+    >;
+    const submit = calls.find((c) => c[0]?.focusKey === "LOGIN_SUBMIT");
+    expect(submit?.[0].onEnterPress).toBeInstanceOf(Function);
+
+    submit![0].onEnterPress!();
+    await waitFor(() => expect(onSuccess).toHaveBeenCalled());
+  });
 });

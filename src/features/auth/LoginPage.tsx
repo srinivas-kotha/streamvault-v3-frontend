@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   useFocusable,
   setFocus,
@@ -15,12 +15,29 @@ export function LoginPage({ onLoginSuccess }: LoginPageProps) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
 
+  // `requestSubmit()` re-enters the form's onSubmit path AND runs HTML5
+  // required-field validation, so it behaves identically to a mouse click
+  // on the submit button.
+  const submitForm = () => {
+    if (!loading) formRef.current?.requestSubmit();
+  };
+
+  // Norigin captures Enter at the window level and `preventDefault`s it,
+  // which blocks the browser's native Enter-on-focused-button → click →
+  // form-submit flow. Every TV-reachable target that should respond to OK
+  // must supply its own `onEnterPress`. Below:
+  //   - Username Enter → advance to Password (TV input convention)
+  //   - Password Enter → submit form
+  //   - Submit button Enter → submit form
   const { ref: usernameRef } = useFocusable<HTMLInputElement>({
     focusKey: "LOGIN_USERNAME",
+    onEnterPress: () => setFocus("LOGIN_PASSWORD"),
   });
   const { ref: passwordRef } = useFocusable<HTMLInputElement>({
     focusKey: "LOGIN_PASSWORD",
+    onEnterPress: submitForm,
   });
 
   // Prime norigin's focus tree on mount. Raw DOM .focus() would land a
@@ -31,8 +48,8 @@ export function LoginPage({ onLoginSuccess }: LoginPageProps) {
     setFocus("LOGIN_USERNAME");
   }, []);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     setLoading(true);
     setError(null);
     try {
@@ -58,6 +75,7 @@ export function LoginPage({ onLoginSuccess }: LoginPageProps) {
       }}
     >
       <form
+        ref={formRef}
         onSubmit={handleSubmit}
         aria-label="Login"
         style={{
@@ -147,6 +165,7 @@ export function LoginPage({ onLoginSuccess }: LoginPageProps) {
           disabled={loading}
           size="lg"
           focusKey="LOGIN_SUBMIT"
+          onEnterPress={submitForm}
         >
           {loading ? "Signing in…" : "Sign in"}
         </Button>
