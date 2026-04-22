@@ -55,7 +55,7 @@ describe("useFavorites", () => {
     expect(result.current.loading).toBe(true);
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.favorites).toHaveLength(1);
-    expect(result.current.favorites[0].content_name).toBe("Test Movie");
+    expect(result.current.favorites[0]?.content_name).toBe("Test Movie");
   });
 
   it("isFav returns true for loaded items", async () => {
