@@ -1,5 +1,22 @@
 import { z } from "zod";
 
+/**
+ * RatingSchema — the Xtream provider returns `rating` as any of:
+ *   - a string ("3.8", "0")
+ *   - a number (3.8, 0)
+ *   - an integer (0)
+ *   - null / missing
+ * Empirical distribution from /api/vod/streams/240 (156 items):
+ *   6 None, 5 float, 2 int, 143 str. If we declare `rating: z.string()`
+ *   Zod rejects the whole array on the first number and the list silently
+ *   renders as empty — the bug the user reported 2026-04-22 for Movies.
+ * We normalise to `string | undefined` so UI code can display or skip uniformly.
+ */
+const RatingSchema = z
+  .union([z.string(), z.number(), z.null()])
+  .optional()
+  .transform((v) => (v === null || v === undefined ? undefined : String(v)));
+
 // Backend auth is cookie-based (httpOnly access_token / refresh_token cookies).
 // /api/auth/login returns only a confirmation body; the session itself lives in
 // cookies set by the Set-Cookie header. The frontend must NOT expect JWT strings
@@ -87,7 +104,7 @@ export const SeriesItemSchema = z.object({
   icon: z.string().nullable().optional(),
   added: z.string().nullable().optional(),
   isAdult: z.boolean().optional(),
-  rating: z.string().optional(),
+  rating: RatingSchema,
   genre: z.string().optional(),
   year: z.string().optional(),
 });
@@ -112,7 +129,7 @@ export const CatalogItemSchema = z.object({
   icon: z.string().nullable().optional(),
   added: z.string().nullable().optional(),
   isAdult: z.boolean().optional(),
-  rating: z.string().optional(),
+  rating: RatingSchema,
   genre: z.string().optional(),
   year: z.string().optional(),
 });
@@ -144,10 +161,10 @@ export const VodStreamSchema = z.object({
   name: z.string(),
   type: z.literal("vod"),
   categoryId: z.string(),
-  icon: z.string().nullable(),
+  icon: z.string().nullable().optional(),
   added: z.string().nullable().optional(),
-  isAdult: z.boolean(),
-  rating: z.string().optional(),
+  isAdult: z.boolean().optional(),
+  rating: RatingSchema,
   genre: z.string().optional(),
   year: z.string().optional(),
 });
