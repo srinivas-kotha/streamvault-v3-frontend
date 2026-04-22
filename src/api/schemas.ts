@@ -10,12 +10,19 @@ import { z } from "zod";
  *   6 None, 5 float, 2 int, 143 str. If we declare `rating: z.string()`
  *   Zod rejects the whole array on the first number and the list silently
  *   renders as empty — the bug the user reported 2026-04-22 for Movies.
- * We normalise to `string | undefined` so UI code can display or skip uniformly.
+ * `z.preprocess` coerces numbers to strings BEFORE the inner validator,
+ * keeping the parent-level inferred type as a plain optional string —
+ * existing test mocks that omit `rating` stay valid under .infer.
  */
-const RatingSchema = z
-  .union([z.string(), z.number(), z.null()])
-  .optional()
-  .transform((v) => (v === null || v === undefined ? undefined : String(v)));
+const RatingSchema = z.preprocess(
+  (v) =>
+    v === null || v === undefined
+      ? undefined
+      : typeof v === "number"
+        ? String(v)
+        : v,
+  z.string().optional(),
+);
 
 // Backend auth is cookie-based (httpOnly access_token / refresh_token cookies).
 // /api/auth/login returns only a confirmation body; the session itself lives in
