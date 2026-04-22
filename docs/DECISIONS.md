@@ -2,6 +2,36 @@
 
 > Rule: never delete entries. Append only. Each entry: date · decision · rationale.
 
+## 2026-04-22 — Button primitive made norigin-aware; LoginPage + ErrorShell retrofitted
+
+Discovered by user during first real-browser smoke test of v3 on streamvault.srinivaskotha.uk after the NPM proxy flip (2026-04-22 night): ArrowUp/ArrowDown did not move focus on LoginPage, only Tab worked. Tab is browser-native, not a TV-remote key — Fire TV remotes cannot fire Tab. This meant **the entire app was unreachable on the primary target device** (Fire TV Stick 4K Max).
+
+### Root cause
+
+`src/primitives/Button.tsx` was a raw `<button>` with no `useFocusable` wiring. `LoginPage` used it plus two raw `<input>` elements — zero norigin focus targets on the page. `ErrorShell` stacked 3 `Button`s with `autoFocus` on Retry, but per the Task 2.4 lesson (recorded 2026-04-21 in this file) **DOM `.focus()` does not sync norigin's internal `lastFocused` pointer** — `autoFocus` set DOM focus but left norigin blind, so arrow keys between Retry/Back/Report were dead too.
+
+Pre-Phase-4 components (LoginPage from Task 3.3, Button from Task 1.4, ErrorShell from Task 1.6) all landed before Phase 4's Task 2.4 + 4.3 codified the `useFocusable` + `focusKey` discipline. Retrofit missed.
+
+### Fix
+
+**Button primitive extended** with optional `focusKey` + `onEnterPress` props. When `focusKey` is provided, Button internally calls `useFocusable({ focusable: true, focusKey, onEnterPress })` and attaches norigin's ref to the underlying `<button>`. When `focusKey` is omitted, `focusable: false` keeps Button off norigin's focus tree — preserves non-TV usage sites (dev probes, primitive showcase) without registration overhead.
+
+**LoginPage retrofitted** to wire `useFocusable` on Username (`LOGIN_USERNAME`) + Password (`LOGIN_PASSWORD`) inputs and pass `focusKey="LOGIN_SUBMIT"` to the Sign-in Button. The mount effect now calls `setFocus("LOGIN_USERNAME")` instead of `usernameRef.current.focus()`; error-state recovery calls `setFocus("LOGIN_USERNAME")` too. This primes norigin's focus tree at the exact moment norigin can accept the call — any earlier (e.g., inline in render) would race registration.
+
+**ErrorShell retrofitted** with `focusKey="ERROR_RETRY"` / `"ERROR_BACK"` / `"ERROR_REPORT"` on each Button and a mount-effect `setFocus("ERROR_RETRY")` replacing the jsx-a11y-disabled `autoFocus` prop.
+
+### Verification
+
+- 18 test files / 97 unit tests green (`npx vitest run`), including 4 new Button tests + 5 new ErrorShell tests + 3 new LoginPage tests that spy on `useFocusable` + `setFocus` calls.
+- New `tests/e2e/d-pad-login.spec.ts`: 3 Playwright chromium tests green. Mount focuses Username; ArrowDown walks Username → Password → Sign in; ArrowUp walks back up the same path.
+- `npx tsc --noEmit` clean. No new eslint warnings.
+
+### Scope caveat
+
+Audit confirmed LoginPage + ErrorShell were the only TV-reachable consumers of Button without manual focus wiring. All Phase 2/4 interactive components (BottomDock, LiveRoute toolbar, SplitGuide rows, EpgTimeFilter) already wrap with `useFocusable` correctly. Dev-only routes (`/test-primitives`, `/silk-probe`) are excluded from TV flow.
+
+Fire TV hardware smoke test still pending — desktop Chromium covers keyboard arrow-key simulation but can't catch hardware-specific edge cases (remote key-repeat rate, Silk browser quirks). Carrying as plan-debt.
+
 ## 2026-04-22 — E2E un-deferred (Phase 4 D5)
 
 Resolves the plan-debt from the 2026-04-15 deferral below.

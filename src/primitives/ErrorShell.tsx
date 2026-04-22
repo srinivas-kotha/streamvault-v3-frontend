@@ -16,7 +16,8 @@
  * CSS lives in src/primitives/error-shell.css (aggregated via primitives/index.css).
  * Spec: plan Task 1.6 + design spec §7.5 (D-pad default focus).
  */
-import React from "react";
+import React, { useEffect } from "react";
+import { setFocus } from "@noriginmedia/norigin-spatial-navigation";
 import { Button } from "./Button";
 import { cx } from "./cx";
 import "./error-shell.css";
@@ -70,6 +71,13 @@ export function ErrorShell({
   backLabel = "Back",
   className,
 }: ErrorShellProps): React.ReactElement {
+  // Prime norigin to focus Retry on mount — replaces the old `autoFocus`
+  // prop, which only moved DOM focus and left norigin's lastFocused
+  // pointer empty (Task 2.4 lesson: DOM focus does NOT sync norigin).
+  useEffect(() => {
+    setFocus("ERROR_RETRY");
+  }, []);
+
   return (
     <div role="alert" className={cx("error-shell", className)}>
       {/* Icon — aria-hidden; role="alert" + h2 carry the semantic load */}
@@ -85,20 +93,24 @@ export function ErrorShell({
         <p className="error-shell__subtext">{subtext}</p>
       )}
 
-      {/* Action row — Retry first (autoFocus = D-pad default per spec §7.5) */}
+      {/* Action row — Retry first (D-pad default per spec §7.5) */}
       <div className="error-shell__actions">
         <Button
           variant="outlined"
+          focusKey="ERROR_RETRY"
           onClick={onRetry}
-          // autoFocus: first element spatial nav lands on per spec §7.5
-          // eslint-disable-next-line jsx-a11y/no-autofocus
-          autoFocus
+          onEnterPress={onRetry}
         >
           {retryLabel}
         </Button>
 
         {onBack !== undefined && (
-          <Button variant="ghost" onClick={onBack}>
+          <Button
+            variant="ghost"
+            focusKey="ERROR_BACK"
+            onClick={onBack}
+            onEnterPress={onBack}
+          >
             {backLabel}
           </Button>
         )}
@@ -108,8 +120,10 @@ export function ErrorShell({
       {onReport !== undefined && (
         <Button
           variant="ghost"
+          focusKey="ERROR_REPORT"
           className="error-shell__report"
           onClick={onReport}
+          onEnterPress={onReport}
         >
           Report issue
         </Button>

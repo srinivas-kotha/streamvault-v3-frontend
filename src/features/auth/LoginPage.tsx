@@ -1,4 +1,8 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useEffect } from "react";
+import {
+  useFocusable,
+  setFocus,
+} from "@noriginmedia/norigin-spatial-navigation";
 import { Button } from "../../primitives";
 import { login } from "../../api/auth";
 
@@ -11,14 +15,20 @@ export function LoginPage({ onLoginSuccess }: LoginPageProps) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const usernameRef = useRef<HTMLInputElement>(null);
 
-  // Focus the username field on mount — a11y-safe equivalent of autoFocus
-  // (jsx-a11y forbids autoFocus attribute; effect-based focus is allowed
-  // because it runs after the app decides to show LoginPage rather than
-  // on every page load).
+  const { ref: usernameRef } = useFocusable<HTMLInputElement>({
+    focusKey: "LOGIN_USERNAME",
+  });
+  const { ref: passwordRef } = useFocusable<HTMLInputElement>({
+    focusKey: "LOGIN_PASSWORD",
+  });
+
+  // Prime norigin's focus tree on mount. Raw DOM .focus() would land a
+  // blinking caret but leave norigin's lastFocused pointer empty, so the
+  // first ArrowDown press on Fire TV would go nowhere. setFocus keeps DOM
+  // focus and norigin focus in sync.
   useEffect(() => {
-    usernameRef.current?.focus();
+    setFocus("LOGIN_USERNAME");
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -26,13 +36,11 @@ export function LoginPage({ onLoginSuccess }: LoginPageProps) {
     setLoading(true);
     setError(null);
     try {
-      // Backend sets httpOnly auth cookies; login() records the session
-      // sentinel used by the App-level auth gate. Nothing else to do here.
       await login(username, password);
       onLoginSuccess();
     } catch {
       setError("Invalid username or password");
-      usernameRef.current?.focus();
+      setFocus("LOGIN_USERNAME");
     } finally {
       setLoading(false);
     }
@@ -91,7 +99,7 @@ export function LoginPage({ onLoginSuccess }: LoginPageProps) {
         </label>
         <input
           id="username"
-          ref={usernameRef}
+          ref={usernameRef as React.RefObject<HTMLInputElement>}
           type="text"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
@@ -118,6 +126,7 @@ export function LoginPage({ onLoginSuccess }: LoginPageProps) {
         </label>
         <input
           id="password"
+          ref={passwordRef as React.RefObject<HTMLInputElement>}
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
@@ -133,7 +142,12 @@ export function LoginPage({ onLoginSuccess }: LoginPageProps) {
             padding: "var(--space-3) var(--space-4)",
           }}
         />
-        <Button type="submit" disabled={loading} size="lg">
+        <Button
+          type="submit"
+          disabled={loading}
+          size="lg"
+          focusKey="LOGIN_SUBMIT"
+        >
           {loading ? "Signing in…" : "Sign in"}
         </Button>
       </form>
