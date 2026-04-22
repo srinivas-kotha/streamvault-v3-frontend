@@ -208,9 +208,13 @@ jobs:
         run: |
           # Patch NOW() predicate index before applying — Postgres requires index
           # predicates to use IMMUTABLE functions; NOW() is STABLE so it is
-          # rejected.  Replace with a composite index on (channel_id, end_time)
-          # which allows the same range queries to use the index efficiently.
-          sed -i 's/CREATE INDEX IF NOT EXISTS idx_sv_epg_now ON sv_epg (channel_id) WHERE end_time > NOW();/CREATE INDEX IF NOT EXISTS idx_sv_epg_now ON sv_epg (channel_id, end_time);/g' \
+          # rejected. Replace with a composite index on (channel_id, end_time);
+          # same range queries hit it efficiently. The original CREATE statement
+          # spans TWO lines in the source file, so the patch is two sed ops:
+          # rewrite the first line, delete the orphaned `WHERE end_time > NOW();`.
+          sed -i \
+            -e 's|CREATE INDEX IF NOT EXISTS idx_sv_epg_now ON sv_epg (channel_id)$|CREATE INDEX IF NOT EXISTS idx_sv_epg_now ON sv_epg (channel_id, end_time);|' \
+            -e '/^  WHERE end_time > NOW();$/d' \
             backend/postgres/03-phase3-services.sql
           PGPASSWORD=ci psql -h localhost -U ci -d streamvault -f backend/postgres/03-phase3-services.sql
 
