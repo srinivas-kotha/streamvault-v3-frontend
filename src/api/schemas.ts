@@ -126,3 +126,29 @@ export const SearchResultsSchema = z.object({
   series: z.array(CatalogItemSchema),
 });
 export type SearchResults = z.infer<typeof SearchResultsSchema>;
+
+// ─── VOD ─────────────────────────────────────────────────────────────────────
+// Mirrors provider.types.ts CatalogCategory / CatalogItem on the backend.
+
+export const VodCategorySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  parentId: z.string().nullable(),
+  type: z.literal("vod"),
+  count: z.number().optional(),
+});
+export type VodCategory = z.infer<typeof VodCategorySchema>;
+
+export const VodStreamSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  type: z.literal("vod"),
+  categoryId: z.string(),
+  icon: z.string().nullable(),
+  added: z.string().nullable().optional(),
+  isAdult: z.boolean(),
+  rating: z.string().optional(),
+  genre: z.string().optional(),
+  year: z.string().optional(),
+});
+export type VodStream = z.infer<typeof VodStreamSchema>;
