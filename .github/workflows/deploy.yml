@@ -1,0 +1,57 @@
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    environment: production
+    steps:
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          timeout: 60s
+          command_timeout: 8m
+          script: |
+            set -e
+            echo "Pulling latest v3 code..."
+            cd ~/streamvault-v3-frontend
+            git fetch origin main
+            git reset --hard origin/main
+
+            echo "Rebuilding v3 frontend container..."
+            cd ~/ai-orchestration
+            docker compose up -d --build streamvault-v3-frontend
+
+            echo "Waiting for health check on port 3004..."
+            for i in $(seq 1 18); do
+              if curl -sf http://localhost:3004/ > /dev/null 2>&1; then
+                echo "v3 frontend is healthy!"
+                exit 0
+              fi
+              echo "Attempt $i/18 - waiting 5s..."
+              sleep 5
+            done
+
+            echo "Health check failed after 90s"
+            docker logs streamvault-v3-frontend --tail 50 || docker logs streamvault_v3_frontend --tail 50 || true
+            docker restart streamvault-v3-frontend || docker restart streamvault_v3_frontend || true
+            exit 1
+
+      - name: Cleanup
+        if: success()
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          timeout: 60s
+          script: docker image prune -f
