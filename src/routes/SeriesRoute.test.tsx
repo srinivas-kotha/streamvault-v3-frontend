@@ -51,6 +51,11 @@ vi.mock("../api/series", () => ({
   fetchSeriesList: fetchSeriesListMock,
 }));
 
+const openPlayerMock = vi.hoisted(() => vi.fn());
+vi.mock("../player", () => ({
+  usePlayerOpener: () => ({ openPlayer: openPlayerMock }),
+}));
+
 import { SeriesRoute } from "./SeriesRoute";
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
@@ -135,15 +140,20 @@ describe("SeriesRoute", () => {
     ).toBeInTheDocument();
   });
 
-  it("clicking a card navigates to /series/:id", async () => {
+  it("clicking a card opens the player with kind=series-episode + id + title", async () => {
     fetchSeriesCategoriesMock.mockResolvedValue(mockCategories);
     fetchSeriesListMock.mockResolvedValue(mockItems);
+    openPlayerMock.mockClear();
 
     render(<SeriesRoute />);
     const card = await screen.findByRole("button", { name: /breaking bad/i });
     await userEvent.click(card);
 
-    expect(mockNavigate).toHaveBeenCalledWith("/series/s1");
+    expect(openPlayerMock).toHaveBeenCalledWith({
+      kind: "series-episode",
+      id: "s1",
+      title: expect.stringMatching(/breaking bad/i),
+    });
   });
 
   it("registers useFocusable with CONTENT_AREA_SERIES", async () => {

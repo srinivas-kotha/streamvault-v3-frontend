@@ -20,12 +20,12 @@ import {
   useFocusable,
   FocusContext,
 } from "@noriginmedia/norigin-spatial-navigation";
-import { useNavigate } from "react-router-dom";
 import { ErrorShell } from "../primitives/ErrorShell";
 import { Skeleton } from "../primitives/Skeleton";
 import { SeriesCategoryStrip } from "../features/series/SeriesCategoryStrip";
 import { SeriesGrid } from "../features/series/SeriesGrid";
 import { fetchSeriesCategories, fetchSeriesList } from "../api/series";
+import { usePlayerOpener } from "../player";
 import type { SeriesCategory, SeriesItem } from "../api/schemas";
 
 export function SeriesRoute() {
@@ -36,7 +36,7 @@ export function SeriesRoute() {
     focusable: false,
     trackChildren: true,
   });
-  const navigate = useNavigate();
+  const { openPlayer } = usePlayerOpener();
 
   const [categories, setCategories] = useState<SeriesCategory[]>([]);
   const [activeCategoryId, setActiveCategoryId] = useState<string | null>(null);
@@ -128,9 +128,14 @@ export function SeriesRoute() {
 
   const handleCardClick = useCallback(
     (seriesId: string) => {
-      navigate(`/series/${seriesId}`);
+      const item = items.find((s) => s.id === seriesId);
+      void openPlayer({
+        kind: "series-episode",
+        id: seriesId,
+        title: item?.name ?? "Episode",
+      });
     },
-    [navigate],
+    [items, openPlayer],
   );
 
   // ─── Render ──────────────────────────────────────────────────────────────
