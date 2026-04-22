@@ -18,6 +18,12 @@ const E2E_USER = process.env["E2E_USER"];
 const E2E_PASS = process.env["E2E_PASS"];
 
 test.describe("Auth E2E", () => {
+  // Retries on this suite only: webkit-desktop has been the single source of
+  // post-merge CI failures on a 5s `toHaveURL` — timing drift under slower
+  // WebKit routing transitions, not an app bug. Retry twice before marking
+  // fail; bump toHaveURL to 15s so the common case passes first try.
+  test.describe.configure({ retries: 2 });
+
   test("login with valid credentials stores token and shows app", async ({
     page,
   }) => {
@@ -25,7 +31,7 @@ test.describe("Auth E2E", () => {
     await page.fill("input#username", E2E_USER!);
     await page.fill("input#password", E2E_PASS!);
     await page.click('button[type="submit"]');
-    await expect(page).toHaveURL(/\/live/, { timeout: 5000 });
+    await expect(page).toHaveURL(/\/live/, { timeout: 15000 });
     const token = await page.evaluate(() =>
       sessionStorage.getItem("sv_access_token"),
     );
