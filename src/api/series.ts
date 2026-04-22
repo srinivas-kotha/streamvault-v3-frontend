@@ -3,8 +3,10 @@ import { apiClient } from "./client";
 import {
   SeriesCategorySchema,
   SeriesItemSchema,
+  SeriesInfoSchema,
   type SeriesCategory,
   type SeriesItem,
+  type SeriesInfo,
 } from "./schemas";
 
 /**
@@ -25,4 +27,15 @@ export async function fetchSeriesList(categoryId: string): Promise<SeriesItem[]>
     `/api/series/list/${encodeURIComponent(categoryId)}`,
   );
   return z.array(SeriesItemSchema).parse(raw);
+}
+
+/**
+ * Fetch full series info including seasons + episodes.
+ * Endpoint: GET /api/series/info/:id
+ */
+export async function fetchSeriesInfo(seriesId: string): Promise<SeriesInfo> {
+  const raw = await apiClient.get<unknown>(
+    `/api/series/info/${encodeURIComponent(seriesId)}`,
+  );
+  return SeriesInfoSchema.parse(raw);
 }

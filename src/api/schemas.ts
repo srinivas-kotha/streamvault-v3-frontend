@@ -96,6 +96,64 @@ export const SeriesPreviewSchema = z.object({
 });
 export type SeriesPreview = z.infer<typeof SeriesPreviewSchema>;
 
+// ─── Series detail schemas ────────────────────────────────────────────────────
+// Mirrors provider.types.ts SeasonInfo, EpisodeInfo, and CatalogItemDetail
+// (the full shape returned by GET /api/series/info/:id via adaptSeriesInfo).
+
+/**
+ * SeasonInfoSchema — mirrors backend provider.types.ts SeasonInfo (lines 41–46).
+ */
+export const SeasonInfoSchema = z.object({
+  seasonNumber: z.number(),
+  name: z.string(),
+  episodeCount: z.number(),
+  icon: z.string().optional(),
+});
+export type SeasonInfo = z.infer<typeof SeasonInfoSchema>;
+
+/**
+ * EpisodeInfoSchema — mirrors backend provider.types.ts EpisodeInfo (lines 48–58).
+ */
+export const EpisodeInfoSchema = z.object({
+  id: z.string(),
+  episodeNumber: z.number(),
+  title: z.string(),
+  containerExtension: z.string().optional(),
+  duration: z.number().optional(),
+  plot: z.string().optional(),
+  rating: z.string().optional(),
+  icon: z.string().optional(),
+  added: z.string().optional(),
+});
+export type EpisodeInfo = z.infer<typeof EpisodeInfoSchema>;
+
+/**
+ * SeriesInfoSchema — full detail shape from GET /api/series/info/:id.
+ * Extends SeriesItemSchema with plot, backdropUrl, cast, director, seasons[],
+ * and episodes keyed by season number string.
+ * Mirrors backend CatalogItemDetail (provider.types.ts lines 60–71).
+ */
+export const SeriesInfoSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  categoryId: z.string(),
+  icon: z.string().nullable().optional(),
+  added: z.string().nullable().optional(),
+  isAdult: z.boolean().optional(),
+  rating: RatingSchema,
+  genre: z.string().optional(),
+  year: z.string().optional(),
+  // Detail-only fields
+  plot: z.string().optional(),
+  cast: z.string().optional(),
+  director: z.string().optional(),
+  backdropUrl: z.string().optional(),
+  tmdbId: z.string().optional(),
+  seasons: z.array(SeasonInfoSchema).optional(),
+  episodes: z.record(z.string(), z.array(EpisodeInfoSchema)).optional(),
+});
+export type SeriesInfo = z.infer<typeof SeriesInfoSchema>;
+
 // ─── Phase 6: Series browse schemas ─────────────────────────────────────────
 
 /**

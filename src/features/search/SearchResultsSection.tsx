@@ -2,22 +2,26 @@
  * SearchResultsSection — a single labelled row of search result cards.
  *
  * Each card uses useFocusable with key `SEARCH_RESULT_<TYPE>_<ID>`.
- * Enter navigates to the content's detail route (which may not yet exist —
- * the router falls through gracefully).
+ * Enter navigates/plays based on content type:
+ *   - series  → navigate to /series/:id (detail + episode picker)
+ *   - live    → openPlayer directly
+ *   - vod     → openPlayer directly
  *
  * Lazy images with --bg-surface placeholder for missing icons.
  */
 import type { RefObject } from "react";
+import { useNavigate } from "react-router-dom";
 import { useFocusable } from "@noriginmedia/norigin-spatial-navigation";
 import { usePlayerOpener } from "../../player";
 import type { CatalogItem } from "../../api/schemas";
 import type { PlayerKind } from "../../player/PlayerProvider";
 
 // Map backend content type → player kind. "vod" is the VOD movies shelf.
+// "series" is intentionally omitted — series hits navigate to the detail
+// route rather than opening the player directly.
 const KIND_MAP: Record<string, PlayerKind> = {
   live: "live",
   vod: "vod",
-  series: "series-episode",
 };
 
 interface SearchCardProps {
@@ -26,26 +30,29 @@ interface SearchCardProps {
 
 function SearchCard({ item }: SearchCardProps) {
   const { openPlayer } = usePlayerOpener();
+  const navigate = useNavigate();
   const focusKey = `SEARCH_RESULT_${item.type.toUpperCase()}_${item.id}`;
 
-  // Enter on a search result opens the player overlay directly — there is
-  // no detail page yet and the previous behaviour (navigate to a non-
-  // existent route) produced a blank screen.
-  const playItem = () => {
+  const activateItem = () => {
+    if (item.type === "series") {
+      // Series hits go to the detail page — not the player.
+      navigate(`/series/${encodeURIComponent(item.id)}`);
+      return;
+    }
     const kind = KIND_MAP[item.type] ?? "vod";
     void openPlayer({ kind, id: item.id, title: item.name });
   };
 
   const { ref, focused } = useFocusable<HTMLButtonElement>({
     focusKey,
-    onEnterPress: playItem,
+    onEnterPress: activateItem,
   });
 
   return (
     <button
       ref={ref as RefObject<HTMLButtonElement>}
       type="button"
-      onClick={playItem}
+      onClick={activateItem}
       aria-label={item.name}
       style={{
         flex: "0 0 auto",

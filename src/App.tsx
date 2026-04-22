@@ -26,6 +26,7 @@ import { SearchRoute } from "./routes/SearchRoute";
 import { SettingsRoute } from "./routes/SettingsRoute";
 import { FavoritesRoute } from "./routes/FavoritesRoute";
 import { HistoryRoute } from "./routes/HistoryRoute";
+import { SeriesDetailRoute } from "./routes/SeriesDetailRoute";
 import { TestPrimitivesRoute } from "./routes";
 import { SilkProbe } from "./nav/SilkProbe";
 import { LoginPage } from "./features/auth/LoginPage";
@@ -128,6 +129,7 @@ function AppShell() {
         <Route path="/live" element={<LiveRoute />} />
         <Route path="/movies" element={<MoviesRoute />} />
         <Route path="/series" element={<SeriesRoute />} />
+        <Route path="/series/:id" element={<SeriesDetailRoute />} />
         <Route path="/search" element={<SearchRoute />} />
         <Route path="/settings" element={<SettingsRoute />} />
         <Route path="/favorites" element={<FavoritesRoute />} />
