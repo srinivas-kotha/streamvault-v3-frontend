@@ -18,10 +18,12 @@ describe("LoginPage", () => {
     expect(screen.getByRole("button", { name: /sign in/i })).toBeDefined();
   });
 
-  it("calls onLoginSuccess + stores tokens on valid login", async () => {
-    vi.spyOn(authApi, "login").mockResolvedValue({
-      accessToken: "a.b.c",
-      refreshToken: "r1",
+  it("calls onLoginSuccess on valid cookie-based login", async () => {
+    // Mock login() to imitate real behavior: set session sentinel + return
+    // the cookie-based LoginResponse shape.
+    vi.spyOn(authApi, "login").mockImplementation(async (username) => {
+      apiClient.setSession(username);
+      return { message: "Login successful", userId: 1, username };
     });
     const onSuccess = vi.fn();
     render(<LoginPage onLoginSuccess={onSuccess} />);
@@ -33,8 +35,7 @@ describe("LoginPage", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /sign in/i }));
     await waitFor(() => expect(onSuccess).toHaveBeenCalled());
-    expect(sessionStorage.getItem("sv_access_token")).toBe("a.b.c");
-    expect(localStorage.getItem("sv_refresh_token")).toBe("r1");
+    expect(apiClient.hasSession()).toBe(true);
   });
 
   it("shows role=alert on login failure", async () => {
@@ -50,7 +51,7 @@ describe("LoginPage", () => {
     await waitFor(() => {
       expect(screen.getByRole("alert").textContent).toMatch(/invalid/i);
     });
-    // No token stored on failure
-    expect(apiClient.getRefreshToken()).toBeNull();
+    // No session stored on failure.
+    expect(apiClient.hasSession()).toBe(false);
   });
 });
