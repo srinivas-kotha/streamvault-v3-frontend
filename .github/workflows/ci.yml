@@ -2,26 +2,270 @@ name: CI
 on: [push, pull_request]
 permissions:
   contents: read
+
 jobs:
   test:
+    name: Lint + unit tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with: { node-version: "20", cache: "npm" }
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npx eslint src --max-warnings 0
       - run: npx vitest run --coverage --passWithNoTests
-      - run: npx playwright install --with-deps chromium webkit
-      - name: Run Playwright
-        env:
-          E2E_USER: ${{ secrets.E2E_USER }}
-          E2E_PASS: ${{ secrets.E2E_PASS }}
-        run: npx playwright test
       - name: Bundle budget check
         run: |
           npm run build
           # Non-player initial bundle < 400 KB gzip (hls.js excluded from initial load)
           # Player route < 200 KB gzip
           node scripts/check-bundle-budget.js
+
+  e2e:
+    name: Playwright E2E vs real backend
+    runs-on: ubuntu-latest
+    needs: test
+    # Real backend (streamvault-backend) is stood up as a local process in
+    # XTREAM_MOCK mode, fronted by a pgvector Postgres service container.
+    # See PR that introduced this job — pairs with backend PR
+    # "feat(xtream): add XTREAM_MOCK=true mode for CI tests".
+    services:
+      postgres:
+        image: ankane/pgvector:latest
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: streamvault
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U ci -d streamvault"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      # Postgres — backend reads these directly via config.ts
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ci
+      POSTGRES_PASSWORD: ci
+      POSTGRES_DB: streamvault
+      # Xtream — fake values only. Outbound calls are short-circuited by
+      # XTREAM_MOCK=true in the backend.
+      XTREAM_MOCK: "true"
+      XTREAM_HOST: ci-xtream.invalid
+      XTREAM_PORT: "80"
+      XTREAM_USERNAME: ci-test
+      XTREAM_PASSWORD: ci-test
+      # JWT — ephemeral secrets generated per-run below.
+      NODE_ENV: test
+      PORT: "3001"
+      CORS_ORIGIN: http://localhost:5173
+      # Frontend talks to the backend on localhost:3001
+      VITE_API_BASE_URL: http://localhost:3001
+    steps:
+      - name: Checkout v3 frontend
+        uses: actions/checkout@v5
+        with:
+          path: frontend
+
+      - name: Checkout backend (main)
+        uses: actions/checkout@v5
+        with:
+          repository: srinivas-kotha/streamvault-backend
+          ref: main
+          path: backend
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+
+      # --- Postgres schema ---------------------------------------------------
+      # Mirror of ai-orchestration/postgres/20-streamvault-schema.sql (the real
+      # deployment's init script) plus backend/postgres/03-phase3-services.sql
+      # — enough for the backend to boot cleanly (recoverDownloadQueue,
+      # catalog + EPG services all query sv_* tables at startup).
+      - name: Apply StreamVault schema
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends postgresql-client
+          PGPASSWORD=ci psql -h localhost -U ci -d streamvault <<'SQL'
+          CREATE TABLE IF NOT EXISTS sv_users (
+              id SERIAL PRIMARY KEY,
+              username TEXT UNIQUE NOT NULL,
+              password_hash TEXT NOT NULL,
+              display_name TEXT,
+              created_at TIMESTAMPTZ DEFAULT NOW(),
+              updated_at TIMESTAMPTZ DEFAULT NOW()
+          );
+          CREATE TABLE IF NOT EXISTS sv_refresh_tokens (
+              id SERIAL PRIMARY KEY,
+              user_id INTEGER NOT NULL REFERENCES sv_users(id) ON DELETE CASCADE,
+              token_hash TEXT UNIQUE NOT NULL,
+              expires_at TIMESTAMPTZ NOT NULL,
+              created_at TIMESTAMPTZ DEFAULT NOW(),
+              revoked BOOLEAN DEFAULT FALSE
+          );
+          CREATE INDEX IF NOT EXISTS idx_sv_refresh_tokens_hash ON sv_refresh_tokens(token_hash);
+
+          CREATE TABLE IF NOT EXISTS sv_favorites (
+              id SERIAL PRIMARY KEY,
+              user_id INTEGER NOT NULL REFERENCES sv_users(id) ON DELETE CASCADE,
+              content_type TEXT NOT NULL CHECK (content_type IN ('channel', 'vod', 'series')),
+              content_id INTEGER NOT NULL,
+              content_name TEXT,
+              content_icon TEXT,
+              category_name TEXT,
+              sort_order INTEGER DEFAULT 0,
+              added_at TIMESTAMPTZ DEFAULT NOW(),
+              UNIQUE(user_id, content_type, content_id)
+          );
+
+          CREATE TABLE IF NOT EXISTS sv_watch_history (
+              id SERIAL PRIMARY KEY,
+              user_id INTEGER NOT NULL REFERENCES sv_users(id) ON DELETE CASCADE,
+              content_type TEXT NOT NULL CHECK (content_type IN ('channel', 'vod', 'series')),
+              content_id INTEGER NOT NULL,
+              content_name TEXT,
+              content_icon TEXT,
+              progress_seconds INTEGER DEFAULT 0,
+              duration_seconds INTEGER DEFAULT 0,
+              watched_at TIMESTAMPTZ DEFAULT NOW(),
+              UNIQUE(user_id, content_type, content_id)
+          );
+          CREATE INDEX IF NOT EXISTS idx_sv_history_user ON sv_watch_history(user_id, watched_at DESC);
+
+          CREATE TABLE IF NOT EXISTS sv_downloads (
+              id SERIAL PRIMARY KEY,
+              user_id INTEGER NOT NULL REFERENCES sv_users(id) ON DELETE CASCADE,
+              vod_id INTEGER NOT NULL,
+              vod_name TEXT NOT NULL,
+              file_path TEXT,
+              file_size_bytes BIGINT DEFAULT 0,
+              status TEXT DEFAULT 'queued' CHECK (status IN ('queued','downloading','completed','failed','cancelled')),
+              progress_percent REAL DEFAULT 0,
+              error_message TEXT,
+              queued_at TIMESTAMPTZ DEFAULT NOW(),
+              started_at TIMESTAMPTZ,
+              completed_at TIMESTAMPTZ
+          );
+
+          CREATE TABLE IF NOT EXISTS sv_recordings (
+              id SERIAL PRIMARY KEY,
+              user_id INTEGER NOT NULL REFERENCES sv_users(id) ON DELETE CASCADE,
+              channel_id INTEGER NOT NULL,
+              channel_name TEXT NOT NULL,
+              scheduled_start TIMESTAMPTZ NOT NULL,
+              duration_minutes INTEGER NOT NULL,
+              file_path TEXT,
+              file_size_bytes BIGINT DEFAULT 0,
+              status TEXT DEFAULT 'scheduled' CHECK (status IN ('scheduled','recording','completed','failed','cancelled')),
+              error_message TEXT,
+              created_at TIMESTAMPTZ DEFAULT NOW(),
+              completed_at TIMESTAMPTZ
+          );
+          CREATE INDEX IF NOT EXISTS idx_sv_recordings_schedule ON sv_recordings(scheduled_start) WHERE status = 'scheduled';
+
+          CREATE TABLE IF NOT EXISTS sv_settings (
+              id SERIAL PRIMARY KEY,
+              user_id INTEGER NOT NULL REFERENCES sv_users(id) ON DELETE CASCADE,
+              key TEXT NOT NULL,
+              value JSONB DEFAULT '{}',
+              UNIQUE(user_id, key)
+          );
+
+          CREATE TABLE IF NOT EXISTS sv_epg_cache (
+              id SERIAL PRIMARY KEY,
+              channel_epg_id TEXT NOT NULL,
+              title TEXT NOT NULL,
+              description TEXT,
+              start_time TIMESTAMPTZ NOT NULL,
+              end_time TIMESTAMPTZ NOT NULL,
+              cached_at TIMESTAMPTZ DEFAULT NOW()
+          );
+          CREATE INDEX IF NOT EXISTS idx_sv_epg_channel ON sv_epg_cache(channel_epg_id, start_time);
+          SQL
+
+      - name: Apply Phase 3 service tables (backend-owned migrations)
+        run: |
+          PGPASSWORD=ci psql -h localhost -U ci -d streamvault -f backend/postgres/03-phase3-services.sql
+
+      # --- Backend: install, build, seed, run --------------------------------
+      - name: Install backend deps
+        working-directory: backend
+        run: npm ci
+
+      - name: Build backend
+        working-directory: backend
+        run: npm run build
+
+      - name: Generate ephemeral JWT secrets
+        run: |
+          echo "JWT_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+          echo "JWT_REFRESH_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+
+      - name: Seed E2E test user
+        working-directory: backend
+        env:
+          ADMIN_USERNAME: ${{ secrets.E2E_USER }}
+          ADMIN_INITIAL_PASSWORD: ${{ secrets.E2E_PASS }}
+        run: node dist/scripts/seed-admin.js
+
+      - name: Start backend in background
+        working-directory: backend
+        run: |
+          nohup node dist/index.js > backend.log 2>&1 &
+          echo $! > backend.pid
+
+      - name: Wait for backend /health
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:3001/health >/dev/null 2>&1; then
+              echo "Backend up after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Backend failed to come up — last 200 log lines:"
+          tail -n 200 backend/backend.log || true
+          exit 1
+
+      # --- Frontend: install, playwright, run --------------------------------
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium webkit
+
+      - name: Run Playwright E2E
+        working-directory: frontend
+        env:
+          E2E_USER: ${{ secrets.E2E_USER }}
+          E2E_PASS: ${{ secrets.E2E_PASS }}
+        run: npx playwright test
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report
+          retention-days: 7
+
+      - name: Upload backend log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-log
+          path: backend/backend.log
+          retention-days: 7
+
+      - name: Stop backend
+        if: always()
+        run: |
+          if [ -f backend/backend.pid ]; then
+            kill "$(cat backend/backend.pid)" 2>/dev/null || true
+          fi
