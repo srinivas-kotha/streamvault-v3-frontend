@@ -12,6 +12,13 @@
  */
 import { test, expect } from "@playwright/test";
 
+// Match auth.spec.ts: fail loud if creds are missing instead of silently
+// falling back to a value that doesn't exist in the seeded CI DB. The prior
+// `?? "admin"` fallback hid a mismatched env-var name (E2E_USERNAME vs
+// E2E_USER) for an unknown duration — login just timed out on /live.
+const E2E_USER = process.env["E2E_USER"];
+const E2E_PASS = process.env["E2E_PASS"];
+
 test.describe.serial("Player smoke (prod)", () => {
   test(
     "login → /live → select channel → video element mounts",
@@ -30,8 +37,8 @@ test.describe.serial("Player smoke (prod)", () => {
         .locator('button[type="submit"]')
         .or(page.getByRole("button", { name: /sign in|log in|login/i }));
 
-      await usernameInput.fill(process.env["E2E_USERNAME"] ?? "admin");
-      await passwordInput.fill(process.env["E2E_PASSWORD"] ?? "admin");
+      await usernameInput.fill(E2E_USER!);
+      await passwordInput.fill(E2E_PASS!);
       await submitButton.click();
 
       // ── 2. Navigate to /live ───────────────────────────────────────────────
