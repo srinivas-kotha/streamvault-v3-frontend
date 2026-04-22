@@ -38,7 +38,14 @@ import type { VodCategory, VodStream } from "../api/schemas";
 
 export function MoviesRoute() {
   // MUST PRESERVE: norigin root registration for the content area.
-  const { ref, focusKey } = useFocusable({ focusKey: "CONTENT_AREA_MOVIES" });
+  // trackChildren + non-focusable container: when BottomDock fires
+  // setFocus("CONTENT_AREA_MOVIES") on ArrowUp, norigin forwards focus to the
+  // first child (category chip or poster) rather than staying on the shell.
+  const { ref, focusKey } = useFocusable({
+    focusKey: "CONTENT_AREA_MOVIES",
+    focusable: false,
+    trackChildren: true,
+  });
 
   const [categories, setCategories] = useState<VodCategory[]>([]);
   const [streams, setStreams] = useState<VodStream[]>([]);

@@ -2,6 +2,7 @@
 import {
   useFocusable,
   FocusContext,
+  setFocus,
 } from "@noriginmedia/norigin-spatial-navigation";
 
 export type DockItem = "live" | "movies" | "series" | "search" | "settings";
@@ -92,9 +93,24 @@ function DockTab({
   // Task 2.4: explicit focusKey per tab. Without this, norigin can't uniquely
   // identify siblings under DOCK, so ArrowRight can't route spatial focus —
   // verified via E2E debug (pre-fix, ArrowRight stayed on the initial tab).
+  //
+  // 2026-04-22 followup: norigin's geometric ArrowUp from the dock only finds
+  // a candidate above when content-area focusables are already registered.
+  // Race window: initial paint + data fetch + useEffect registration can take
+  // a second or two, and during that window ArrowUp is a no-op — the user
+  // feels stuck. Handle ArrowUp explicitly: setFocus to the active route's
+  // CONTENT_AREA_* container, which has trackChildren:true so norigin forwards
+  // focus into the grid/list instead of staying pinned on the dock.
   const { ref, focused } = useFocusable({
     focusKey: `DOCK_${item.id.toUpperCase()}`,
     onEnterPress: onSelect,
+    onArrowPress: (direction) => {
+      if (direction === "up") {
+        setFocus(`CONTENT_AREA_${item.id.toUpperCase()}`);
+        return false; // consume the event — we've handled it
+      }
+      return true; // let norigin handle left/right/down
+    },
   });
   const active = isActive || focused;
 
