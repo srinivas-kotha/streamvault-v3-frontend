@@ -136,6 +136,16 @@ export class ApiClient {
   }
 }
 
+// In production (Vite `npm run build`), fetch same-origin — nginx.conf
+// proxies `/api/*` to the backend container. Hard-coding `localhost:3001`
+// as the build-time default shipped a bundle that tried to talk to the
+// user's own laptop on prod, which CSP `connect-src 'self' https:` blocked
+// — the error got laundered into "Invalid username or password" by the
+// login catch, masking the real bug. `import.meta.env.DEV` is true ONLY
+// for `npm run dev`, so Vite-built artefacts always take the empty-base
+// branch.
+const DEFAULT_BASE_URL = import.meta.env.DEV ? "http://localhost:3001" : "";
+
 export const apiClient = new ApiClient(
-  import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3001",
+  import.meta.env.VITE_API_BASE_URL ?? DEFAULT_BASE_URL,
 );
