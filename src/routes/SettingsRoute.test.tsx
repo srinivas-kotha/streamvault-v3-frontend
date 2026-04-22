@@ -165,7 +165,9 @@ describe("Preferences localStorage persistence", () => {
     // Hindi appears in both subtitle and audio rows — first is subtitle
     const chips = screen.getAllByRole("button", { name: /hindi/i });
     // First Hindi chip is subtitle, second is audio
-    await user.click(chips[0]);
+    const subtitleChip = chips[0];
+    if (!subtitleChip) throw new Error("expected at least one hindi chip");
+    await user.click(subtitleChip);
 
     expect(localStorage.getItem("sv_pref_subtitle")).toBe("hi");
   });

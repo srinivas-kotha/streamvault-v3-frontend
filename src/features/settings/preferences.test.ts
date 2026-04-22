@@ -51,7 +51,7 @@ describe("subscribePref", () => {
 
     setPref("subtitle", "en");
     expect(spy).toHaveBeenCalledTimes(1);
-    expect(spy.mock.calls[0][0].subtitle).toBe("en");
+    expect(spy.mock.calls[0]?.[0].subtitle).toBe("en");
 
     unsub();
     setPref("subtitle", "ta");
@@ -65,8 +65,8 @@ describe("subscribePref", () => {
     subscribePref(spy);
 
     setPref("quality", "1080p");
-    const snapshot = spy.mock.calls[0][0];
-    expect(snapshot.audio).toBe("hi"); // previously set
-    expect(snapshot.quality).toBe("1080p");
+    const snapshot = spy.mock.calls[0]?.[0];
+    expect(snapshot?.audio).toBe("hi"); // previously set
+    expect(snapshot?.quality).toBe("1080p");
   });
 });
