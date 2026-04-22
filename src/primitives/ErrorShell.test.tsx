@@ -88,9 +88,10 @@ describe("ErrorShell", () => {
 
   it("registers ERROR_RETRY as a norigin focus key", () => {
     render(<ErrorShell title="Error" subtext="msg" onRetry={() => {}} />);
-    const retryCall = useFocusableSpy.mock.calls.find(
-      ([opts]: [{ focusKey?: string }]) => opts?.focusKey === "ERROR_RETRY",
-    );
+    const calls = useFocusableSpy.mock.calls as Array<
+      [{ focusable?: boolean; focusKey?: string; onEnterPress?: () => void }]
+    >;
+    const retryCall = calls.find((c) => c[0]?.focusKey === "ERROR_RETRY");
     expect(retryCall).toBeDefined();
     expect(retryCall![0]).toMatchObject({
       focusable: true,
@@ -107,9 +108,10 @@ describe("ErrorShell", () => {
         onBack={() => {}}
       />,
     );
-    const backCall = useFocusableSpy.mock.calls.find(
-      ([opts]: [{ focusKey?: string }]) => opts?.focusKey === "ERROR_BACK",
-    );
+    const calls = useFocusableSpy.mock.calls as Array<
+      [{ focusKey?: string }]
+    >;
+    const backCall = calls.find((c) => c[0]?.focusKey === "ERROR_BACK");
     expect(backCall).toBeDefined();
   });
 
@@ -122,18 +124,20 @@ describe("ErrorShell", () => {
         onReport={() => {}}
       />,
     );
-    const reportCall = useFocusableSpy.mock.calls.find(
-      ([opts]: [{ focusKey?: string }]) => opts?.focusKey === "ERROR_REPORT",
-    );
+    const calls = useFocusableSpy.mock.calls as Array<
+      [{ focusKey?: string }]
+    >;
+    const reportCall = calls.find((c) => c[0]?.focusKey === "ERROR_REPORT");
     expect(reportCall).toBeDefined();
   });
 
   it("wires onEnterPress for Retry to the onRetry callback", () => {
     const retry = vi.fn();
     render(<ErrorShell title="E" subtext="s" onRetry={retry} />);
-    const retryCall = useFocusableSpy.mock.calls.find(
-      ([opts]: [{ focusKey?: string }]) => opts?.focusKey === "ERROR_RETRY",
-    );
+    const calls = useFocusableSpy.mock.calls as Array<
+      [{ focusKey?: string; onEnterPress?: () => void }]
+    >;
+    const retryCall = calls.find((c) => c[0]?.focusKey === "ERROR_RETRY");
     expect(retryCall![0].onEnterPress).toBe(retry);
   });
 });

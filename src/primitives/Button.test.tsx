@@ -98,17 +98,20 @@ describe("Button", () => {
 
   it("registers with norigin as a D-pad target when focusKey is provided", () => {
     render(<Button focusKey="TEST_KEY">Go</Button>);
-    const call = useFocusableSpy.mock.calls.find(
-      ([opts]: [{ focusKey?: string }]) => opts?.focusKey === "TEST_KEY",
-    );
+    const calls = useFocusableSpy.mock.calls as Array<
+      [{ focusable?: boolean; focusKey?: string; onEnterPress?: () => void }]
+    >;
+    const call = calls.find((c) => c[0]?.focusKey === "TEST_KEY");
     expect(call).toBeDefined();
     expect(call![0]).toMatchObject({ focusable: true, focusKey: "TEST_KEY" });
   });
 
   it("is NOT a D-pad target when focusKey is omitted (backwards-compat)", () => {
     render(<Button>No remote</Button>);
-    const call = useFocusableSpy.mock.calls[0] as [{ focusable?: boolean }];
-    expect(call[0].focusable).toBe(false);
+    const calls = useFocusableSpy.mock.calls as Array<
+      [{ focusable?: boolean }]
+    >;
+    expect(calls[0]?.[0]?.focusable).toBe(false);
   });
 
   it("wires onEnterPress to norigin when focusKey is provided", () => {
@@ -118,9 +121,10 @@ describe("Button", () => {
         Go
       </Button>,
     );
-    const call = useFocusableSpy.mock.calls.find(
-      ([opts]: [{ focusKey?: string }]) => opts?.focusKey === "SUBMIT",
-    );
+    const calls = useFocusableSpy.mock.calls as Array<
+      [{ focusKey?: string; onEnterPress?: () => void }]
+    >;
+    const call = calls.find((c) => c[0]?.focusKey === "SUBMIT");
     expect(call![0].onEnterPress).toBe(handler);
   });
 });

@@ -73,10 +73,13 @@ export function Button({
   onEnterPress,
   ...rest
 }: ButtonProps): React.ReactElement {
+  // Conditionally spread `onEnterPress` so the prop key is omitted entirely
+  // when the caller didn't pass one — norigin's `EnterPressHandler` type
+  // disallows `undefined`, and the repo has `exactOptionalPropertyTypes` on.
   const { ref, focused } = useFocusable<HTMLButtonElement>({
     focusable: Boolean(focusKey),
     focusKey: focusKey ?? "",
-    onEnterPress,
+    ...(onEnterPress ? { onEnterPress } : {}),
   });
   const classes = cx(
     "btn",

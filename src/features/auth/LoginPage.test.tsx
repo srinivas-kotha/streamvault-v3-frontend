@@ -83,9 +83,10 @@ describe("LoginPage", () => {
 
   it("registers LOGIN_USERNAME + LOGIN_PASSWORD + LOGIN_SUBMIT focus keys", () => {
     render(<LoginPage onLoginSuccess={() => {}} />);
-    const keys = useFocusableSpy.mock.calls
-      .map(([opts]: [{ focusKey?: string }]) => opts?.focusKey)
-      .filter(Boolean);
+    const calls = useFocusableSpy.mock.calls as Array<
+      [{ focusKey?: string }]
+    >;
+    const keys = calls.map((c) => c[0]?.focusKey).filter(Boolean);
     expect(keys).toEqual(
       expect.arrayContaining([
         "LOGIN_USERNAME",
