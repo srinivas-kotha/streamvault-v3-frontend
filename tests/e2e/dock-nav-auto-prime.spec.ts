@@ -19,7 +19,9 @@ test.describe("BottomDock auto-prime (AppShell useEffect)", () => {
     await seedFakeAuth(page);
     await page.goto("/live");
     // Let norigin init + useFocusable registrations + AppShell useEffect run.
-    await page.waitForTimeout(500);
+    // The prime has a 100ms defer + up to 10 retries at 50ms = ~600ms worst
+    // case; 1500ms gives plenty of head room.
+    await page.waitForTimeout(1500);
   });
 
   test("focus lands on DOCK_LIVE on first paint without manual priming", async ({
@@ -68,7 +70,7 @@ test.describe("BottomDock auto-prime (AppShell useEffect)", () => {
     page,
   }) => {
     await page.goto("/movies");
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(1500);
     const label = await page.evaluate(() =>
       document.activeElement?.getAttribute("aria-label"),
     );
