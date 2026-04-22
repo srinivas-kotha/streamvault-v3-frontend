@@ -1,15 +1,24 @@
 name: Deploy
 
+# Triggers:
+#   - workflow_run: auto-deploy after CI passes on main
+#   - workflow_dispatch: ESCAPE HATCH — manual trigger from the Actions UI when
+#     CI is silently broken on a non-app-code issue (flaky tests, missing
+#     baselines, etc). Production was frozen 2026-04-22 14:08 → 23:xx because
+#     no manual override existed; this prevents that recurring.
 on:
   workflow_run:
     workflows: [CI]
     types: [completed]
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    # workflow_run path: only deploy if CI succeeded.
+    # workflow_dispatch path: always run (operator explicitly chose to deploy).
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     environment: production
     steps:
       - name: Deploy to VPS
