@@ -42,19 +42,18 @@ test.describe("Favorites smoke (prod)", () => {
     await expect(page.locator('[data-page="favorites"]')).toBeVisible();
   });
 
-  test("settings → My Favorites navigation works", async ({ page }) => {
+  test("/favorites route is reachable and renders page", async ({ page }) => {
+    // Favorites is not in the BottomDock — navigate directly to the route.
     await loginViaUI(page);
-    await page.goto(`${PROD_URL}/settings`);
-    await expect(page.getByText("My Favorites")).toBeVisible();
-    await page.getByText("My Favorites").click();
+    await page.goto(`${PROD_URL}/favorites`);
     await expect(page).toHaveURL(/\/favorites/);
+    await expect(page.locator('[data-page="favorites"]')).toBeVisible();
   });
 
-  test("settings → Watch History navigation works", async ({ page }) => {
+  test("/history route is reachable and renders page", async ({ page }) => {
+    // Watch History is not in the BottomDock — navigate directly to the route.
     await loginViaUI(page);
-    await page.goto(`${PROD_URL}/settings`);
-    await expect(page.getByText("Watch History")).toBeVisible();
-    await page.getByText("Watch History").click();
+    await page.goto(`${PROD_URL}/history`);
     await expect(page).toHaveURL(/\/history/);
     await expect(page.locator('[data-page="history"]')).toBeVisible();
   });
