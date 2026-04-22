@@ -241,6 +241,8 @@ function DangerSection() {
 export function SettingsRoute() {
   const { ref, focusKey } = useFocusable({
     focusKey: "CONTENT_AREA_SETTINGS",
+    focusable: false,
+    trackChildren: true,
   });
 
   // onLoggedOut is a no-op here — the redirect in AccountSection handles navigation.

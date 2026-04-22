@@ -93,7 +93,15 @@ export function LiveRoute() {
   // MUST PRESERVE: norigin root registration for the content area.
   // Dropping this breaks BottomDock's setFocus("CONTENT_AREA_LIVE") Esc flow
   // wired in Task 2.4.
-  const { ref, focusKey } = useFocusable({ focusKey: "CONTENT_AREA_LIVE" });
+  // trackChildren + non-focusable container: when BottomDock fires
+  // setFocus("CONTENT_AREA_LIVE") on ArrowUp, norigin forwards focus to the
+  // first registered child (toolbar sort button or a channel row) instead of
+  // staying pinned on the container itself.
+  const { ref, focusKey } = useFocusable({
+    focusKey: "CONTENT_AREA_LIVE",
+    focusable: false,
+    trackChildren: true,
+  });
   const { openPlayer } = usePlayerOpener();
 
   const [channels, setChannels] = useState<Channel[]>([]);

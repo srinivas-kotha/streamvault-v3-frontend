@@ -114,7 +114,11 @@ function useSearchQuery(debouncedQuery: string) {
 export function SearchRoute() {
   // MUST PRESERVE: norigin root registration for the content area.
   // Dropping this breaks BottomDock's setFocus("CONTENT_AREA_SEARCH") Esc flow.
-  const { ref, focusKey } = useFocusable({ focusKey: "CONTENT_AREA_SEARCH" });
+  const { ref, focusKey } = useFocusable({
+    focusKey: "CONTENT_AREA_SEARCH",
+    focusable: false,
+    trackChildren: true,
+  });
 
   const [query, setQuery] = useState("");
   const debouncedQuery = useDebounce(query, 300);

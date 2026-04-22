@@ -210,6 +210,8 @@ function RemoveButton({
 export function HistoryRoute() {
   const { ref, focusKey } = useFocusable({
     focusKey: "CONTENT_AREA_HISTORY",
+    focusable: false,
+    trackChildren: true,
   });
   const navigate = useNavigate();
   const { history, loading, error, remove, reload } = useWatchHistory();

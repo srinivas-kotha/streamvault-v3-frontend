@@ -191,6 +191,8 @@ function FavoriteSection({
 export function FavoritesRoute() {
   const { ref, focusKey } = useFocusable({
     focusKey: "CONTENT_AREA_FAVORITES",
+    focusable: false,
+    trackChildren: true,
   });
   const navigate = useNavigate();
   const { favorites, loading, error, toggle, reload } = useFavorites();

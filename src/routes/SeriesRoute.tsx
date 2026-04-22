@@ -31,7 +31,11 @@ import type { SeriesCategory, SeriesItem } from "../api/schemas";
 export function SeriesRoute() {
   // MUST PRESERVE: norigin root registration for the content area.
   // Dropping this breaks BottomDock's setFocus("CONTENT_AREA_SERIES") Esc flow.
-  const { ref, focusKey } = useFocusable({ focusKey: "CONTENT_AREA_SERIES" });
+  const { ref, focusKey } = useFocusable({
+    focusKey: "CONTENT_AREA_SERIES",
+    focusable: false,
+    trackChildren: true,
+  });
   const navigate = useNavigate();
 
   const [categories, setCategories] = useState<SeriesCategory[]>([]);
