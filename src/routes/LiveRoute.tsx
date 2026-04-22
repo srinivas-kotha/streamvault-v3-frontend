@@ -131,46 +131,15 @@ export function LiveRoute() {
     setLanguageFilter(lang);
   }, []);
 
-  // Language → category-name match patterns. Matched case-insensitively against
-  // the channel's resolved category name (falls back to channel name for
-  // categories we can't resolve).
-  const LANGUAGE_PATTERNS: Record<Exclude<LangId, "all">, string[]> = {
-    telugu: ["telugu"],
-    hindi: ["hindi", "india entertainment", "indian", "bollywood"],
-    english: ["english", "netflix", "amazon", "hbo", "usa ", "uk "],
-    sports: [
-      "sport",
-      "sports",
-      "football",
-      "cricket",
-      "tennis",
-      "nba",
-      "nfl",
-      "mlb",
-      "epl",
-      "ipl",
-      "rugby",
-      "f1",
-      "racing",
-    ],
-  };
-
-  // Resolve category name once per channel set for fast lookup.
-  const catNameById = new Map<string, string>();
-  for (const c of categories) catNameById.set(c.id, c.name);
-
+  // Language filter — uses the server-provided `inferredLang` field (issue #52).
+  // When `inferredLang` is absent (e.g. older backend) or null (no pattern
+  // matched), the channel passes through when the filter is "all"; it is hidden
+  // for any specific language selection (safe degradation: untagged items do not
+  // appear under a language they haven't been tagged to).
   const filteredChannels =
     languageFilter === "all"
       ? channels
-      : channels.filter((ch) => {
-          const hay = (
-            catNameById.get(ch.categoryId) ??
-            ch.categoryId
-          ).toLowerCase();
-          return LANGUAGE_PATTERNS[languageFilter].some((pat) =>
-            hay.includes(pat),
-          );
-        });
+      : channels.filter((ch) => ch.inferredLang === languageFilter);
 
   const sorted = useSortedChannels(filteredChannels, sortBy, categories);
 

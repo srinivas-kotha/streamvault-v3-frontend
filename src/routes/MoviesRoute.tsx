@@ -12,9 +12,9 @@
  * stacked rows — option (a)). CategoryStrip remains unchanged; revisit
  * replacing it with a secondary filter via issue #51.
  *
- * Language filtering uses the same LANGUAGE_PATTERNS regex logic as LiveRoute
- * applied client-side against each stream's resolved category name. Moving
- * this to the backend (with a lang_tags column) is tracked in issue #52.
+ * Language filtering uses the server-provided `inferredLang` field on each
+ * stream (backend PR #45). The inline LANGUAGE_PATTERNS regex blocks were
+ * removed as part of issue #52.
  *
  * States:
  *   loading  → Skeleton rows (category strip height + grid height)
@@ -48,16 +48,6 @@ import { LanguageRail } from "../components/LanguageRail";
 import { getLangPref, setLangPref } from "../lib/langPref";
 import type { LangId } from "../lib/langPref";
 
-// Language → category-name match patterns.
-// Matched case-insensitively against the stream's resolved category name.
-// Sports is omitted: no sports concept on VOD (issue #52 will move to backend).
-const LANGUAGE_PATTERNS: Record<Exclude<LangId, "all" | "sports">, string[]> =
-  {
-    telugu: ["telugu"],
-    hindi: ["hindi", "india entertainment", "indian", "bollywood"],
-    english: ["english", "netflix", "amazon", "hbo", "usa ", "uk "],
-  };
-
 export function MoviesRoute() {
   // MUST PRESERVE: norigin root registration for the content area.
   // trackChildren + non-focusable container: when BottomDock fires
@@ -88,22 +78,14 @@ export function MoviesRoute() {
     setLanguageFilter(lang);
   }, []);
 
-  // Build the category-name lookup once per category list change.
-  const catNameById = new Map<string, string>();
-  for (const c of categories) catNameById.set(c.id, c.name);
-
-  // Apply language filter client-side against resolved category name.
+  // Language filter — uses the server-provided `inferredLang` field (issue #52).
+  // Sports falls through to "all" on VOD: no sports-category concept on Movies.
+  // When `inferredLang` is absent or null (no pattern matched / older backend),
+  // items are hidden under any specific language filter (safe degradation).
   const filteredStreams: VodStream[] =
     languageFilter === "all" || languageFilter === "sports"
       ? streams
-      : streams.filter((stream) => {
-          const hay = (
-            catNameById.get(stream.categoryId) ?? stream.categoryId
-          ).toLowerCase();
-          return LANGUAGE_PATTERNS[languageFilter].some((pat) =>
-            hay.includes(pat),
-          );
-        });
+      : streams.filter((stream) => stream.inferredLang === languageFilter);
 
   // ─── Initial fetch ────────────────────────────────────────────────────────
   useEffect(() => {

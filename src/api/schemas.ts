@@ -24,6 +24,17 @@ const RatingSchema = z.preprocess(
   z.string().optional(),
 );
 
+/**
+ * InferredLangSchema — language tag inferred server-side from the item's
+ * category name (backend issue #52 / frontend PR #52 refactor).
+ * Optional and nullable: null when no pattern matched, undefined when the
+ * backend has not yet been updated (forward-compat with older deployments).
+ */
+const InferredLangSchema = z
+  .enum(["telugu", "hindi", "english", "sports"])
+  .nullable()
+  .optional();
+
 // Backend auth is cookie-based (httpOnly access_token / refresh_token cookies).
 // /api/auth/login returns only a confirmation body; the session itself lives in
 // cookies set by the Set-Cookie header. The frontend must NOT expect JWT strings
@@ -61,6 +72,8 @@ export const ChannelSchema = z.object({
   streamUrl: z.string().url().optional(),
   logo: z.string().optional(),
   epgChannelId: z.string().optional(),
+  /** Language inferred server-side from category name (backend PR #45 / frontend issue #52). */
+  inferredLang: InferredLangSchema,
 });
 export type Channel = z.infer<typeof ChannelSchema>;
 
@@ -185,6 +198,8 @@ export const SeriesItemSchema = z.object({
   rating: RatingSchema,
   genre: z.string().optional(),
   year: z.string().optional(),
+  /** Language inferred server-side from category name (backend PR #45 / frontend issue #52). */
+  inferredLang: InferredLangSchema,
 });
 export type SeriesItem = z.infer<typeof SeriesItemSchema>;
 
@@ -210,6 +225,8 @@ export const CatalogItemSchema = z.object({
   rating: RatingSchema,
   genre: z.string().optional(),
   year: z.string().optional(),
+  /** Language inferred server-side from category name (backend PR #45 / frontend issue #52). */
+  inferredLang: InferredLangSchema,
 });
 export type CatalogItem = z.infer<typeof CatalogItemSchema>;
 
@@ -245,6 +262,8 @@ export const VodStreamSchema = z.object({
   rating: RatingSchema,
   genre: z.string().optional(),
   year: z.string().optional(),
+  /** Language inferred server-side from category name (backend PR #45 / frontend issue #52). */
+  inferredLang: InferredLangSchema,
 });
 export type VodStream = z.infer<typeof VodStreamSchema>;
 
