@@ -152,3 +152,52 @@ export const VodStreamSchema = z.object({
   year: z.string().optional(),
 });
 export type VodStream = z.infer<typeof VodStreamSchema>;
+
+// ─── Favorites ──────────────────────────────────────────────────────────────
+
+/** Content types the backend recognises. "live" is normalised to "channel" server-side. */
+export const ContentTypeSchema = z.enum(["channel", "vod", "series"]);
+export type ContentType = z.infer<typeof ContentTypeSchema>;
+
+export const FavoriteItemSchema = z.object({
+  id: z.number(),
+  content_type: ContentTypeSchema,
+  content_id: z.number(),
+  content_name: z.string().nullable(),
+  content_icon: z.string().nullable(),
+  category_name: z.string().nullable(),
+  sort_order: z.number(),
+  added_at: z.string(),
+});
+export type FavoriteItem = z.infer<typeof FavoriteItemSchema>;
+
+export const AddFavoriteBodySchema = z.object({
+  content_type: ContentTypeSchema,
+  content_name: z.string().optional(),
+  content_icon: z.string().optional(),
+  category_name: z.string().optional(),
+});
+export type AddFavoriteBody = z.infer<typeof AddFavoriteBodySchema>;
+
+// ─── Watch History ────────────────────────────────────────────────────────
+
+export const HistoryItemSchema = z.object({
+  id: z.number(),
+  content_type: ContentTypeSchema,
+  content_id: z.number(),
+  content_name: z.string().nullable(),
+  content_icon: z.string().nullable(),
+  progress_seconds: z.number(),
+  duration_seconds: z.number(),
+  watched_at: z.string(),
+});
+export type HistoryItem = z.infer<typeof HistoryItemSchema>;
+
+export const RecordHistoryBodySchema = z.object({
+  content_type: ContentTypeSchema,
+  content_name: z.string().optional(),
+  content_icon: z.string().optional(),
+  progress_seconds: z.number(),
+  duration_seconds: z.number(),
+});
+export type RecordHistoryBody = z.infer<typeof RecordHistoryBodySchema>;
