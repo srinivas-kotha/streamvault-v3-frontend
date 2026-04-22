@@ -45,7 +45,7 @@ export function useSortedChannels(
 
     switch (sortBy) {
       case "number":
-        out.sort((a, b) => a.num - b.num);
+        out.sort((a, b) => (a.num ?? 0) - (b.num ?? 0));
         break;
       case "name":
         out.sort((a, b) => a.name.localeCompare(b.name));
@@ -58,7 +58,7 @@ export function useSortedChannels(
           const diff = resolveCategoryName(a).localeCompare(
             resolveCategoryName(b),
           );
-          return diff !== 0 ? diff : a.num - b.num;
+          return diff !== 0 ? diff : (a.num ?? 0) - (b.num ?? 0);
         });
         break;
     }

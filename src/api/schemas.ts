@@ -40,12 +40,25 @@ export const RefreshResponseSchema = z.object({
   message: z.string(),
 });
 
+// Mirrors the backend CatalogItem shape returned by GET /api/live/channels
+// (added 2026-04-22 — was missing until the post-merge smoke caught a 501).
+// Fields that the v3 frontend tests originally expected (num/streamUrl/logo/
+// epgChannelId) are kept optional so existing LiveRoute code compiles; num
+// especially is derived client-side from array index when absent.
 export const ChannelSchema = z.object({
   id: z.string(),
-  num: z.number(),
   name: z.string(),
+  type: z.string().optional(),
   categoryId: z.string(),
-  streamUrl: z.string().url(),
+  icon: z.string().nullable().optional(),
+  added: z.string().nullable().optional(),
+  isAdult: z.boolean().optional(),
+  rating: RatingSchema,
+  genre: z.string().optional(),
+  year: z.string().optional(),
+  // Legacy fields — optional; fallback is handled at render time (num ?? index+1).
+  num: z.number().optional(),
+  streamUrl: z.string().url().optional(),
   logo: z.string().optional(),
   epgChannelId: z.string().optional(),
 });

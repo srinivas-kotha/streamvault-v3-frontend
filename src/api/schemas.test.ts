@@ -30,9 +30,27 @@ describe("API Zod schemas", () => {
     };
     expect(() => ChannelSchema.parse(raw)).not.toThrow();
   });
-  it("rejects channel without streamUrl", () => {
-    expect(() =>
-      ChannelSchema.parse({ id: "1", name: "BBC", categoryId: "5", num: 1 }),
-    ).toThrow();
+  it("parses a backend CatalogItem-shaped channel (no num / no streamUrl)", () => {
+    // Backend /api/live/channels returns CatalogItem shape — legacy fields
+    // (num / streamUrl / logo / epgChannelId) are optional in the v3 schema.
+    const raw = {
+      id: "705131",
+      name: "IPL Hindi Match 1",
+      type: "live",
+      categoryId: "807",
+      icon: null,
+      added: "1775054300",
+      isAdult: false,
+    };
+    expect(() => ChannelSchema.parse(raw)).not.toThrow();
+  });
+  it("parses channel with rating as number (provider returns mixed types)", () => {
+    const raw = {
+      id: "1",
+      name: "ESPN",
+      categoryId: "5",
+      rating: 3.8,
+    };
+    expect(() => ChannelSchema.parse(raw)).not.toThrow();
   });
 });
