@@ -99,3 +99,30 @@ export const UserMeSchema = z.object({
   role: z.enum(["admin", "user"]),
 });
 export type UserMe = z.infer<typeof UserMeSchema>;
+
+// ─── Search ──────────────────────────────────────────────────────────────────
+
+// CatalogItem matches the backend provider.types.ts CatalogItem shape returned
+// by GET /api/search. `type` is "live" | "vod" | "series" (ContentType).
+export const CatalogItemSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  type: z.enum(["live", "vod", "series"]),
+  categoryId: z.string(),
+  icon: z.string().nullable().optional(),
+  added: z.string().nullable().optional(),
+  isAdult: z.boolean().optional(),
+  rating: z.string().optional(),
+  genre: z.string().optional(),
+  year: z.string().optional(),
+});
+export type CatalogItem = z.infer<typeof CatalogItemSchema>;
+
+// SearchResults — the top-level response shape from GET /api/search.
+// Keys map to content type sections; each is an array of CatalogItems.
+export const SearchResultsSchema = z.object({
+  live: z.array(CatalogItemSchema),
+  vod: z.array(CatalogItemSchema),
+  series: z.array(CatalogItemSchema),
+});
+export type SearchResults = z.infer<typeof SearchResultsSchema>;
