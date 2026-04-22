@@ -1,5 +1,12 @@
 name: CI
-on: [push, pull_request]
+# Triggers:
+#   - pull_request: validate every PR against its base
+#   - push to main: validate the merged result (gates the Deploy workflow)
+# (Earlier `[push, pull_request]` doubled triggers on every PR push — wasteful.)
+on:
+  pull_request:
+  push:
+    branches: [main]
 permissions:
   contents: read
 
