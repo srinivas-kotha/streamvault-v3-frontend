@@ -1,0 +1,35 @@
+{
+  "cookies": [
+    {
+      "name": "sv_csrf",
+      "value": "e6e1b30917ff9259b47b1085f1b1809c029e53628a1663e4086ace99bbf5a0c1",
+      "domain": "streamvault.srinivaskotha.uk",
+      "path": "/",
+      "expires": 1777484167.416122,
+      "httpOnly": false,
+      "secure": true,
+      "sameSite": "Strict"
+    },
+    {
+      "name": "access_token",
+      "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjEsInVzZXJuYW1lIjoiYWRtaW4iLCJpYXQiOjE3NzY4NzkzNjcsImV4cCI6MTc3Njg4MDI2NywianRpIjoiOGMwZjUyMDEtZmFmZi00Y2NjLWI3YjQtOTk1MjFkZDcyMjc0In0.is_xTbQXz8EodBoJU216jlLeOTyEKZcCh44trwR99Mc",
+      "domain": "streamvault.srinivaskotha.uk",
+      "path": "/",
+      "expires": 1776880267.416315,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Strict"
+    },
+    {
+      "name": "refresh_token",
+      "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjEsInVzZXJuYW1lIjoiYWRtaW4iLCJpYXQiOjE3NzY4NzkzNjcsImV4cCI6MTc4NDY1NTM2NywianRpIjoiZDNkOGY4ZmQtM2JkMC00ZjEyLWJkN2YtYTRlYzgyMDY0MjA3In0.bd9J_CdQq2w99yZAkApAKqdfDUCRUh41-qFJg0TeUb4",
+      "domain": "streamvault.srinivaskotha.uk",
+      "path": "/",
+      "expires": 1784655367.416348,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Strict"
+    }
+  ],
+  "origins": []
+}
