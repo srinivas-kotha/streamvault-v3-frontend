@@ -140,20 +140,17 @@ describe("SeriesRoute", () => {
     ).toBeInTheDocument();
   });
 
-  it("clicking a card opens the player with kind=series-episode + id + title", async () => {
+  it("clicking a card navigates to /series/:id (not open player)", async () => {
     fetchSeriesCategoriesMock.mockResolvedValue(mockCategories);
     fetchSeriesListMock.mockResolvedValue(mockItems);
-    openPlayerMock.mockClear();
+    mockNavigate.mockClear();
 
     render(<SeriesRoute />);
     const card = await screen.findByRole("button", { name: /breaking bad/i });
     await userEvent.click(card);
 
-    expect(openPlayerMock).toHaveBeenCalledWith({
-      kind: "series-episode",
-      id: "s1",
-      title: expect.stringMatching(/breaking bad/i),
-    });
+    expect(mockNavigate).toHaveBeenCalledWith("/series/s1");
+    expect(openPlayerMock).not.toHaveBeenCalled();
   });
 
   it("registers useFocusable with CONTENT_AREA_SERIES", async () => {

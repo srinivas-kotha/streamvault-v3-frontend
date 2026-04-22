@@ -25,7 +25,7 @@ import { Skeleton } from "../primitives/Skeleton";
 import { SeriesCategoryStrip } from "../features/series/SeriesCategoryStrip";
 import { SeriesGrid } from "../features/series/SeriesGrid";
 import { fetchSeriesCategories, fetchSeriesList } from "../api/series";
-import { usePlayerOpener } from "../player";
+import { useNavigate } from "react-router-dom";
 import type { SeriesCategory, SeriesItem } from "../api/schemas";
 
 export function SeriesRoute() {
@@ -36,7 +36,7 @@ export function SeriesRoute() {
     focusable: false,
     trackChildren: true,
   });
-  const { openPlayer } = usePlayerOpener();
+  const navigate = useNavigate();
 
   const [categories, setCategories] = useState<SeriesCategory[]>([]);
   const [activeCategoryId, setActiveCategoryId] = useState<string | null>(null);
@@ -128,14 +128,9 @@ export function SeriesRoute() {
 
   const handleCardClick = useCallback(
     (seriesId: string) => {
-      const item = items.find((s) => s.id === seriesId);
-      void openPlayer({
-        kind: "series-episode",
-        id: seriesId,
-        title: item?.name ?? "Episode",
-      });
+      navigate(`/series/${encodeURIComponent(seriesId)}`);
     },
-    [items, openPlayer],
+    [navigate],
   );
 
   // ─── Render ──────────────────────────────────────────────────────────────
