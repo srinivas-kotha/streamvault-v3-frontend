@@ -26,8 +26,9 @@ import {
 import { useParams, useNavigate } from "react-router-dom";
 import { ErrorShell } from "../primitives/ErrorShell";
 import { Skeleton } from "../primitives/Skeleton";
+import { OverflowMenu } from "../components/OverflowMenu";
 import { fetchSeriesInfo } from "../api/series";
-import { fetchHistory } from "../api/history";
+import { fetchHistory, recordHistory, removeHistoryItem } from "../api/history";
 import { usePlayerStore } from "../player/PlayerProvider";
 import { fetchStreamUrl } from "../api/stream";
 import type { SeriesInfo, EpisodeInfo, SeasonInfo, HistoryItem } from "../api/schemas";
@@ -115,6 +116,7 @@ interface EpisodeRowProps {
 function EpisodeRow({ episode, seriesId, seasonNumber, historyItem }: EpisodeRowProps) {
   const { open } = usePlayerStore();
   const focusKey = `SERIES_DETAIL_EP_${seriesId}_S${seasonNumber}_${episode.id}`;
+  const overflowFocusKey = `EPISODE_OVERFLOW_${seriesId}_S${seasonNumber}_${episode.id}`;
 
   const playEpisode = useCallback(() => {
     const streamUrl = fetchStreamUrl({
@@ -138,146 +140,205 @@ function EpisodeRow({ episode, seriesId, seasonNumber, historyItem }: EpisodeRow
   const isWatched = duration > 0 && progress >= duration * 0.9;
   const isInProgress = progress > 0 && !isWatched;
 
+  // ⋯ overflow actions for this episode
+  // TODO(#58): recordHistory uses optimistic localStorage write; the backend
+  // PATCH /api/history/:id upsert will sync it server-side when reachable.
+  // removeHistoryItem is localStorage-only; no backend DELETE exists in the
+  // current phase — see history.ts.
+  const overflowActions = useMemo(() => [
+    {
+      label: "Mark as watched",
+      onSelect: () => {
+        if (duration > 0) {
+          void recordHistory(Number(episode.id), {
+            content_type: "series",
+            content_name: `S${seasonNumber}E${episode.episodeNumber} · ${episode.title}`,
+            content_icon: episode.icon ?? undefined,
+            progress_seconds: duration,
+            duration_seconds: duration,
+          });
+        }
+      },
+    },
+    {
+      label: "Remove from history",
+      onSelect: () => {
+        removeHistoryItem(Number(episode.id), "series");
+      },
+    },
+  ], [episode, seasonNumber, duration]);
+
   return (
-    <button
-      ref={ref as RefObject<HTMLButtonElement>}
-      type="button"
-      onClick={playEpisode}
-      aria-label={`Season ${seasonNumber} Episode ${episode.episodeNumber}: ${episode.title}`}
+    // Outer wrapper — not a button; holds both the play row + overflow trigger.
+    <div
       style={{
         display: "flex",
         flexDirection: "row",
-        alignItems: "flex-start",
-        gap: "var(--space-3)",
+        alignItems: "stretch",
+        gap: 0,
         width: "100%",
-        padding: "var(--space-3) var(--space-4)",
         background: focused ? "var(--bg-elevated)" : "transparent",
         border: focused
           ? "2px solid var(--accent-copper)"
           : "2px solid transparent",
         borderRadius: "var(--radius-sm)",
-        color: "var(--text-primary)",
-        cursor: "pointer",
-        textAlign: "left",
-        transition:
-          "background var(--motion-focus), border-color var(--motion-focus)",
+        transition: "background var(--motion-focus), border-color var(--motion-focus)",
       }}
     >
-      {/* Thumbnail */}
-      <div
+      {/* Play button — the episode row itself */}
+      <button
+        ref={ref as RefObject<HTMLButtonElement>}
+        type="button"
+        onClick={playEpisode}
+        aria-label={`Season ${seasonNumber} Episode ${episode.episodeNumber}: ${episode.title}`}
         style={{
-          flexShrink: 0,
-          width: 160,
-          height: 90,
-          background: "var(--bg-surface)",
-          borderRadius: "var(--radius-sm)",
-          overflow: "hidden",
+          flex: 1,
+          display: "flex",
+          flexDirection: "row",
+          alignItems: "flex-start",
+          gap: "var(--space-3)",
+          padding: "var(--space-3) var(--space-4)",
+          background: "transparent",
+          border: "none",
+          color: "var(--text-primary)",
+          cursor: "pointer",
+          textAlign: "left",
+          minWidth: 0,
         }}
       >
-        {episode.icon ? (
-          <img
-            src={episode.icon}
-            alt=""
-            loading="lazy"
-            style={{ width: "100%", height: "100%", objectFit: "cover" }}
-          />
-        ) : (
-          <div
-            aria-hidden="true"
-            style={{
-              width: "100%",
-              height: "100%",
-              background: "var(--bg-elevated)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 28,
-              color: "var(--text-secondary)",
-            }}
-          >
-            {isWatched ? "✓" : isInProgress ? "⏵" : "▶"}
-          </div>
-        )}
-      </div>
-
-      {/* Info */}
-      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: "var(--space-1)" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: "var(--space-2)" }}>
-          <span
-            style={{
-              fontSize: 20,
-              fontWeight: 500,
-              color: isWatched ? "var(--text-secondary)" : "var(--text-primary)",
-              overflow: "hidden",
-              whiteSpace: "nowrap",
-              textOverflow: "ellipsis",
-            }}
-          >
-            {episode.episodeNumber}. {episode.title}
-          </span>
-          <span
-            style={{
-              flexShrink: 0,
-              fontSize: "var(--text-label-size)",
-              color: "var(--text-secondary)",
-            }}
-          >
-            {episode.duration !== undefined
-              ? formatDuration(episode.duration)
-              : null}
-          </span>
-        </div>
-
-        {episode.plot && (
-          <p
-            style={{
-              margin: 0,
-              fontSize: 16,
-              color: "var(--text-secondary)",
-              overflow: "hidden",
-              display: "-webkit-box",
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: "vertical",
-            }}
-          >
-            {episode.plot}
-          </p>
-        )}
-
-        {/* Progress bar for in-progress episodes */}
-        {isInProgress && duration > 0 && (
-          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", marginTop: "var(--space-1)" }}>
+        {/* Thumbnail */}
+        <div
+          style={{
+            flexShrink: 0,
+            width: 160,
+            height: 90,
+            background: "var(--bg-surface)",
+            borderRadius: "var(--radius-sm)",
+            overflow: "hidden",
+          }}
+        >
+          {episode.icon ? (
+            <img
+              src={episode.icon}
+              alt=""
+              loading="lazy"
+              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            />
+          ) : (
             <div
+              aria-hidden="true"
               style={{
-                flex: 1,
-                height: 4,
-                background: "var(--bg-surface)",
-                borderRadius: 2,
-                overflow: "hidden",
+                width: "100%",
+                height: "100%",
+                background: "var(--bg-elevated)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 28,
+                color: "var(--text-secondary)",
               }}
             >
-              <div
-                style={{
-                  width: `${Math.min(100, (progress / duration) * 100)}%`,
-                  height: "100%",
-                  background: "var(--accent-copper)",
-                }}
-              />
+              {isWatched ? "✓" : isInProgress ? "⏵" : "▶"}
             </div>
-            <span style={{ fontSize: "var(--text-label-size)", color: "var(--text-secondary)", flexShrink: 0 }}>
-              {formatProgress(progress, duration)}
+          )}
+        </div>
+
+        {/* Info */}
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: "var(--space-1)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: "var(--space-2)" }}>
+            <span
+              style={{
+                fontSize: 20,
+                fontWeight: 500,
+                color: isWatched ? "var(--text-secondary)" : "var(--text-primary)",
+                overflow: "hidden",
+                whiteSpace: "nowrap",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {episode.episodeNumber}. {episode.title}
+            </span>
+            <span
+              style={{
+                flexShrink: 0,
+                fontSize: "var(--text-label-size)",
+                color: "var(--text-secondary)",
+              }}
+            >
+              {episode.duration !== undefined
+                ? formatDuration(episode.duration)
+                : null}
             </span>
           </div>
-        )}
 
-        {/* State glyph */}
-        {isWatched && (
-          <span style={{ fontSize: "var(--text-label-size)", color: "var(--accent-copper)" }}>
-            Watched
-          </span>
-        )}
+          {episode.plot && (
+            <p
+              style={{
+                margin: 0,
+                fontSize: 16,
+                color: "var(--text-secondary)",
+                overflow: "hidden",
+                display: "-webkit-box",
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: "vertical",
+              }}
+            >
+              {episode.plot}
+            </p>
+          )}
+
+          {/* Progress bar for in-progress episodes */}
+          {isInProgress && duration > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", marginTop: "var(--space-1)" }}>
+              <div
+                style={{
+                  flex: 1,
+                  height: 4,
+                  background: "var(--bg-surface)",
+                  borderRadius: 2,
+                  overflow: "hidden",
+                }}
+              >
+                <div
+                  style={{
+                    width: `${Math.min(100, (progress / duration) * 100)}%`,
+                    height: "100%",
+                    background: "var(--accent-copper)",
+                  }}
+                />
+              </div>
+              <span style={{ fontSize: "var(--text-label-size)", color: "var(--text-secondary)", flexShrink: 0 }}>
+                {formatProgress(progress, duration)}
+              </span>
+            </div>
+          )}
+
+          {/* State glyph */}
+          {isWatched && (
+            <span style={{ fontSize: "var(--text-label-size)", color: "var(--accent-copper)" }}>
+              Watched
+            </span>
+          )}
+        </div>
+      </button>
+
+      {/* ⋯ overflow menu — right-aligned, reachable via ArrowRight from episode row */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          padding: "0 var(--space-3)",
+          flexShrink: 0,
+        }}
+      >
+        <OverflowMenu
+          focusKey={overflowFocusKey}
+          actions={overflowActions}
+          triggerLabel={`More actions for Episode ${episode.episodeNumber}: ${episode.title}`}
+          placement="below"
+        />
       </div>
-    </button>
+    </div>
   );
 }
 
