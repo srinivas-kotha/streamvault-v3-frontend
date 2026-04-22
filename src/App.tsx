@@ -8,7 +8,7 @@
  * Preserved dev-time routes: /test-primitives and /silk-probe (permanent
  * Playwright probe targets — Task 1.7 + Task 2.1).
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   BrowserRouter,
   Routes,
@@ -17,6 +17,7 @@ import {
   useNavigate,
   useLocation,
 } from "react-router-dom";
+import { setFocus } from "@noriginmedia/norigin-spatial-navigation";
 import { BottomDock, type DockItem } from "./nav/BottomDock";
 import { LiveRoute } from "./routes/LiveRoute";
 import { MoviesRoute } from "./routes/MoviesRoute";
@@ -50,6 +51,18 @@ function AppShell() {
   const hideDock =
     pathname.startsWith("/test-primitives") ||
     pathname.startsWith("/silk-probe");
+
+  // Prime norigin's focus tree on first render after auth. Without this,
+  // norigin's lastFocused pointer is null (or still holds the unmounted
+  // LOGIN_USERNAME), so the user's first ArrowLeft/Right press on the dock
+  // is a no-op — the bug reported on the live site. Fires once per AppShell
+  // mount; landing on the active dock tab lets the user immediately walk
+  // across the dock or press Up to enter the content area.
+  useEffect(() => {
+    if (hideDock) return;
+    setFocus(`DOCK_${activeTab.toUpperCase()}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div style={{ background: "var(--bg-base)", minHeight: "100vh" }}>
