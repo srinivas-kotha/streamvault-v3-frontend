@@ -1,0 +1,329 @@
+/* Settings feature styles — Oxide dark palette, TV-first */
+
+/* ── Section ─────────────────────────────────────────────────────────────── */
+.settings-section {
+  background: var(--bg-surface);
+  border-radius: var(--radius-md);
+  padding: var(--space-8);
+  margin-bottom: var(--space-6);
+}
+
+.settings-section-title {
+  font-size: var(--text-body-lg-size);
+  font-weight: var(--text-body-lg-weight);
+  color: var(--text-primary);
+  margin: 0 0 var(--space-6) 0;
+  letter-spacing: 0.02em;
+}
+
+/* ── Account row items ───────────────────────────────────────────────────── */
+.settings-account-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid rgba(237, 228, 211, 0.08);
+}
+
+.settings-account-row:last-child {
+  border-bottom: none;
+}
+
+.settings-account-label {
+  font-size: var(--text-body-size);
+  color: var(--text-secondary);
+  min-width: 160px;
+}
+
+.settings-account-value {
+  font-size: var(--text-body-size);
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+.settings-btn {
+  padding: var(--space-3) var(--space-6);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-body-size);
+  font-weight: 500;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: border-color var(--motion-focus), background-color var(--motion-focus);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-btn {
+    transition: none;
+  }
+}
+
+.settings-btn--primary {
+  background: var(--accent-copper);
+  color: #12100e;
+  border-color: var(--accent-copper);
+}
+
+.settings-btn--primary:hover,
+.settings-btn--primary.settings-btn--focused {
+  background: var(--accent-copper-dim);
+  border-color: var(--accent-copper);
+  outline: 3px solid var(--accent-copper);
+  outline-offset: 2px;
+}
+
+.settings-btn--ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border-color: rgba(237, 228, 211, 0.2);
+}
+
+.settings-btn--ghost:hover,
+.settings-btn--ghost.settings-btn--focused {
+  color: var(--text-primary);
+  border-color: var(--accent-copper);
+  outline: 3px solid var(--accent-copper);
+  outline-offset: 2px;
+}
+
+.settings-btn--danger {
+  background: transparent;
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.settings-btn--danger:hover,
+.settings-btn--danger.settings-btn--focused {
+  background: rgba(216, 67, 67, 0.12);
+  outline: 3px solid var(--danger);
+  outline-offset: 2px;
+}
+
+.settings-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ── Preference chips ────────────────────────────────────────────────────── */
+.settings-pref-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) 0;
+  border-bottom: 1px solid rgba(237, 228, 211, 0.08);
+  flex-wrap: wrap;
+}
+
+.settings-pref-row:last-child {
+  border-bottom: none;
+}
+
+.settings-pref-label {
+  font-size: var(--text-body-size);
+  color: var(--text-secondary);
+  min-width: 200px;
+  flex-shrink: 0;
+}
+
+.settings-pref-options {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.settings-chip {
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-caption-size);
+  font-weight: 500;
+  cursor: pointer;
+  border: 2px solid rgba(237, 228, 211, 0.2);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  transition: border-color var(--motion-focus), color var(--motion-focus);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-chip {
+    transition: none;
+  }
+}
+
+.settings-chip--active {
+  background: rgba(200, 121, 65, 0.15);
+  border-color: var(--accent-copper);
+  color: var(--accent-copper);
+}
+
+.settings-chip--focused,
+.settings-chip:focus-visible {
+  outline: 3px solid var(--accent-copper);
+  outline-offset: 2px;
+  border-color: var(--accent-copper);
+  color: var(--text-primary);
+}
+
+/* ── Change-password form ────────────────────────────────────────────────── */
+.settings-changepw-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: 480px;
+  padding-top: var(--space-4);
+}
+
+.settings-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.settings-form-label {
+  font-size: var(--text-caption-size);
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.settings-form-input {
+  background: var(--bg-elevated);
+  border: 2px solid rgba(237, 228, 211, 0.15);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-body-size);
+  color: var(--text-primary);
+  width: 100%;
+  transition: border-color var(--motion-focus);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-form-input {
+    transition: none;
+  }
+}
+
+.settings-form-input:focus {
+  outline: 3px solid var(--accent-copper);
+  outline-offset: 2px;
+  border-color: var(--accent-copper);
+}
+
+.settings-form-input:disabled {
+  opacity: 0.45;
+}
+
+.settings-form-hint {
+  font-size: var(--text-label-size);
+  color: var(--text-tertiary);
+}
+
+.settings-form-error {
+  color: var(--danger);
+  font-size: var(--text-caption-size);
+  background: rgba(216, 67, 67, 0.1);
+  border: 1px solid rgba(216, 67, 67, 0.3);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3) var(--space-4);
+  margin: 0;
+}
+
+.settings-form-actions {
+  display: flex;
+  gap: var(--space-4);
+  padding-top: var(--space-2);
+}
+
+/* ── App info ────────────────────────────────────────────────────────────── */
+.settings-info-list {
+  margin: 0 0 var(--space-4) 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.settings-info-row {
+  display: flex;
+  gap: var(--space-6);
+  align-items: baseline;
+}
+
+.settings-info-key {
+  font-size: var(--text-caption-size);
+  color: var(--text-secondary);
+  min-width: 80px;
+}
+
+.settings-info-val {
+  font-size: var(--text-caption-size);
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.settings-info-mono {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 14px;
+  opacity: 0.8;
+}
+
+.settings-link-row {
+  display: flex;
+  gap: var(--space-6);
+  padding-top: var(--space-4);
+  border-top: 1px solid rgba(237, 228, 211, 0.08);
+}
+
+.settings-link {
+  font-size: var(--text-caption-size);
+  color: var(--accent-copper);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  border-radius: var(--radius-xs);
+  padding: 2px 4px;
+}
+
+.settings-link--focused,
+.settings-link:focus-visible {
+  outline: 3px solid var(--accent-copper);
+  outline-offset: 2px;
+}
+
+/* ── Danger zone ─────────────────────────────────────────────────────────── */
+.settings-danger-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4) 0;
+  border-bottom: 1px solid rgba(237, 228, 211, 0.08);
+  gap: var(--space-4);
+}
+
+.settings-danger-row:last-child {
+  border-bottom: none;
+}
+
+.settings-danger-text {
+  flex: 1;
+}
+
+.settings-danger-title {
+  font-size: var(--text-body-size);
+  color: var(--text-primary);
+  font-weight: 500;
+  display: block;
+}
+
+.settings-danger-desc {
+  font-size: var(--text-caption-size);
+  color: var(--text-tertiary);
+  display: block;
+  margin-top: var(--space-1);
+}
+
+/* ── Success banner ──────────────────────────────────────────────────────── */
+.settings-success {
+  color: #4caf88;
+  background: rgba(76, 175, 136, 0.1);
+  border: 1px solid rgba(76, 175, 136, 0.3);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-caption-size);
+}
