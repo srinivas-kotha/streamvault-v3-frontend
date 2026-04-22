@@ -60,6 +60,35 @@ vi.mock("../lib/langPref", () => ({
   setLangPref: vi.fn(),
 }));
 
+// Mock react-virtuoso: jsdom has no real layout engine, so VirtuosoGrid renders
+// nothing (all items are virtualised out at zero scroll position). Replace with
+// a simple eager renderer that renders all items — virtualization is a runtime
+// perf concern, not a DOM-structure concern tested here.
+vi.mock("react-virtuoso", () => ({
+  VirtuosoGrid: ({
+    totalCount,
+    itemContent,
+    components,
+  }: {
+    totalCount: number;
+    itemContent: (index: number) => React.ReactNode;
+    components?: {
+      List?: React.ComponentType<React.HTMLAttributes<HTMLDivElement>>;
+      Item?: React.ComponentType<React.HTMLAttributes<HTMLDivElement>>;
+    };
+  }) => {
+    const List = components?.List ?? "div";
+    const Item = components?.Item ?? "div";
+    return (
+      <List>
+        {Array.from({ length: totalCount }, (_, i) => (
+          <Item key={i}>{itemContent(i)}</Item>
+        ))}
+      </List>
+    );
+  },
+}));
+
 import { MoviesRoute } from "./MoviesRoute";
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────

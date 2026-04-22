@@ -237,6 +237,12 @@ Badge anchors:
 
 ## 3. Episode Card Interaction States
 
+> **Authoritative — closes #58.** The long-press / OK-hold interaction defined
+> in the original draft has been **removed**. Norigin spatial-navigation has no
+> long-press primitive, and hidden menus violate the "no hidden menus" rule
+> stated in §1. All quick-actions are now reachable via a visible `⋯` overflow
+> button on every episode row.
+
 ### Idle / Focused / Watched / In-progress / New / Locked
 
 ```
@@ -244,44 +250,56 @@ IDLE                                   FOCUSED
 ┌──────────────────────────────────┐   ╔══════════════════════════════════╗
 │ ┌──┐ 3 · Title      44:12   ○    │   ║ ┌──┐ 3 · Title     44:12   ○    ║
 │ │  │ Synopsis…                   │   ║ │  │ Synopsis…                  ║
-│ └──┘                             │   ║ └──┘                            ║
+│ └──┘                          ⋯  │   ║ └──┘                         ⋯  ║
 └──────────────────────────────────┘   ╚══════════════════════════════════╝
 
 WATCHED (muted title, ✓ glyph)         IN-PROGRESS (progress bar, timestamp)
 ┌──────────────────────────────────┐   ┌──────────────────────────────────┐
 │ ┌──┐ 3 · Title      44:12   ✓    │   │ ┌──┐ 3 · Title  ▰▰▰▱▱ 18:42      │
-│ │✓ │ Synopsis (dimmed)…          │   │ │⏵ │ Synopsis…                   │
+│ │✓ │ Synopsis (dimmed)…       ⋯  │   │ │⏵ │ Synopsis…                ⋯  │
 │ └──┘                             │   │ └──┘                             │
 └──────────────────────────────────┘   └──────────────────────────────────┘
 
 NEW EPISODE (copper NEW pill)          LOCKED (tier-locked; §4)
 ┌──────────────────────────────────┐   ┌──────────────────────────────────┐
 │ ┌──┐ 12 · Title     44:12  ●NEW  │   │ ┌──┐ 3 · Title      44:12  🔒    │
-│ │• │ Added 2 days ago…           │   │ │🔒│ Not available on your tier  │
+│ │• │ Added 2 days ago…        ⋯  │   │ │🔒│ Not available on your tier  │
 │ └──┘                             │   │ └──┘                             │
 └──────────────────────────────────┘   └──────────────────────────────────┘
 ```
 
-### OK-hold / long-press actions sheet
+### ⋯ overflow menu — episode quick-actions
 
-Press-and-hold Enter / remote OK for 500ms on a focused episode row → bottom sheet slides in:
+The `⋯` button appears right-aligned on every episode row. It is a standard
+focusable D-pad element (norigin `useFocusable`). No hidden menus, no long-press.
+
+**D-pad reachability:**
+- `Right` from the focused episode row → focus moves to the `⋯` button for that row.
+- `Left` from the `⋯` button → focus returns to the episode row.
+- `Up` / `Down` from the `⋯` button → same-direction neighbour row (not into the menu).
+
+**Opening the menu:**
+- `OK` / `Enter` on `⋯` button → small overlay menu appears adjacent to (below) the
+  button. Focus moves into the menu; first item is auto-focused.
+- `Up` / `Down` inside the open menu → cycles through items.
+- `Escape` or `Back` → closes menu, focus returns to the `⋯` button.
+
+**Menu items (episode context):**
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│  Episode 3 · Title                                           │
-│                                                              │
-│  ▶  Play from start                                          │
-│  ⏵  Resume at 18:42                (only if progress exists) │
-│  ✓  Mark watched                                             │
-│  ○  Mark unwatched                                           │
-│  ⏭  Play next                                                │
-│  ✕  Cancel                        (Back closes)              │
-└──────────────────────────────────────────────────────────────┘
+┌──────────────────────────┐
+│  ✓  Mark as watched      │
+│  ○  Remove from history  │
+└──────────────────────────┘
 ```
 
-D-pad in sheet: Up/Down walks rows. Enter selects. Back closes. Focus returns to the episode row it was opened from (norigin `setFocus(lastFocusedKey)`).
+| Action | API call | Notes |
+|---|---|---|
+| Mark as watched | `recordHistory(episodeId, { content_type: "series", progress_seconds: duration, duration_seconds: duration, … })` | Sets progress = duration (≥90% threshold) |
+| Remove from history | `removeHistoryItem(episodeId, "series")` | localStorage-only remove; no backend DELETE in current phase |
 
-**Click count for Mark watched: Enter-hold + Down Down + Enter = ~3** keys (hold counts as one input for the user's mental model).
+**Click count for Mark watched: `Right` (to ⋯) + `Enter` (opens menu) + `Enter`
+(first item is Mark watched) = 3 inputs.**
 
 ---
 

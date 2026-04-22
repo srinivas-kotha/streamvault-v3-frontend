@@ -14,6 +14,14 @@ conventions. No code in this doc.
 
 ---
 
+## Virtualization mandate
+
+`react-virtuoso` (`VirtuosoGrid`) is **required** for the Movies poster grid. The DOM card count must stay under ~150 regardless of catalog size. Rationale: the VOD catalog has 61,442 rows; without virtualization, the Silk browser on Fire TV OOMs at ~600–1000 rendered cards.
+
+Implementation reference: `MoviesRoute → MovieGrid uses VirtuosoGrid (Issue #59)`.
+
+---
+
 ## 1. `/movies` page structure
 
 Three stacked zones, same spatial grammar as `LiveRoute`:
@@ -204,34 +212,55 @@ Tradeoff:
 - ❌ No synopsis preview → bottom sheet (§3) is the escape hatch.
 - ❌ Mis-presses cost bandwidth → Back closes player <200ms (PR #46).
 
-### 2b. Secondary — quick-actions popover
+### 2b. Secondary — visible ⋯ overflow menu
 
-Long-press OK (>500ms), Menu key on Fire TV, or right-click on desktop:
+> **Authoritative — closes #58.** The original long-press / OK-hold mechanic
+> has been **removed**. Norigin spatial-navigation provides no long-press
+> primitive, and long-press alone violates the "no hidden menus" rule stated
+> in §1 ("D-pad first; every affordance reachable without hover"). The focused
+> card now exposes a visible `⋯` button in its title bar.
 
-```
-           ┌──────────────────┐
-           │  ▶  Play           │
-           │  ☆  Favorite       │
-           │  ⓘ  More info      │
-           │  •  Mark watched   │
-           └──────────────────┘
-```
-
-`Play` is redundant with OK but keeps the popover self-documenting.
-Long-press alone would violate "no hidden menus", so the focused card also
-shows a visible `ⓘ More info` link on its meta line:
+The `⋯` button is rendered in the title area of the **focused** card only
+(prevents grid noise on unfocused cards):
 
 ```
 ╔════╗
 ║ █  ║
 ╚════╝
-Title
-2024 · 2h · ⓘ More info
+Title              ⋯
+2024 · 2h
 ```
 
-Rendered only on the focused card (prevents grid noise). ArrowDown from
-poster → More info; second ArrowDown → next row. Long-press is a power-user
-shortcut, not the only path.
+**D-pad reachability:**
+- `Right` from the focused movie card → focus moves to the `⋯` button.
+- `Left` from the `⋯` button → focus returns to the card.
+- `Down` from the card → next poster row (existing norigin 2D nav; ⋯ is not in
+  the nav grid, only reachable via explicit `Right`).
+
+**Opening the menu:**
+- `OK` / `Enter` on `⋯` → small overlay menu opens below the button. First
+  item auto-focused.
+- `Up` / `Down` inside the open menu → cycles items.
+- `Escape` or `Back` → closes menu, returns focus to `⋯` button.
+
+**Menu items (movie context):**
+
+```
+┌──────────────────────────┐
+│  ☆  Add to favorites     │
+│  •  Mark as watched      │
+│  ✕  Remove from favorites│
+└──────────────────────────┘
+```
+
+| Action | API call | Notes |
+|---|---|---|
+| Add to favorites | `addFavorite(movieId, { content_type: "vod", … })` | Existing `favorites.ts` |
+| Mark as watched | `recordHistory(movieId, { content_type: "vod", progress_seconds: duration, duration_seconds: duration, … })` | Sets progress = duration |
+| Remove from favorites | `removeFavorite(movieId, "vod")` | Existing `favorites.ts` |
+
+**Click count for Add to favorites: `Right` (to ⋯) + `Enter` (opens menu) +
+`Enter` (first item) = 3 inputs.**
 
 ---
 
