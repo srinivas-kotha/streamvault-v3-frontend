@@ -125,10 +125,11 @@ export function SplitGuide({
 
       {/* ── Right pane: channel list ── */}
       <ul aria-label="Channel list" style={listPaneStyle}>
-        {channels.map((channel) => (
+        {channels.map((channel, index) => (
           <ChannelRow
             key={channel.id}
             channel={channel}
+            index={index}
             isSelected={channel.id === selectedChannelId}
             onSelect={onSelectChannel}
           />
@@ -145,10 +146,12 @@ export function SplitGuide({
 
 function ChannelRow({
   channel,
+  index,
   isSelected,
   onSelect,
 }: {
   channel: Channel;
+  index: number;
   isSelected: boolean;
   onSelect: (id: string) => void;
 }) {
@@ -157,6 +160,9 @@ function ChannelRow({
     onEnterPress: () => onSelect(channel.id),
   });
   const active = isSelected || focused;
+  // Backend catalog items don't carry a channel number; fall back to 1-based
+  // array index so the left-gutter digit + aria-label stay human-readable.
+  const displayNum = channel.num ?? index + 1;
 
   return (
     <li style={{ listStyle: "none" }}>
@@ -165,7 +171,7 @@ function ChannelRow({
         type="button"
         className="focus-ring"
         onClick={() => onSelect(channel.id)}
-        aria-label={`Channel ${channel.num}: ${channel.name}`}
+        aria-label={`Channel ${displayNum}: ${channel.name}`}
         aria-current={isSelected ? "true" : undefined}
         style={{
           display: "flex",
@@ -193,7 +199,7 @@ function ChannelRow({
             opacity: 0.8,
           }}
         >
-          {channel.num}
+          {displayNum}
         </span>
         <span style={{ flex: 1 }}>{channel.name}</span>
         {isSelected && (
