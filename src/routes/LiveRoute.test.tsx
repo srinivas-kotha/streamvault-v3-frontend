@@ -48,6 +48,11 @@ vi.mock("../api/live", () => ({
   fetchCategories: fetchCategoriesMock,
 }));
 
+// Mock usePlayerOpener so LiveRoute tests don't need a PlayerProvider
+vi.mock("../player/usePlayerOpener", () => ({
+  usePlayerOpener: () => ({ openPlayer: vi.fn() }),
+}));
+
 import { LiveRoute } from "./LiveRoute";
 
 const mockChannels: Channel[] = [

@@ -30,6 +30,7 @@ import { TestPrimitivesRoute } from "./routes";
 import { SilkProbe } from "./nav/SilkProbe";
 import { LoginPage } from "./features/auth/LoginPage";
 import { hasStoredToken } from "./api/auth";
+import { PlayerProvider, PlayerShell } from "./player";
 
 const DOCK_IDS: readonly DockItem[] = [
   "live",
@@ -114,6 +115,8 @@ function AppShell() {
         onNavigate={(item) => navigate(`/${item}`)}
         hidden={hideDock}
       />
+      {/* Single player overlay — mounts here so it's above all routes */}
+      <PlayerShell />
     </div>
   );
 }
@@ -128,10 +131,12 @@ export default function App() {
   // Opt-in to v7 behavior early to silence Future Flag warnings and smooth the
   // React Router 6 → 7 upgrade when we take it.
   return (
-    <BrowserRouter
-      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-    >
-      <AppShell />
-    </BrowserRouter>
+    <PlayerProvider>
+      <BrowserRouter
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      >
+        <AppShell />
+      </BrowserRouter>
+    </PlayerProvider>
   );
 }
