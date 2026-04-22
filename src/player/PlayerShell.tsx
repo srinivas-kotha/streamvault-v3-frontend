@@ -23,6 +23,7 @@ export function PlayerShell() {
 
   const src = state.status === "open" ? state.src : undefined;
   const title = state.status === "open" ? state.title : "";
+  const kind = state.status === "open" ? state.kind : undefined;
 
   const {
     status,
@@ -37,7 +38,7 @@ export function PlayerShell() {
     selectLevel,
     selectAudioTrack,
     selectSubtitleTrack,
-  } = useHlsPlayer(videoRef, src);
+  } = useHlsPlayer(videoRef, src, kind);
 
   const [currentLevel, setCurrentLevel] = useState(-1);
   const [currentAudioTrack, setCurrentAudioTrack] = useState(-1);

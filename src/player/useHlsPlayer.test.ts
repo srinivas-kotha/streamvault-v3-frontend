@@ -74,7 +74,7 @@ describe("useHlsPlayer", () => {
 
   it("calls loadSource + attachMedia when src is provided", () => {
     const videoRef = createVideoRef();
-    const src = "/api/stream/live/123";
+    const src = "/api/stream/live/123.m3u8";
 
     renderHook(() => useHlsPlayer(videoRef, src));
 
@@ -84,7 +84,7 @@ describe("useHlsPlayer", () => {
 
   it("registers event listeners on the video element", () => {
     const videoRef = createVideoRef();
-    renderHook(() => useHlsPlayer(videoRef, "/api/stream/live/1"));
+    renderHook(() => useHlsPlayer(videoRef, "/api/stream/live/1.m3u8"));
 
     const addEventListenerMock = videoRef.current
       ?.addEventListener as unknown as Mock;
@@ -101,7 +101,7 @@ describe("useHlsPlayer", () => {
   it("calls hls.destroy() on unmount (memory leak prevention)", () => {
     const videoRef = createVideoRef();
     const { unmount } = renderHook(() =>
-      useHlsPlayer(videoRef, "/api/stream/live/1"),
+      useHlsPlayer(videoRef, "/api/stream/live/1.m3u8"),
     );
 
     unmount();
@@ -112,7 +112,7 @@ describe("useHlsPlayer", () => {
   it("uses nextLevel (NOT currentLevel) when selectLevel is called", () => {
     const videoRef = createVideoRef();
     const { result } = renderHook(() =>
-      useHlsPlayer(videoRef, "/api/stream/live/1"),
+      useHlsPlayer(videoRef, "/api/stream/live/1.m3u8"),
     );
 
     act(() => {
@@ -126,7 +126,7 @@ describe("useHlsPlayer", () => {
   it("sets audioTrack when selectAudioTrack is called", () => {
     const videoRef = createVideoRef();
     const { result } = renderHook(() =>
-      useHlsPlayer(videoRef, "/api/stream/live/1"),
+      useHlsPlayer(videoRef, "/api/stream/live/1.m3u8"),
     );
 
     act(() => {
@@ -139,7 +139,7 @@ describe("useHlsPlayer", () => {
   it("sets subtitleTrack when selectSubtitleTrack is called", () => {
     const videoRef = createVideoRef();
     const { result } = renderHook(() =>
-      useHlsPlayer(videoRef, "/api/stream/live/1"),
+      useHlsPlayer(videoRef, "/api/stream/live/1.m3u8"),
     );
 
     act(() => {

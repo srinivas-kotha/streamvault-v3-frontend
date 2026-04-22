@@ -1,15 +1,27 @@
 /**
- * useHlsPlayer — wraps hls.js for HLS + native playback.
+ * useHlsPlayer — routes playback to the right library by source kind.
  *
- * Design decisions (v3):
+ * Supported formats (2026-04-22 triage — playback was buffering forever
+ * because every URL matched `/stream/` and was handed to hls.js even though
+ * the backend serves raw MPEG-TS for live and direct MP4/MKV for VOD):
+ *
+ *  - `kind === "live"` or URL ends in `.ts` / `.m3u8` through /api/stream/live
+ *    → mpegts.js (backend transcodes video passthrough + AAC audio to TS)
+ *  - URL ends in `.m3u8` from anywhere else → hls.js
+ *  - anything else (mp4/mkv/avi VOD) → native `<video src>` — browser handles
+ *    Range requests via the backend proxy
+ *
+ * Design decisions:
  *  - backBufferLength: 20 — reduces memory pressure on Fire TV; do NOT raise.
  *  - Use nextLevel (NOT currentLevel) for quality changes — avoids mid-segment
  *    cuts (lesson from v2 Sprint 4).
- *  - Supports plain MP4/native formats via canPlayType fallback.
- *  - Cleans up hls.destroy() on unmount to prevent memory leaks.
+ *  - mpegts.js: enableStashBuffer=false + lowBufferLatencyChasing — live-TV tuned.
+ *  - Clean up hls.destroy() / mpegts.destroy() on unmount.
  */
 import { useEffect, useRef, useState, useCallback } from "react";
 import Hls from "hls.js";
+import mpegts from "mpegts.js";
+import type { PlayerKind } from "./PlayerProvider";
 
 export type PlayerStatus =
   | "idle"
@@ -59,8 +71,10 @@ export interface UseHlsPlayerReturn {
 export function useHlsPlayer(
   videoRef: React.RefObject<HTMLVideoElement | null>,
   src: string | undefined,
+  kind?: PlayerKind,
 ): UseHlsPlayerReturn {
   const hlsRef = useRef<Hls | null>(null);
+  const mpegtsRef = useRef<ReturnType<typeof mpegts.createPlayer> | null>(null);
   const [status, setStatus] = useState<PlayerStatus>("idle");
   const [error, setError] = useState<Error | null>(null);
   const [duration, setDuration] = useState(0);
@@ -82,9 +96,46 @@ export function useHlsPlayer(
     setAudioTracks([]);
     setSubtitleTracks([]);
 
-    const isHls = src.includes(".m3u8") || src.includes("/stream/");
+    // Decide playback engine. Previous heuristic (`src.includes("/stream/")`)
+    // forced EVERY backend URL into hls.js and caused the silent-buffer bug.
+    const isM3u8 = src.includes(".m3u8");
+    const isLiveTs = kind === "live";
+    // VOD / series-episode URLs currently point to /api/stream/vod/:id which
+    // proxies a direct MP4/MKV. Browser handles natively.
+    const useNative = !isM3u8 && !isLiveTs;
 
-    if (isHls && Hls.isSupported()) {
+    if (isLiveTs && mpegts.getFeatureList().mseLivePlayback) {
+      // Live: backend transcodes Xtream TS → video-copy + AAC TS on the wire,
+      // mpegts.js wraps MSE for the browser.
+      const player = mpegts.createPlayer(
+        { type: "mpegts", isLive: true, url: src },
+        {
+          enableWorker: false,
+          enableStashBuffer: false,
+          stashInitialSize: 128 * 1024,
+          liveBufferLatencyChasing: true,
+          liveBufferLatencyMaxLatency: 3.0,
+          liveBufferLatencyMinRemain: 1.0,
+        },
+      );
+      mpegtsRef.current = player;
+      player.attachMediaElement(video);
+      player.load();
+      player.play()?.catch(() => {
+        /* autoplay blocked — user must press play */
+      });
+
+      player.on(mpegts.Events.ERROR, (errType, errDetail) => {
+        setError(new Error(`${errType}: ${errDetail}`));
+        setStatus("error");
+      });
+    } else if (useNative) {
+      video.src = src;
+      video.load();
+      void Promise.resolve(video.play()).catch(() => {
+        /* autoplay blocked or jsdom */
+      });
+    } else if (isM3u8 && Hls.isSupported()) {
       const hls = new Hls({
         backBufferLength: 20,
         maxBufferLength: 30,
@@ -139,14 +190,19 @@ export function useHlsPlayer(
           hlsRef.current = null;
         }
       });
-    } else if (video.canPlayType("application/vnd.apple.mpegurl") && isHls) {
+    } else if (video.canPlayType("application/vnd.apple.mpegurl") && isM3u8) {
       // Safari native HLS
       video.src = src;
       video.load();
     } else {
-      // Plain MP4 or other native format
+      // Ultimate fallback — hand to the browser. Works for MP4/MKV via Range
+      // requests through the backend proxy; also covers the case where
+      // mpegts.js says MSE live playback isn't supported.
       video.src = src;
       video.load();
+      void Promise.resolve(video.play()).catch(() => {
+        /* autoplay blocked or jsdom */
+      });
     }
 
     const onPlay = () => setStatus("playing");
@@ -189,9 +245,17 @@ export function useHlsPlayer(
         hlsRef.current.destroy();
         hlsRef.current = null;
       }
+      if (mpegtsRef.current) {
+        try {
+          mpegtsRef.current.destroy();
+        } catch {
+          /* mpegts may already be torn down */
+        }
+        mpegtsRef.current = null;
+      }
       video.src = "";
     };
-  }, [videoRef, src]);
+  }, [videoRef, src, kind]);
 
   const play = useCallback(() => {
     videoRef.current?.play().catch(() => {});
