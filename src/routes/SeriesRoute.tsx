@@ -12,9 +12,9 @@
  *  - Empty state when no items in a category.
  *  - Bottom padding clears the dock.
  *
- * Language filtering uses the same LANGUAGE_PATTERNS logic as LiveRoute and
- * MoviesRoute applied client-side against the resolved category name. Moving
- * this to backend is tracked in issue #52.
+ * Language filtering uses the server-provided `inferredLang` field on each
+ * series item (backend PR #45). The inline LANGUAGE_PATTERNS regex blocks
+ * were removed as part of issue #52.
  *
  * MUST PRESERVE: CONTENT_AREA_SERIES FocusContext registration
  * (BottomDock Esc-key routing — Task 2.4 lesson).
@@ -37,15 +37,6 @@ import type { SeriesCategory, SeriesItem } from "../api/schemas";
 import { LanguageRail } from "../components/LanguageRail";
 import { getLangPref, setLangPref } from "../lib/langPref";
 import type { LangId } from "../lib/langPref";
-
-// Language → category-name match patterns (same logic as LiveRoute/MoviesRoute).
-// Sports is omitted: no sports feed concept on Series.
-const LANGUAGE_PATTERNS: Record<Exclude<LangId, "all" | "sports">, string[]> =
-  {
-    telugu: ["telugu"],
-    hindi: ["hindi", "india entertainment", "indian", "bollywood"],
-    english: ["english", "netflix", "amazon", "hbo", "usa ", "uk "],
-  };
 
 export function SeriesRoute() {
   // MUST PRESERVE: norigin root registration for the content area.
@@ -75,22 +66,14 @@ export function SeriesRoute() {
     setLanguageFilter(lang);
   }, []);
 
-  // Build category-name lookup for language filtering.
-  const catNameById = new Map<string, string>();
-  for (const c of categories) catNameById.set(c.id, c.name);
-
-  // Apply language filter client-side.
+  // Language filter — uses the server-provided `inferredLang` field (issue #52).
+  // Sports falls through to "all" on Series: no sports feed concept on Series.
+  // When `inferredLang` is absent or null (no pattern matched / older backend),
+  // items are hidden under any specific language filter (safe degradation).
   const filteredItems: SeriesItem[] =
     languageFilter === "all" || languageFilter === "sports"
       ? items
-      : items.filter((item) => {
-          const hay = (
-            catNameById.get(item.categoryId) ?? item.categoryId
-          ).toLowerCase();
-          return LANGUAGE_PATTERNS[languageFilter].some((pat) =>
-            hay.includes(pat),
-          );
-        });
+      : items.filter((item) => item.inferredLang === languageFilter);
 
   // ─── Initial fetch — categories ──────────────────────────────────────────
   useEffect(() => {
