@@ -18,7 +18,12 @@ import { seedFakeAuth } from "./helpers";
 // We're capturing the authenticated shell (skeleton/error states still have
 // the polished atmosphere: gradient, dock, ambient fill).
 
-test.beforeEach(async ({ page }) => {
+// Visual baselines only exist for chromium-linux (see *.png snapshots checked in).
+// On webkit + webkit-desktop the test would fail with "snapshot doesn't exist,
+// writing actual" — and the Deploy gate is then permanently red. Until webkit
+// baselines are generated and committed, scope this suite to chromium only.
+test.beforeEach(async ({ page, browserName }) => {
+  test.skip(browserName !== "chromium", "visual baselines only exist for chromium");
   await seedFakeAuth(page);
 });
 
