@@ -58,15 +58,25 @@ describe("PlayerControls", () => {
     vi.useRealTimers();
   });
 
+  // Controls start hidden — user must interact to reveal them. Tests need
+  // to fire a keydown first to surface the control surface.
+  function reveal() {
+    act(() => {
+      fireEvent.keyDown(window, { key: "ArrowDown" });
+    });
+  }
+
   it("renders play/pause button", () => {
     const props = makeProps();
     render(<PlayerControls {...props} />);
+    reveal();
     expect(screen.getByRole("button", { name: /pause/i })).toBeTruthy();
   });
 
   it("calls onPause when pause button is clicked (playing state)", () => {
     const props = makeProps({ status: "playing" });
     render(<PlayerControls {...props} />);
+    reveal();
 
     screen.getByRole("button", { name: /pause/i }).click();
     expect(props.onPause).toHaveBeenCalledOnce();
@@ -75,6 +85,7 @@ describe("PlayerControls", () => {
   it("calls onPlay when play button is clicked (paused state)", () => {
     const props = makeProps({ status: "paused" });
     render(<PlayerControls {...props} />);
+    reveal();
 
     // Use exact match to avoid matching "Close player" button
     screen.getByRole("button", { name: "Play" }).click();
@@ -99,11 +110,15 @@ describe("PlayerControls", () => {
     expect(onSeek).toHaveBeenCalledWith(40);
   });
 
-  it("auto-hides controls after 3 seconds", () => {
+  it("auto-hides controls after 3 seconds of idle", () => {
     const props = makeProps();
     render(<PlayerControls {...props} />);
 
-    // Controls should be visible initially
+    // Controls start HIDDEN on mount — user hasn't touched the remote yet.
+    expect(screen.queryByTestId("player-controls")).toBeNull();
+
+    // Reveal via a key press.
+    reveal();
     expect(screen.queryByTestId("player-controls")).toBeTruthy();
 
     // Advance past the 3s auto-hide threshold
@@ -111,7 +126,7 @@ describe("PlayerControls", () => {
       vi.advanceTimersByTime(3100);
     });
 
-    // Controls should be hidden
+    // Controls should be hidden again
     expect(screen.queryByTestId("player-controls")).toBeNull();
   });
 
@@ -148,6 +163,7 @@ describe("PlayerControls", () => {
     ];
     const props = makeProps({ levels });
     render(<PlayerControls {...props} />);
+    reveal();
 
     const qualityBtn = screen.getByRole("button", { name: /quality/i });
     act(() => {
@@ -163,6 +179,7 @@ describe("PlayerControls", () => {
     const levels = [{ index: 0, height: 720, bitrate: 2000000, name: "720p" }];
     const props = makeProps({ levels, onSelectLevel });
     render(<PlayerControls {...props} />);
+    reveal();
 
     // Open quality menu
     act(() => {
