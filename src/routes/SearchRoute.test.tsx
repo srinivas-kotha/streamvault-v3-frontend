@@ -57,6 +57,12 @@ vi.mock("react-router-dom", () => ({
   useNavigate: () => navigateMock,
 }));
 
+// Player opener used by SearchResultsSection for Enter-to-play.
+const openPlayerMock = vi.hoisted(() => vi.fn());
+vi.mock("../player", () => ({
+  usePlayerOpener: () => ({ openPlayer: openPlayerMock }),
+}));
+
 import { SearchRoute } from "./SearchRoute";
 
 // ─── Fixtures ──────────────────────────────────────────────────────────────

@@ -3,8 +3,8 @@
  * 6 columns at 1920px, fewer on narrow screens (CSS grid auto-fill).
  * Renders MovieCard per stream, plus an empty state when the list is empty.
  */
-import { useNavigate } from "react-router-dom";
 import { MovieCard } from "./MovieCard";
+import { usePlayerOpener } from "../../player";
 import type { VodStream } from "../../api/schemas";
 
 interface MovieGridProps {
@@ -12,7 +12,11 @@ interface MovieGridProps {
 }
 
 export function MovieGrid({ streams }: MovieGridProps) {
-  const navigate = useNavigate();
+  // Enter on a poster opens the player overlay directly. The detail page
+  // (/movies/:id) was never implemented — navigating there produced a blank
+  // screen for the user. Opening the player matches the LiveRoute pattern
+  // and is the minimum viable path to "press play and it plays".
+  const { openPlayer } = usePlayerOpener();
 
   if (streams.length === 0) {
     return (
@@ -60,7 +64,9 @@ export function MovieGrid({ streams }: MovieGridProps) {
         <MovieCard
           key={stream.id}
           stream={stream}
-          onSelect={(id) => navigate(`/movies/${id}`)}
+          onSelect={(id) =>
+            void openPlayer({ kind: "vod", id, title: stream.name })
+          }
         />
       ))}
     </div>

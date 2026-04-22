@@ -48,6 +48,11 @@ vi.mock("../api/vod", () => ({
   fetchVodStreams: fetchVodStreamsMock,
 }));
 
+const openPlayerMock = vi.hoisted(() => vi.fn());
+vi.mock("../player", () => ({
+  usePlayerOpener: () => ({ openPlayer: openPlayerMock }),
+}));
+
 import { MoviesRoute } from "./MoviesRoute";
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────
@@ -170,15 +175,20 @@ describe("MoviesRoute", () => {
     });
   });
 
-  it("clicking a movie card calls navigate('/movies/:id')", async () => {
+  it("clicking a movie card opens the player with the vod kind + item title", async () => {
     fetchVodCategoriesMock.mockResolvedValue(mockCategories);
     fetchVodStreamsMock.mockResolvedValue(mockStreams);
+    openPlayerMock.mockClear();
 
     render(<MoviesRoute />);
     const card = await screen.findByRole("button", { name: /die hard/i });
     await userEvent.click(card);
 
-    expect(mockNavigate).toHaveBeenCalledWith("/movies/v1");
+    expect(openPlayerMock).toHaveBeenCalledWith({
+      kind: "vod",
+      id: "v1",
+      title: "Die Hard",
+    });
   });
 
   it("registers CONTENT_AREA_MOVIES focus key", async () => {

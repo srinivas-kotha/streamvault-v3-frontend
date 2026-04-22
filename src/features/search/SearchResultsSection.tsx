@@ -9,14 +9,15 @@
  */
 import type { RefObject } from "react";
 import { useFocusable } from "@noriginmedia/norigin-spatial-navigation";
-import { useNavigate } from "react-router-dom";
+import { usePlayerOpener } from "../../player";
 import type { CatalogItem } from "../../api/schemas";
+import type { PlayerKind } from "../../player/PlayerProvider";
 
-// Route map: vod → /movies/:id (backend type "vod" = movies section)
-const ROUTE_MAP: Record<string, string> = {
-  live: "/live",
-  vod: "/movies",
-  series: "/series",
+// Map backend content type → player kind. "vod" is the VOD movies shelf.
+const KIND_MAP: Record<string, PlayerKind> = {
+  live: "live",
+  vod: "vod",
+  series: "series-episode",
 };
 
 interface SearchCardProps {
@@ -24,24 +25,27 @@ interface SearchCardProps {
 }
 
 function SearchCard({ item }: SearchCardProps) {
-  const navigate = useNavigate();
+  const { openPlayer } = usePlayerOpener();
   const focusKey = `SEARCH_RESULT_${item.type.toUpperCase()}_${item.id}`;
 
-  const goToDetail = () => {
-    const base = ROUTE_MAP[item.type] ?? "/search";
-    navigate(`${base}/${item.id}`);
+  // Enter on a search result opens the player overlay directly — there is
+  // no detail page yet and the previous behaviour (navigate to a non-
+  // existent route) produced a blank screen.
+  const playItem = () => {
+    const kind = KIND_MAP[item.type] ?? "vod";
+    void openPlayer({ kind, id: item.id, title: item.name });
   };
 
   const { ref, focused } = useFocusable<HTMLButtonElement>({
     focusKey,
-    onEnterPress: goToDetail,
+    onEnterPress: playItem,
   });
 
   return (
     <button
       ref={ref as RefObject<HTMLButtonElement>}
       type="button"
-      onClick={goToDetail}
+      onClick={playItem}
       aria-label={item.name}
       style={{
         flex: "0 0 auto",
