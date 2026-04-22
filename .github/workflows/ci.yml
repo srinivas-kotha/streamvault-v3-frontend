@@ -80,6 +80,23 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: "20"
+          cache: "npm"
+          cache-dependency-path: |
+            frontend/package-lock.json
+            backend/package-lock.json
+
+      # --- Playwright browser cache ------------------------------------------
+      # Keyed on the @playwright/test version pinned in package.json so the
+      # cache is invalidated whenever the Playwright release changes.
+      # system-level libs (libgtk, libwebp, etc.) are NOT cached — those come
+      # from playwright install-deps and live in /usr/lib, not ~/.cache.
+      # Restore early so the cache is primed; actual install runs after npm ci.
+      - name: Restore Playwright browser cache
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
 
       # --- Postgres schema ---------------------------------------------------
       # Mirror of ai-orchestration/postgres/20-streamvault-schema.sql (the real
@@ -236,9 +253,15 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: Install Playwright browsers
+      - name: Install Playwright browsers (cache miss — full install with deps)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         working-directory: frontend
         run: npx playwright install --with-deps chromium webkit
+
+      - name: Install Playwright system deps only (cache hit — binaries already cached)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        working-directory: frontend
+        run: npx playwright install-deps chromium webkit
 
       - name: Run Playwright E2E
         working-directory: frontend
