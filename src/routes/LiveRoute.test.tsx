@@ -53,6 +53,13 @@ vi.mock("../player/usePlayerOpener", () => ({
   usePlayerOpener: () => ({ openPlayer: vi.fn() }),
 }));
 
+// Mock langPref: return "all" so the language filter passes all mock channels
+// (mock category names like "News"/"Entertainment" don't match language patterns).
+vi.mock("../lib/langPref", () => ({
+  getLangPref: () => "all",
+  setLangPref: vi.fn(),
+}));
+
 import { LiveRoute } from "./LiveRoute";
 
 const mockChannels: Channel[] = [
