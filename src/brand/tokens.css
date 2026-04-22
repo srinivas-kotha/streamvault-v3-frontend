@@ -92,12 +92,63 @@
     --radius-pill: 24px;
 
     /* ──────────────────────────────────────────────
+       Polish — deep-space gradients + glow vars
+       feat/futuristic-polish pass
+       ────────────────────────────────────────────── */
+
+    /* App shell background gradient */
+    --bg-shell-gradient: linear-gradient(
+      to bottom,
+      #1a1410 0%,
+      #12100e 100%
+    );
+
+    /* Chromatic ambient fill behind hero sections */
+    --hero-ambient: radial-gradient(
+      ellipse at top,
+      rgba(200, 121, 65, 0.08) 0%,
+      transparent 60%
+    );
+
+    /* Glass card fill */
+    --card-glass-bg: linear-gradient(
+      135deg,
+      rgba(40, 32, 22, 0.6),
+      rgba(30, 26, 22, 0.3)
+    );
+    --card-glass-border: 1px solid rgba(237, 228, 211, 0.06);
+
+    /* Copper focus glow — used by cards + dock tabs */
+    --focus-glow: 0 0 0 2px var(--accent-copper),
+      0 8px 32px -8px rgba(200, 121, 65, 0.45);
+
+    /* Copper inset glow when card focused */
+    --card-inset-glow: inset 0 0 0 1px rgba(200, 121, 65, 0.25);
+
+    /* Dock floating bar */
+    --dock-glass-bg: rgba(18, 16, 14, 0.85);
+    --dock-top-border: 1px solid rgba(200, 121, 65, 0.18);
+
+    /* Active dock tab gradient (depth) */
+    --dock-tab-active-gradient: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.08) 0%,
+      rgba(255, 255, 255, 0) 100%
+    );
+
+    /* Typography breathing */
+    --heading-letter-spacing: 0.02em;
+
+    /* ──────────────────────────────────────────────
        Motion — no parallax, no bounce, no spring
        Source: design spec §6 Motion
        ────────────────────────────────────────────── */
     --motion-focus: 150ms ease-out;
     --motion-page: 250ms ease-out;
     --motion-dock: 400ms ease-out;
+
+    /* Shimmer duration — 30fps cap (≈2s sweep) */
+    --motion-shimmer: 2s;
 
     /* ──────────────────────────────────────────────
        Layout
@@ -114,6 +165,7 @@
       --motion-focus: 0ms;
       --motion-page: 0ms;
       --motion-dock: 0ms;
+      --motion-shimmer: 0ms;
     }
   }
 

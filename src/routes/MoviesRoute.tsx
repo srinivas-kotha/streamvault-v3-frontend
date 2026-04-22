@@ -147,6 +147,11 @@ export function MoviesRoute() {
         style={{
           paddingBottom:
             "calc(var(--dock-height) + var(--space-6) + var(--space-6))",
+          // Chromatic ambient fill behind hero region
+          backgroundImage: "var(--hero-ambient)",
+          backgroundRepeat: "no-repeat",
+          backgroundSize: "100% 280px",
+          backgroundPosition: "top center",
         }}
       >
         {loading ? (
