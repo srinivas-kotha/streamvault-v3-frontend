@@ -1,17 +1,48 @@
 /**
- * ErrorShell primitive — TDD tests (Task 1.6)
+ * ErrorShell primitive — TDD tests (Task 1.6 + 2026-04-22 norigin retrofit)
  *
- * RED first: ErrorShell.tsx returns null. All tests must fail.
- * GREEN: implement ErrorShell.tsx to pass all 4 assertions.
+ * Covers: title/subtext render, Retry click handler, Back button conditional,
+ * role=alert. Also: setFocus("ERROR_RETRY") on mount, focusKey wiring on all
+ * three buttons (2026-04-22 — replaces the broken `autoFocus` pattern).
  *
- * Spec: plan Task 1.6 Step 1 + design spec §7.5 (D-pad default focus).
+ * Spec: plan Task 1.6 + design spec §7.5 (D-pad default focus).
  */
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, it, expect, vi } from "vitest";
+import React from "react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+const useFocusableSpy = vi.hoisted(() => vi.fn());
+const setFocusSpy = vi.hoisted(() => vi.fn());
+vi.mock("@noriginmedia/norigin-spatial-navigation", () => ({
+  init: vi.fn(),
+  useFocusable: (opts?: {
+    focusable?: boolean;
+    focusKey?: string;
+    onEnterPress?: () => void;
+  }) => {
+    useFocusableSpy(opts);
+    return {
+      ref: { current: null },
+      focusKey: opts?.focusKey ?? "MOCK_KEY",
+      focused: false,
+      focusSelf: vi.fn(),
+    };
+  },
+  FocusContext: {
+    Provider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  },
+  setFocus: setFocusSpy,
+}));
+
 import { ErrorShell } from "./ErrorShell";
 
 describe("ErrorShell", () => {
+  beforeEach(() => {
+    useFocusableSpy.mockClear();
+    setFocusSpy.mockClear();
+  });
+
   it("renders title and subtext", () => {
     render(
       <ErrorShell
@@ -24,7 +55,7 @@ describe("ErrorShell", () => {
     expect(screen.getByText("Check your connection")).toBeInTheDocument();
   });
 
-  it("Retry button is default focus and calls onRetry", async () => {
+  it("Retry button calls onRetry on click", async () => {
     const retry = vi.fn();
     render(<ErrorShell title="Error" subtext="Try again" onRetry={retry} />);
     await userEvent.click(screen.getByRole("button", { name: /retry/i }));
@@ -46,5 +77,63 @@ describe("ErrorShell", () => {
   it("has role=alert for screen readers", () => {
     render(<ErrorShell title="Error" subtext="msg" onRetry={() => {}} />);
     expect(screen.getByRole("alert")).toBeInTheDocument();
+  });
+
+  // ─── 2026-04-22 norigin retrofit ─────────────────────────────────────────
+
+  it("primes norigin to focus ERROR_RETRY on mount", () => {
+    render(<ErrorShell title="Error" subtext="msg" onRetry={() => {}} />);
+    expect(setFocusSpy).toHaveBeenCalledWith("ERROR_RETRY");
+  });
+
+  it("registers ERROR_RETRY as a norigin focus key", () => {
+    render(<ErrorShell title="Error" subtext="msg" onRetry={() => {}} />);
+    const retryCall = useFocusableSpy.mock.calls.find(
+      ([opts]: [{ focusKey?: string }]) => opts?.focusKey === "ERROR_RETRY",
+    );
+    expect(retryCall).toBeDefined();
+    expect(retryCall![0]).toMatchObject({
+      focusable: true,
+      focusKey: "ERROR_RETRY",
+    });
+  });
+
+  it("registers ERROR_BACK when onBack provided", () => {
+    render(
+      <ErrorShell
+        title="E"
+        subtext="s"
+        onRetry={() => {}}
+        onBack={() => {}}
+      />,
+    );
+    const backCall = useFocusableSpy.mock.calls.find(
+      ([opts]: [{ focusKey?: string }]) => opts?.focusKey === "ERROR_BACK",
+    );
+    expect(backCall).toBeDefined();
+  });
+
+  it("registers ERROR_REPORT when onReport provided", () => {
+    render(
+      <ErrorShell
+        title="E"
+        subtext="s"
+        onRetry={() => {}}
+        onReport={() => {}}
+      />,
+    );
+    const reportCall = useFocusableSpy.mock.calls.find(
+      ([opts]: [{ focusKey?: string }]) => opts?.focusKey === "ERROR_REPORT",
+    );
+    expect(reportCall).toBeDefined();
+  });
+
+  it("wires onEnterPress for Retry to the onRetry callback", () => {
+    const retry = vi.fn();
+    render(<ErrorShell title="E" subtext="s" onRetry={retry} />);
+    const retryCall = useFocusableSpy.mock.calls.find(
+      ([opts]: [{ focusKey?: string }]) => opts?.focusKey === "ERROR_RETRY",
+    );
+    expect(retryCall![0].onEnterPress).toBe(retry);
   });
 });
