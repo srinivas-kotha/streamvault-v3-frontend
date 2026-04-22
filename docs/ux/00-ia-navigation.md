@@ -120,6 +120,20 @@ Every content route follows the same vertical stack (top-to-bottom focus order):
 5. Grid is a 2-D focus zone. ArrowLeft at column 0 wraps to end of previous row
    (standard poster-grid behaviour, matches norigin default).
 
+#### Card-activation matrix (per surface — authoritative; closes #55)
+
+`Enter`/`OK` on a card has different semantics depending on which surface you're on. Every implementor MUST match this table; mismatches manifest as muscle-memory bugs (search-clicks-series-opens-player was the prior example).
+
+| Surface          | Card type                | OK action                             | Source of truth                                            |
+|------------------|--------------------------|---------------------------------------|------------------------------------------------------------|
+| `/live`          | Channel row              | `openPlayer({ kind: "live", ... })`   | `LiveRoute.tsx`                                            |
+| `/movies`        | Movie poster             | `openPlayer({ kind: "movie", ... })`  | `MoviesRoute.tsx`                                          |
+| `/series`        | Series poster            | `navigate('/series/' + id)` — NO play | `SeriesRoute.tsx` (P0 #49)                                 |
+| `/series/:id`    | Episode row              | `openPlayer({ kind: "series-ep", ... })` | `SeriesDetailRoute.tsx` (P0 #49)                        |
+| `/search` result | depends on `hit.kind`    | `live` → play; `movie` → play; `series` → navigate to `/series/:id` | `SearchResultsSection.tsx:36` (P0 #49 fix) |
+
+**Rule:** any "play" action funnels through `usePlayerOpener` → `openPlayer`. Any "navigate" action funnels through `react-router` `navigate`. NEVER mix (e.g. `usePlayerOpener` deciding internally to navigate is the bug we're closing in #49).
+
 ### 2.3 Back-stack semantics — the only diagram you need
 
 ```
@@ -144,7 +158,7 @@ handles the final Back from the dock — we do not intercept.
 > **Why Player → depth 1 (not depth 2) when closing:** Series detail is re-entered via
 > history stack (`popstate`) so React Router restores it transparently. Player overlay
 > is an *overlay*, not a route — closing it is a state dispatch, not a route change.
-> See `src/player/PlayerProvider.tsx:9-11` for the popstate interception.
+> Implementation: `src/player/PlayerProvider.tsx:81-101` — opens player → `history.pushState({ playerOpen: true }, "")` at line 87 (the **sentinel entry**), registers `popstate` listener at line 99 that closes the player instead of navigating. The sentinel CONSUMES one slot in the back-stack budget — depth 3 (Player open) is really 4 history entries deep when measured raw. Implementors MUST account for this when computing nav budgets (closes #55).
 
 **Popover back-stack (inside Player):** Quality / audio / subtitle popovers consume one
 Back press each before the Player itself closes. This is a micro-stack *inside* depth 3.

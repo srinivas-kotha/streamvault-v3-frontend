@@ -284,14 +284,16 @@ D-pad: facets are a horizontal row; `ArrowDown` from any facet enters the first 
 
 Assumes Fire TV remote; on-screen keyboard is D-pad-navigated, average **3 D-pad moves + 1 OK** per letter.
 
-| Task                                          | Inputs (typed)   | Inputs (voice)  | Inputs (recent) |
-|-----------------------------------------------|------------------|-----------------|-----------------|
-| "Play Telugu movie 'Vikram'" (5 letters)      | 5 letters × 4 + 1 OK on top result = **21** | 1 long-press + say + **1 OK** = 2–3 | 1 `ArrowDown` + **1 OK** = 2 |
-| "Play live channel 'TV9 Telugu'"              | 3 letters ("tv9") × 4 + 1 = **13**      | 2–3             | 2 (if recent)   |
-| "Resume series 'Money Heist' S2E4"            | 5 letters × 4 + `ArrowDown` to series + **1 OK** → lands on `/series/:id` → `ArrowDown` to S2 + `ArrowRight` × 3 + **1 OK** = **~27** | ~10 (voice + 6 d-pad inside picker) | 2 (recent) + 5 (season/ep nav) = **~7** |
-| Ambiguous query "ipl"                         | 3 letters × 4 + `ArrowRight` through lang chips to pin + **1 OK** + `ArrowDown` to live result + **1 OK** = **~16** | ~4             | ~2              |
+| Task                                          | Inputs (typed)   | Inputs (recent) |
+|-----------------------------------------------|------------------|-----------------|
+| "Play Telugu movie 'Vikram'" (5 letters)      | 5 letters × 4 + 1 OK on top result = **21** | 1 `ArrowDown` + **1 OK** = 2 |
+| "Play live channel 'TV9 Telugu'"              | 3 letters ("tv9") × 4 + 1 = **13**      | 2 (if recent)   |
+| "Resume series 'Money Heist' S2E4"            | 5 letters × 4 + `ArrowDown` to series + **1 OK** → lands on `/series/:id` → `ArrowDown` to S2 + `ArrowRight` × 3 + **1 OK** = **~27** | 2 (recent) + 5 (season/ep nav) = **~7** |
+| Ambiguous query "ipl"                         | 3 letters × 4 + `ArrowRight` through lang chips to pin + **1 OK** + `ArrowDown` to live result + **1 OK** = **~16** | ~2              |
 
-**Target hit:** "Play Vikram" in recent-search path = **2 inputs**, well under the 6-input (5 letters + 1 OK) target. Even cold, voice gets it in 3.
+**Target hit:** "Play Vikram" in recent-search path = **2 inputs**, well under the 6-input (5 letters + 1 OK) target.
+
+**Voice search — DEFERRED, OUT OF MVP** (closes #57): `webkitSpeechRecognition` is unreliable on Fire TV Silk and adds an audio-permission gauntlet that breaks the cold-path budget. Re-evaluate post-MVP only if a stable, on-device recognizer ships for Silk; tracked separately, NOT a launch blocker.
 
 ### B.6 Empty state rails (detail)
 
