@@ -1,0 +1,14 @@
+node_modules
+.git
+.github
+dist
+*.md
+docs
+tests
+.claude
+.env*
+.vscode
+coverage
+playwright-report
+test-results
+*.log
