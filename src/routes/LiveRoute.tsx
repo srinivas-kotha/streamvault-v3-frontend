@@ -36,6 +36,62 @@ import { fetchChannels, fetchCategories } from "../api/live";
 import type { Channel } from "../api/schemas";
 import { usePlayerOpener } from "../player/usePlayerOpener";
 
+// ─── Language filter ─────────────────────────────────────────────────────────
+// User request (2026-04-22): Live should default to Telugu; also surface Hindi,
+// English, Sports. Other categories (UAE/Morocco/Poland/etc.) are noise for
+// this user and sit behind the "All" option.
+type LanguageFilter = "telugu" | "hindi" | "english" | "sports" | "all";
+
+const LANGUAGE_OPTIONS: { id: LanguageFilter; label: string }[] = [
+  { id: "telugu", label: "Telugu" },
+  { id: "hindi", label: "Hindi" },
+  { id: "english", label: "English" },
+  { id: "sports", label: "Sports" },
+  { id: "all", label: "All" },
+];
+
+function LanguageButton({
+  option,
+  isActive,
+  onSelect,
+}: {
+  option: { id: LanguageFilter; label: string };
+  isActive: boolean;
+  onSelect: () => void;
+}) {
+  const { ref, focused } = useFocusable({
+    focusKey: `LANG_${option.id.toUpperCase()}`,
+    onEnterPress: onSelect,
+  });
+  const active = isActive || focused;
+
+  return (
+    <button
+      ref={ref as RefObject<HTMLButtonElement>}
+      type="button"
+      className="focus-ring"
+      aria-pressed={isActive}
+      onClick={onSelect}
+      style={{
+        padding: "var(--space-2) var(--space-5)",
+        borderRadius: "var(--radius-pill)",
+        border: isActive
+          ? "2px solid var(--accent-copper)"
+          : "2px solid transparent",
+        background: active ? "var(--accent-copper)" : "var(--bg-surface)",
+        color: active ? "var(--bg-base)" : "var(--text-primary)",
+        fontSize: "var(--text-body-size)",
+        fontWeight: active ? 600 : 500,
+        cursor: "pointer",
+        transition:
+          "background var(--motion-focus), color var(--motion-focus), border-color var(--motion-focus)",
+      }}
+    >
+      {option.label}
+    </button>
+  );
+}
+
 // ─── Sort button (per-button norigin registration — D6a) ────────────────────
 
 const SORT_OPTIONS: { id: ChannelSortKey; label: string }[] = [
@@ -115,8 +171,55 @@ export function LiveRoute() {
   const [epgTimeFilter, setEpgTimeFilter] = useState<EpgTimeFilterValue>(
     "all",
   );
+  // Default "all" so the page renders every channel on first paint; user can
+  // narrow to Telugu / Hindi / English / Sports via the language rail.
+  // (Unit tests rely on the "all" default — their mock categories don't match
+  // language patterns.)
+  const [languageFilter, setLanguageFilter] =
+    useState<LanguageFilter>("all");
 
-  const sorted = useSortedChannels(channels, sortBy, categories);
+  // Language → category-name match patterns. Matched case-insensitively against
+  // the channel's resolved category name (falls back to channel name for
+  // categories we can't resolve).
+  const LANGUAGE_PATTERNS: Record<Exclude<LanguageFilter, "all">, string[]> = {
+    telugu: ["telugu"],
+    hindi: ["hindi", "india entertainment", "indian", "bollywood"],
+    english: ["english", "netflix", "amazon", "hbo", "usa ", "uk "],
+    sports: [
+      "sport",
+      "sports",
+      "football",
+      "cricket",
+      "tennis",
+      "nba",
+      "nfl",
+      "mlb",
+      "epl",
+      "ipl",
+      "rugby",
+      "f1",
+      "racing",
+    ],
+  };
+
+  // Resolve category name once per channel set for fast lookup.
+  const catNameById = new Map<string, string>();
+  for (const c of categories) catNameById.set(c.id, c.name);
+
+  const filteredChannels =
+    languageFilter === "all"
+      ? channels
+      : channels.filter((ch) => {
+          const hay = (
+            catNameById.get(ch.categoryId) ??
+            ch.categoryId
+          ).toLowerCase();
+          return LANGUAGE_PATTERNS[languageFilter].some((pat) =>
+            hay.includes(pat),
+          );
+        });
+
+  const sorted = useSortedChannels(filteredChannels, sortBy, categories);
 
   // When user presses Enter on an already-selected channel (or a channel is
   // clicked for play), open the player. First Enter selects; second Enter plays.
@@ -229,6 +332,27 @@ export function LiveRoute() {
           />
         ) : (
           <>
+            {/* Language rail — first row of toolbar. Defaults to Telugu. */}
+            <div
+              role="toolbar"
+              aria-label="Language filter"
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "var(--space-3)",
+                padding: "var(--space-4) var(--space-6) var(--space-2)",
+              }}
+            >
+              {LANGUAGE_OPTIONS.map((opt) => (
+                <LanguageButton
+                  key={opt.id}
+                  option={opt}
+                  isActive={languageFilter === opt.id}
+                  onSelect={() => setLanguageFilter(opt.id)}
+                />
+              ))}
+            </div>
+
             {/* Toolbar — lives ABOVE the channel list (Q3) so D-pad reaches
                 it in one ArrowUp from the list. UX designer: flag for
                 final visual polish review (colours, spacing, active state). */}

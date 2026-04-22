@@ -109,7 +109,10 @@ export function PlayerControls({
   onSelectAudioTrack,
   onSelectSubtitleTrack,
 }: PlayerControlsProps) {
-  const [visible, setVisible] = useState(true);
+  // Controls start HIDDEN (user wants full-bleed video when idle) and reveal
+  // on any key / remote / mouse input. After AUTO_HIDE_MS of no activity they
+  // fade back out.
+  const [visible, setVisible] = useState(false);
   const [openMenu, setOpenMenu] = useState<"quality" | "audio" | "subtitles" | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -130,17 +133,34 @@ export function PlayerControls({
     scheduleHide();
   }, [scheduleHide]);
 
-  // Wire keyboard events for D-pad seek + auto-show
+  // Wire keyboard + remote events. Any keypress surfaces the controls; the
+  // auto-hide timer restarts with each interaction. Media-key handling covers
+  // TV remotes that emit MediaPlayPause / MediaFastForward / MediaRewind.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       showControls();
 
-      if (e.key === "ArrowLeft") {
+      if (e.key === "ArrowLeft" || e.key === "MediaRewind" || e.key === "j") {
         e.preventDefault();
         onSeek(currentTime - 10);
-      } else if (e.key === "ArrowRight") {
+      } else if (
+        e.key === "ArrowRight" ||
+        e.key === "MediaFastForward" ||
+        e.key === "l"
+      ) {
         e.preventDefault();
         onSeek(currentTime + 10);
+      } else if (
+        e.key === "MediaPlayPause" ||
+        e.key === " " ||
+        e.key === "k"
+      ) {
+        e.preventDefault();
+        if (status === "playing") {
+          onPause();
+        } else {
+          onPlay();
+        }
       } else if (e.key === "Escape" || e.key === "Back" || e.key === "GoBack") {
         e.preventDefault();
         if (openMenu) {
@@ -158,7 +178,16 @@ export function PlayerControls({
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("mousemove", handleMouseMove);
     };
-  }, [currentTime, onSeek, onClose, openMenu, showControls]);
+  }, [
+    currentTime,
+    onSeek,
+    onClose,
+    onPlay,
+    onPause,
+    status,
+    openMenu,
+    showControls,
+  ]);
 
   // Start auto-hide on mount
   useEffect(() => {
