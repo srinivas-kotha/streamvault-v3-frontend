@@ -1,83 +1,172 @@
 /**
- * MovieCard — poster card for the VOD grid.
- * focusKey: VOD_CARD_<id>
- * Focused state: copper outline + scale(1.04) + lifted shadow.
- * Uses lazy <img> with --bg-surface fallback.
+ * MovieCard — 2:3 poster card for the VOD grid with all 5 states:
+ *   idle / focused / in-progress / watched / tier-locked
  *
- * ⋯ overflow menu (#58): shown in the title bar of the focused card.
- * D-pad Right from the card → OverflowMenu trigger (MOVIE_OVERFLOW_<id>).
- * See docs/ux/03-movies.md §2b for the full interaction spec.
+ * Spec: docs/ux/03-movies.md §6 (card states) + §6.1 (⋯ overflow).
+ *
+ * Focus: useFocusable(VOD_CARD_<id>). Enter = play directly (no detail route;
+ * detail is reached via ⋯ → More info, which opens a bottom sheet).
+ *
+ * ⋯ overflow: visible only while the card is focused. Actions depend on
+ * current favorite state (Add → Remove toggle tracked in local state).
+ * "Mark as watched" writes progress/duration = 1/1 so the server's
+ * progress/duration threshold flips the card to the watched state on next
+ * render — the real duration isn't available on /api/vod/streams (it lives
+ * on /api/vod/info/:id only).
  */
 import type { RefObject } from "react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useFocusable } from "@noriginmedia/norigin-spatial-navigation";
 import { OverflowMenu } from "../../components/OverflowMenu";
-import { addFavorite, removeFavorite } from "../../api/favorites";
+import { TierLockBadge } from "../../primitives/TierLockBadge";
+import {
+  addFavorite,
+  removeFavorite,
+  isFavorited,
+} from "../../api/favorites";
 import { recordHistory } from "../../api/history";
 import type { VodStream } from "../../api/schemas";
 
-interface MovieCardProps {
-  stream: VodStream;
-  onSelect: (id: string) => void;
+export interface MovieCardProgress {
+  /** Seconds watched — used to render the progress bar width. */
+  progressSeconds: number;
+  /** Total seconds — used as the divisor; 0 hides the progress bar. */
+  durationSeconds: number;
 }
 
-export function MovieCard({ stream, onSelect }: MovieCardProps) {
+export interface MovieCardProps {
+  stream: VodStream;
+  /** Called on Enter / click — plays the movie directly. */
+  onSelect: (stream: VodStream) => void;
+  /** Called when the user picks "More info" from the ⋯ menu. */
+  onMoreInfo: (stream: VodStream) => void;
+  /** Progress ratio if the user has a partial watch; undefined otherwise. */
+  progress?: MovieCardProgress;
+  /** True when the item is fully watched (≥90% or explicitly marked). */
+  watched?: boolean;
+  /** True when the item's container is known not to be allowed on this plan. */
+  tierLocked?: boolean;
+}
+
+function WatchedBadge() {
+  return (
+    <span
+      role="img"
+      aria-label="Watched"
+      title="Watched"
+      style={{
+        position: "absolute",
+        top: "var(--space-2)",
+        right: "var(--space-2)",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: 28,
+        height: 28,
+        borderRadius: "var(--radius-sm)",
+        background: "rgba(18, 16, 14, 0.85)",
+        color: "var(--accent-copper)",
+        fontSize: 16,
+        lineHeight: 1,
+        pointerEvents: "none",
+      }}
+      data-testid="watched-badge"
+    >
+      ✓
+    </span>
+  );
+}
+
+export function MovieCard({
+  stream,
+  onSelect,
+  onMoreInfo,
+  progress,
+  watched = false,
+  tierLocked = false,
+}: MovieCardProps) {
   const { ref, focused } = useFocusable({
     focusKey: `VOD_CARD_${stream.id}`,
-    onEnterPress: () => onSelect(stream.id),
+    onEnterPress: () => onSelect(stream),
   });
 
-  const overflowFocusKey = `MOVIE_OVERFLOW_${stream.id}`;
+  // Track favorite state so the ⋯ menu can toggle Add ↔ Remove without a
+  // round-trip to the server. isFavorited() reads localStorage synchronously
+  // so initial state is reliable even after a page reload.
+  const [favorited, setFavorited] = useState(() =>
+    isFavorited(Number(stream.id), "vod"),
+  );
 
-  // ⋯ overflow actions for this movie.
-  // TODO(#58): "Mark as watched" uses duration_seconds: 0 as a placeholder
-  // because VodStream has no duration field in the current schema. Wire to
-  // the real duration once /api/vod/search returns duration_minutes (#59 P1).
-  // TODO(#58): "Add to favorites" / "Remove from favorites" both fire
-  // optimistically via localStorage. The backend POST/DELETE /api/favorites
-  // endpoints exist (favorites.ts) and are wired here.
-  const overflowActions = useMemo(() => [
-    {
-      label: "Add to favorites",
-      onSelect: () => {
-        void addFavorite(Number(stream.id), {
-          content_type: "vod",
-          content_name: stream.name,
-          content_icon: stream.icon ?? undefined,
-          category_name: undefined,
-        });
+  // Cross-card sync: when another card toggles this movie's favorite status
+  // we refresh our read. Kept simple via the window `storage` event — fired
+  // only by writes from *other* tabs, so same-tab updates are covered by the
+  // local setFavorited() calls below.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === "sv_favorites") {
+        setFavorited(isFavorited(Number(stream.id), "vod"));
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [stream.id]);
+
+  const overflowActions = useMemo(
+    () => [
+      favorited
+        ? {
+            label: "Remove from favorites",
+            onSelect: () => {
+              void removeFavorite(Number(stream.id), "vod");
+              setFavorited(false);
+            },
+          }
+        : {
+            label: "Add to favorites",
+            onSelect: () => {
+              void addFavorite(Number(stream.id), {
+                content_type: "vod",
+                content_name: stream.name,
+                ...(stream.icon ? { content_icon: stream.icon } : {}),
+              });
+              setFavorited(true);
+            },
+          },
+      {
+        label: "Mark as watched",
+        onSelect: () => {
+          // Real duration lives on /api/vod/info only. Synthetic 1/1 marks the
+          // item with progress_seconds/duration_seconds = 100% so the ≥0.9
+          // threshold classifies it as watched on next render.
+          void recordHistory(Number(stream.id), {
+            content_type: "vod",
+            content_name: stream.name,
+            ...(stream.icon ? { content_icon: stream.icon } : {}),
+            progress_seconds: 1,
+            duration_seconds: 1,
+          });
+        },
       },
-    },
-    {
-      label: "Mark as watched",
-      onSelect: () => {
-        // TODO(#58): duration unknown at this level — recording with 0/0 marks
-        // the entry in history without a valid progress ratio. Replace with
-        // real duration_seconds once the field lands in VodStream schema.
-        void recordHistory(Number(stream.id), {
-          content_type: "vod",
-          content_name: stream.name,
-          content_icon: stream.icon ?? undefined,
-          progress_seconds: 0,
-          duration_seconds: 0,
-        });
+      {
+        label: "More info",
+        onSelect: () => onMoreInfo(stream),
       },
-    },
-    {
-      label: "Remove from favorites",
-      onSelect: () => {
-        void removeFavorite(Number(stream.id), "vod");
-      },
-    },
-  ], [stream]);
+    ],
+    [favorited, stream, onMoreInfo],
+  );
+
+  const progressPct =
+    progress && progress.durationSeconds > 0
+      ? Math.max(
+          0,
+          Math.min(100, (progress.progressSeconds / progress.durationSeconds) * 100),
+        )
+      : 0;
 
   return (
-    // Outer wrapper — position:relative so the ⋯ trigger can overlay the title bar.
-    // Not a button; the inner <button> holds norigin focus + card interaction.
     <div
       style={{
         position: "relative",
-        // Scale on focus — no transform on ancestors (AC constraint respected)
         transform: focused ? "scale(1.03)" : "scale(1)",
         transition: "transform 150ms ease-out",
       }}
@@ -85,15 +174,18 @@ export function MovieCard({ stream, onSelect }: MovieCardProps) {
       <button
         ref={ref as RefObject<HTMLButtonElement>}
         type="button"
-        aria-label={stream.name}
-        onClick={() => onSelect(stream.id)}
+        aria-label={
+          progress && progress.durationSeconds > 0
+            ? `${stream.name}, resume at ${Math.floor(progress.progressSeconds / 60)} min`
+            : stream.name
+        }
+        onClick={() => onSelect(stream)}
         className="focus-ring"
         style={{
           position: "relative",
           display: "flex",
           flexDirection: "column",
           width: "100%",
-          // Glass-panel fill — warm gradient over surface
           background: "var(--card-glass-bg, var(--bg-surface))",
           border: focused
             ? "1px solid var(--accent-copper)"
@@ -101,7 +193,6 @@ export function MovieCard({ stream, onSelect }: MovieCardProps) {
           borderRadius: "var(--radius-sm, 6px)",
           padding: 0,
           cursor: "pointer",
-          // Copper glow on focus; subtle shadow at rest
           boxShadow: focused
             ? "var(--focus-glow, 0 0 0 2px var(--accent-copper), 0 8px 32px -8px rgba(200,121,65,0.45))"
             : "0 2px 8px rgba(0,0,0,0.3)",
@@ -109,13 +200,13 @@ export function MovieCard({ stream, onSelect }: MovieCardProps) {
             "box-shadow 150ms ease-out, border-color 150ms ease-out",
           overflow: "hidden",
           textAlign: "left",
+          opacity: watched ? 0.6 : 1,
         }}
       >
-        {/* Poster image — 2:3 aspect ratio */}
         <div
           style={{
             width: "100%",
-            paddingBottom: "150%", // 2:3 aspect
+            paddingBottom: "150%",
             position: "relative",
             background: "var(--bg-elevated, #2a2520)",
           }}
@@ -133,18 +224,38 @@ export function MovieCard({ stream, onSelect }: MovieCardProps) {
                 objectFit: "cover",
               }}
               onError={(e) => {
-                // Hide broken image, show placeholder bg
                 (e.currentTarget as HTMLImageElement).style.display = "none";
+              }}
+            />
+          ) : null}
+
+          {watched ? <WatchedBadge /> : null}
+          {tierLocked && !watched ? (
+            <TierLockBadge label="Not available on your plan" />
+          ) : null}
+
+          {progressPct > 0 && !watched ? (
+            <div
+              aria-hidden="true"
+              data-testid="movie-progress-bar"
+              style={{
+                position: "absolute",
+                bottom: 0,
+                left: 0,
+                width: `${progressPct}%`,
+                height: 3,
+                background: "var(--accent-copper)",
               }}
             />
           ) : null}
         </div>
 
-        {/* Title bar */}
         <div
           style={{
             padding: "var(--space-2) var(--space-3)",
-            paddingRight: focused ? "calc(var(--space-3) + 40px)" : "var(--space-3)",
+            paddingRight: focused
+              ? "calc(var(--space-3) + 40px)"
+              : "var(--space-3)",
             color: "var(--text-primary)",
             fontSize: "var(--text-label-size)",
             letterSpacing: "var(--text-label-tracking)",
@@ -157,7 +268,6 @@ export function MovieCard({ stream, onSelect }: MovieCardProps) {
           {stream.name}
         </div>
 
-        {/* Year + rating badge */}
         {(stream.year ?? stream.rating) && (
           <div
             style={{
@@ -175,23 +285,17 @@ export function MovieCard({ stream, onSelect }: MovieCardProps) {
         )}
       </button>
 
-      {/* ⋯ overflow menu — visible only when card is focused; positioned in
-          the top-right of the title bar area. Reachable via ArrowRight from
-          the card. See docs/ux/03-movies.md §2b. */}
       {focused && (
         <div
           style={{
             position: "absolute",
-            // Align with the title bar: poster is 150% padding-bottom, so
-            // the title sits below the poster. We use bottom so the trigger
-            // floats above the meta line.
             bottom: "var(--space-2)",
             right: "var(--space-2)",
             zIndex: 10,
           }}
         >
           <OverflowMenu
-            focusKey={overflowFocusKey}
+            focusKey={`MOVIE_OVERFLOW_${stream.id}`}
             actions={overflowActions}
             triggerLabel={`More actions for ${stream.name}`}
             placement="below"

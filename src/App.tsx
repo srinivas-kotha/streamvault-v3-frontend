@@ -57,7 +57,7 @@ function AppShell() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const first = pathname.split("/")[1];
-  const activeTab: DockItem = isDockItem(first) ? first : "live";
+  const activeTab: DockItem = isDockItem(first) ? first : "movies";
 
   // Hide the dock on dev-time probe routes so it doesn't overlap the fixture.
   const hideDock =
@@ -125,7 +125,7 @@ function AppShell() {
   return (
     <div style={{ background: "var(--bg-shell-gradient, var(--bg-base))", minHeight: "100vh" }}>
       <Routes>
-        <Route path="/" element={<Navigate to="/live" replace />} />
+        <Route path="/" element={<Navigate to="/movies" replace />} />
         <Route path="/live" element={<LiveRoute />} />
         <Route path="/movies" element={<MoviesRoute />} />
         <Route path="/series" element={<SeriesRoute />} />

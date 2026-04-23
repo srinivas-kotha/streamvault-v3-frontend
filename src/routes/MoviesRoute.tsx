@@ -1,182 +1,264 @@
 /**
- * MoviesRoute — /movies browse screen (Phase 5b).
+ * MoviesRoute — Phase 2 rebuild.
  *
- * Structure:
- *   FocusContext(CONTENT_AREA_MOVIES)
- *     <main>
- *       LanguageRail  — global language chip row (above category strip)
- *       CategoryStrip — horizontal D-pad navigable category chips
- *       MovieGrid     — responsive poster grid (6 cols @ 1920px)
+ * Spec: docs/ux/03-movies.md; plan: docs/ux/IMPLEMENTATION-PLAN.md Phase 2.
  *
- * Layout decision (issue #50): LanguageRail sits ABOVE CategoryStrip (two
- * stacked rows — option (a)). CategoryStrip remains unchanged; revisit
- * replacing it with a secondary filter via issue #51.
+ * Layout:
+ *   Title "MOVIES"
+ *   LanguageRail (4 chips — no Sports)  ← optional Continue-watching chip leftmost
+ *   Toolbar: sort segmented control + count (sticky)
+ *   MovieGrid (VirtuosoGrid) / EmptyStateWithLanguageSwitch
+ *   MovieDetailSheet overlay (opens via ⋯ → More info)
  *
- * Language filtering uses the server-provided `inferredLang` field on each
- * stream (backend PR #45). The inline LANGUAGE_PATTERNS regex blocks were
- * removed as part of issue #52.
+ * Category fetch strategy: we no longer show a CategoryStrip. Instead we
+ * union all categories matching the current language pref (03-movies.md §3 —
+ * "client-side language union"). Each language swap re-runs the union and
+ * focus seeds to row 0 col 0. Sort flips re-order in place and never pull
+ * focus.
  *
- * States:
- *   loading  → Skeleton rows (category strip height + grid height)
- *   error    → ErrorShell with onRetry (NO page reload — SPA state preserved)
- *   empty    → "No movies in this category" inside MovieGrid
- *   content  → LanguageRail + CategoryStrip + MovieGrid
- *
- * Data fetching:
- *   - On mount: fetchVodCategories() → auto-select first VOD category →
- *     fetchVodStreams(categoryId)
- *   - On category change: fetchVodStreams(newCategoryId)
- *   - On retry: re-fetches from the top (clears error) without touching
- *     activeCategoryId when the category still exists (Q1).
- *
- * MUST PRESERVE: CONTENT_AREA_MOVIES + FocusContext — load-bearing for
- * BottomDock's setFocus("CONTENT_AREA_MOVIES") Esc-key routing (Task 2.4).
+ * MUST PRESERVE: CONTENT_AREA_MOVIES focus key + FocusContext — load-bearing
+ * for BottomDock's setFocus("CONTENT_AREA_MOVIES") on ArrowUp (Task 2.4).
  */
 import type { RefObject } from "react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   useFocusable,
   FocusContext,
+  setFocus,
 } from "@noriginmedia/norigin-spatial-navigation";
-import { CategoryStrip } from "../features/movies/CategoryStrip";
 import { MovieGrid } from "../features/movies/MovieGrid";
+import { MovieDetailSheet } from "../features/movies/MovieDetailSheet";
+import {
+  fetchLanguageUnion,
+  invalidateLanguageUnionCache,
+} from "../features/movies/languageUnion";
+import {
+  getSortPref,
+  setSortPref,
+  sortStreams,
+  type MovieSortKey,
+} from "../features/movies/sortMovies";
+import { isTierLocked } from "../features/movies/tierLockCache";
+import { LanguageRail } from "../components/LanguageRail";
 import { ErrorShell } from "../primitives/ErrorShell";
 import { Skeleton } from "../primitives/Skeleton";
-import { fetchVodCategories, fetchVodStreams } from "../api/vod";
-import type { VodCategory, VodStream } from "../api/schemas";
-import { LanguageRail } from "../components/LanguageRail";
-import { getLangPref, setLangPref } from "../lib/langPref";
+import { EmptyStateWithLanguageSwitch } from "../primitives/EmptyStateWithLanguageSwitch";
+import { useLangPref } from "../lib/useLangPref";
+import { fetchHistory } from "../api/history";
+import { usePlayerOpener } from "../player/usePlayerOpener";
+import type { HistoryItem, VodStream } from "../api/schemas";
 import type { LangId } from "../lib/langPref";
+import type { MovieCardProgress } from "../features/movies/MovieCard";
+
+/** A progress ratio ≥ this counts the item as "watched" (dimmed + ✓ badge). */
+const WATCHED_THRESHOLD = 0.9;
+
+interface SortButtonProps {
+  id: MovieSortKey;
+  label: string;
+  isActive: boolean;
+  onSelect: () => void;
+}
+
+function SortButton({ id, label, isActive, onSelect }: SortButtonProps) {
+  const { ref, focused } = useFocusable<HTMLButtonElement>({
+    focusKey: `MOVIES_SORT_${id.toUpperCase()}`,
+    onEnterPress: onSelect,
+  });
+  const active = isActive || focused;
+  return (
+    <button
+      ref={ref as RefObject<HTMLButtonElement>}
+      type="button"
+      aria-pressed={isActive}
+      onClick={onSelect}
+      className="focus-ring"
+      style={{
+        padding: "var(--space-2) var(--space-4)",
+        borderRadius: "var(--radius-sm)",
+        border: "none",
+        background: active ? "var(--accent-copper)" : "var(--bg-surface)",
+        color: active ? "var(--bg-base)" : "var(--text-primary)",
+        fontSize: "var(--text-label-size)",
+        letterSpacing: "var(--text-label-tracking)",
+        textTransform: "uppercase",
+        cursor: "pointer",
+        transition:
+          "background var(--motion-focus), color var(--motion-focus)",
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+const SORT_OPTIONS: { id: MovieSortKey; label: string }[] = [
+  { id: "added", label: "Added" },
+  { id: "name", label: "Name" },
+];
 
 export function MoviesRoute() {
-  // MUST PRESERVE: norigin root registration for the content area.
-  // trackChildren + non-focusable container: when BottomDock fires
-  // setFocus("CONTENT_AREA_MOVIES") on ArrowUp, norigin forwards focus to the
-  // first child (category chip or poster) rather than staying on the shell.
   const { ref, focusKey } = useFocusable({
     focusKey: "CONTENT_AREA_MOVIES",
     focusable: false,
     trackChildren: true,
   });
 
-  const [categories, setCategories] = useState<VodCategory[]>([]);
+  const { openPlayer } = usePlayerOpener();
+  const [lang, setLang] = useLangPref({ excludeSports: true });
+  const [sort, setSort] = useState<MovieSortKey>(() => getSortPref());
   const [streams, setStreams] = useState<VodStream[]>([]);
-  const [activeCategoryId, setActiveCategoryId] = useState<string | null>(null);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
-  // Language filter — reads from the unified sv_lang_pref key so it picks up
-  // whatever the user last set on Live or Series.
-  // If the stored pref is "sports" (Live-only), fall back to "all" since
-  // sports has no meaning on the VOD surface.
-  const [languageFilter, setLanguageFilter] = useState<LangId>(() => {
-    const stored = getLangPref();
-    return stored === "sports" ? "all" : stored;
-  });
+  const [sheetStream, setSheetStream] = useState<VodStream | null>(null);
 
-  const handleLanguageChange = useCallback((lang: LangId) => {
-    setLangPref(lang);
-    setLanguageFilter(lang);
-  }, []);
+  // ─── Language union fetch ─────────────────────────────────────────────────
+  // Re-fetches on every language change. Errors render as error state;
+  // loading on initial mount only shows the skeleton (subsequent switches
+  // keep the grid mounted so focus doesn't flicker).
+  const [fetchGeneration, setFetchGeneration] = useState(0);
 
-  // Language filter — uses the server-provided `inferredLang` field (issue #52).
-  // Sports falls through to "all" on VOD: no sports-category concept on Movies.
-  // When `inferredLang` is absent or null (no pattern matched / older backend),
-  // items are hidden under any specific language filter (safe degradation).
-  const filteredStreams: VodStream[] =
-    languageFilter === "all" || languageFilter === "sports"
-      ? streams
-      : streams.filter((stream) => stream.inferredLang === languageFilter);
-
-  // ─── Initial fetch ────────────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
 
-    const load = async () => {
-      try {
-        const cats = await fetchVodCategories();
+    fetchLanguageUnion(lang)
+      .then(({ streams: fetched }) => {
         if (cancelled) return;
-
-        // Defensive filter: only VOD categories (backend already filters by type)
-        const vodCats = cats.filter((c) => c.type === "vod");
-        setCategories(vodCats);
-
-        const firstId = vodCats[0]?.id ?? null;
-        setActiveCategoryId(firstId);
-
-        if (firstId) {
-          const strs = await fetchVodStreams(firstId);
-          if (cancelled) return;
-          setStreams(strs);
-        }
-
+        setStreams(fetched);
         setLoading(false);
-      } catch {
+        setError(false);
+      })
+      .catch(() => {
         if (cancelled) return;
+        setLoading(false);
         setError(true);
-        setLoading(false);
-      }
+      });
+
+    return () => {
+      cancelled = true;
     };
+  }, [lang, fetchGeneration]);
 
-    void load();
-
+  // ─── History fetch (non-blocking) ─────────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    fetchHistory()
+      .then((items) => {
+        if (!cancelled) setHistory(items);
+      })
+      .catch(() => {
+        // history is optional — silence on failure
+      });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  // ─── Category change ──────────────────────────────────────────────────────
-  const handleCategorySelect = useCallback(
-    async (id: string) => {
-      if (id === activeCategoryId) return;
-      setActiveCategoryId(id);
-      try {
-        const strs = await fetchVodStreams(id);
-        setStreams(strs);
-      } catch {
-        // If a category's streams fail, show empty state — don't error the whole page
-        setStreams([]);
+  // ─── Derived: sorted streams + history lookup map ────────────────────────
+  const sortedStreams = useMemo(() => sortStreams(streams, sort), [streams, sort]);
+
+  const historyByVodId = useMemo(() => {
+    const map = new Map<string, HistoryItem>();
+    for (const h of history) {
+      if (h.content_type === "vod") {
+        map.set(String(h.content_id), h);
       }
+    }
+    return map;
+  }, [history]);
+
+  const getProgress = useCallback(
+    (stream: VodStream): MovieCardProgress | undefined => {
+      const h = historyByVodId.get(stream.id);
+      if (!h || h.duration_seconds <= 0) return undefined;
+      const ratio = h.progress_seconds / h.duration_seconds;
+      if (ratio >= WATCHED_THRESHOLD) return undefined;
+      if (h.progress_seconds <= 0) return undefined;
+      return {
+        progressSeconds: h.progress_seconds,
+        durationSeconds: h.duration_seconds,
+      };
     },
-    [activeCategoryId],
+    [historyByVodId],
   );
 
-  // ─── Retry — preserves activeCategoryId when still valid (Q1) ────────────
+  const isWatched = useCallback(
+    (stream: VodStream): boolean => {
+      const h = historyByVodId.get(stream.id);
+      if (!h || h.duration_seconds <= 0) return false;
+      return h.progress_seconds / h.duration_seconds >= WATCHED_THRESHOLD;
+    },
+    [historyByVodId],
+  );
+
+  const isTierLockedFn = useCallback(
+    (stream: VodStream): boolean => isTierLocked(stream.id),
+    [],
+  );
+
+  // ─── Continue-watching chip data ──────────────────────────────────────────
+  // Show the chip when at least one VOD history item has partial progress.
+  // Selecting the chip resumes the most recent partial-watch movie.
+  const resumeCandidate = useMemo<HistoryItem | null>(() => {
+    for (const h of history) {
+      if (h.content_type !== "vod") continue;
+      if (h.duration_seconds <= 0) continue;
+      const ratio = h.progress_seconds / h.duration_seconds;
+      if (ratio > 0 && ratio < WATCHED_THRESHOLD) return h;
+    }
+    return null;
+  }, [history]);
+
+  const handleResume = useCallback(() => {
+    if (!resumeCandidate) return;
+    void openPlayer({
+      kind: "vod",
+      id: String(resumeCandidate.content_id),
+      title: resumeCandidate.content_name ?? "Resume",
+    });
+  }, [resumeCandidate, openPlayer]);
+
+  // ─── Focus seeding — first card on lang change / initial mount ───────────
+  // Only fires when the language actually changes, so sort flips don't steal
+  // focus. A timeout lets VirtuosoGrid render the first card before setFocus.
+  const lastSeededLangRef = useRef<LangId | null>(null);
+  useEffect(() => {
+    if (sortedStreams.length === 0) return;
+    if (lastSeededLangRef.current === lang) return;
+    lastSeededLangRef.current = lang;
+    const firstId = sortedStreams[0]!.id;
+    const t = setTimeout(() => setFocus(`VOD_CARD_${firstId}`), 0);
+    return () => clearTimeout(t);
+  }, [lang, sortedStreams]);
+
+  // ─── Handlers ─────────────────────────────────────────────────────────────
+  const handleSelect = useCallback(
+    (stream: VodStream) => {
+      void openPlayer({ kind: "vod", id: stream.id, title: stream.name });
+    },
+    [openPlayer],
+  );
+
+  const handleMoreInfo = useCallback((stream: VodStream) => {
+    setSheetStream(stream);
+  }, []);
+
+  const handleCloseSheet = useCallback(() => {
+    setSheetStream(null);
+  }, []);
+
+  const handleSortChange = useCallback((next: MovieSortKey) => {
+    setSort(next);
+    setSortPref(next);
+  }, []);
+
   const handleRetry = useCallback(() => {
-    setError(false);
+    invalidateLanguageUnionCache();
     setLoading(true);
-
-    const load = async () => {
-      try {
-        const cats = await fetchVodCategories();
-
-        const vodCats = cats.filter((c) => c.type === "vod");
-        setCategories(vodCats);
-
-        // Keep the user's cursor if the category still exists; else fall back
-        const targetId =
-          activeCategoryId !== null &&
-          vodCats.some((c) => c.id === activeCategoryId)
-            ? activeCategoryId
-            : (vodCats[0]?.id ?? null);
-
-        setActiveCategoryId(targetId);
-
-        if (targetId) {
-          const strs = await fetchVodStreams(targetId);
-          setStreams(strs);
-        } else {
-          setStreams([]);
-        }
-
-        setLoading(false);
-      } catch {
-        setError(true);
-        setLoading(false);
-      }
-    };
-
-    void load();
-  }, [activeCategoryId]);
+    setError(false);
+    setFetchGeneration((g) => g + 1);
+  }, []);
 
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
@@ -188,7 +270,6 @@ export function MoviesRoute() {
         style={{
           paddingBottom:
             "calc(var(--dock-height) + var(--space-6) + var(--space-6))",
-          // Chromatic ambient fill behind hero region
           backgroundImage: "var(--hero-ambient)",
           backgroundRepeat: "no-repeat",
           backgroundSize: "100% 280px",
@@ -216,21 +297,117 @@ export function MoviesRoute() {
           />
         ) : (
           <>
-            {/* Language rail — above category strip (layout option (a), issue #50).
-                Sports chip hidden: no sports-category concept on VOD. */}
             <LanguageRail
-              value={languageFilter}
-              onChange={handleLanguageChange}
+              value={lang}
+              onChange={setLang}
+              {...(resumeCandidate
+                ? { continueWatching: { onSelect: handleResume } }
+                : {})}
             />
-            <CategoryStrip
-              categories={categories}
-              activeCategoryId={activeCategoryId}
-              onSelectCategory={(id) => void handleCategorySelect(id)}
-            />
-            <MovieGrid streams={filteredStreams} />
+
+            <div
+              role="toolbar"
+              aria-label="Movies sort"
+              style={{
+                position: "sticky",
+                top: 0,
+                zIndex: 20,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "var(--space-4)",
+                padding: "var(--space-3) var(--space-6)",
+                background: "var(--bg-base, rgba(18, 16, 14, 0.9))",
+                borderBottom: "1px solid var(--bg-surface)",
+                backdropFilter: "blur(12px)",
+              }}
+            >
+              <div
+                role="group"
+                aria-label="Sort movies"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "var(--space-2)",
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: "var(--text-label-size)",
+                    letterSpacing: "var(--text-label-tracking)",
+                    textTransform: "uppercase",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  Sort
+                </span>
+                {SORT_OPTIONS.map((opt) => (
+                  <SortButton
+                    key={opt.id}
+                    id={opt.id}
+                    label={opt.label}
+                    isActive={sort === opt.id}
+                    onSelect={() => handleSortChange(opt.id)}
+                  />
+                ))}
+              </div>
+
+              <span
+                aria-live="polite"
+                style={{
+                  color: "var(--text-secondary)",
+                  fontSize: "var(--text-label-size)",
+                  fontVariantNumeric: "tabular-nums",
+                }}
+              >
+                {sortedStreams.length.toLocaleString()} movies
+              </span>
+            </div>
+
+            {sortedStreams.length === 0 ? (
+              <EmptyStateWithLanguageSwitch
+                currentLang={lang}
+                onSwitch={setLang}
+                headline={`No ${langLabel(lang)} movies in this catalog.`}
+                message="The provider hasn't categorised any movies this way. Try another language."
+              />
+            ) : (
+              <MovieGrid
+                streams={sortedStreams}
+                onSelect={handleSelect}
+                onMoreInfo={handleMoreInfo}
+                getProgress={getProgress}
+                isWatched={isWatched}
+                isTierLocked={isTierLockedFn}
+              />
+            )}
           </>
         )}
+
+        {sheetStream ? (
+          <MovieDetailSheet
+            key={sheetStream.id}
+            stream={sheetStream}
+            onClose={handleCloseSheet}
+            onPlay={handleSelect}
+          />
+        ) : null}
       </main>
     </FocusContext.Provider>
   );
+}
+
+function langLabel(lang: LangId): string {
+  switch (lang) {
+    case "telugu":
+      return "Telugu";
+    case "hindi":
+      return "Hindi";
+    case "english":
+      return "English";
+    case "sports":
+      return "Sports";
+    case "all":
+      return "";
+  }
 }

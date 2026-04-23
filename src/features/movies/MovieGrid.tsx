@@ -1,44 +1,49 @@
 /**
- * MovieGrid — responsive poster grid with react-virtuoso virtualization.
+ * MovieGrid — VirtuosoGrid wrapper for the VOD poster grid.
  *
- * Virtualization mandate (Issue #59):
- *   The VOD catalog has ~61,000 rows. Without virtualization, the Silk browser
- *   on Fire TV OOMs at ~600–1000 cards. VirtuosoGrid keeps the DOM card count
- *   under ~150 regardless of catalog size.
+ * Virtualization mandate (03-movies.md §3 + §4): the VOD catalog has ~61k
+ * rows. Without virtualization, the Silk browser on Fire TV OOMs around
+ * ~600–1000 cards. VirtuosoGrid keeps DOM card count under ~150 regardless
+ * of list length.
  *
- *   MoviesRoute → MovieGrid uses VirtuosoGrid (Issue #59)
+ * Card state lookups (progress / watched / tier-locked) are supplied by the
+ * route through the lookup functions in props so the grid stays stateless
+ * across re-renders and language/sort switches. Lookups must be referentially
+ * stable (useCallback on the route side) or the item key churns.
  *
- * Grid: 6 columns at 1920px, auto-fill down to ~120px min (same geometry as
- * before virtualization). Each card retains its useFocusable registration so
- * norigin D-pad navigation is unchanged.
- *
- * Overscan: 500px (≈ 2–3 rows at typical card height) keeps the focused card
- * mounted during ordinary D-pad scrolling, preventing norigin from losing
- * focus when a card is virtualized out.
- *
- * Renders MovieCard per stream, plus an empty state when the list is empty.
+ * Focus persistence: each MovieCard uses `VOD_CARD_<id>` as its focus key,
+ * and the 500px overscan keeps the focused card mounted through normal
+ * D-pad scroll. VirtuosoGrid's default windowing would otherwise unmount the
+ * focused key, which norigin handles by silently losing focus — a known
+ * anti-pattern flagged in MEMORY.md (feedback_e2e-not-done-until-proven).
  */
 import { useMemo } from "react";
 import { VirtuosoGrid } from "react-virtuoso";
-import { MovieCard } from "./MovieCard";
-import { usePlayerOpener } from "../../player";
+import { MovieCard, type MovieCardProgress } from "./MovieCard";
 import type { VodStream } from "../../api/schemas";
 
-interface MovieGridProps {
+export interface MovieGridProps {
   streams: VodStream[];
+  onSelect: (stream: VodStream) => void;
+  onMoreInfo: (stream: VodStream) => void;
+  /** Return the watch progress for a given stream, or undefined. */
+  getProgress?: (stream: VodStream) => MovieCardProgress | undefined;
+  /** Return true if the stream is fully watched (≥90% or explicitly marked). */
+  isWatched?: (stream: VodStream) => boolean;
+  /** Return true if the stream's container is known unplayable under the plan. */
+  isTierLocked?: (stream: VodStream) => boolean;
 }
 
-// Container for the CSS grid — applied as the VirtuosoGrid List component.
-// Must be a stable reference (defined outside the render function) so Virtuoso
-// does not remount the grid container on every render.
-const GridList = ({ style, ...rest }: React.HTMLAttributes<HTMLDivElement>) => (
+const GridList = ({
+  style,
+  ...rest
+}: React.HTMLAttributes<HTMLDivElement>) => (
   <div
     {...rest}
     aria-label="Movie poster grid"
     style={{
       ...style,
       display: "grid",
-      // 6 columns at 1920px, auto-fill down to ~120px min (same as pre-virtuoso)
       gridTemplateColumns:
         "repeat(auto-fill, minmax(clamp(120px, 14vw, 280px), 1fr))",
       gap: "var(--space-4)",
@@ -47,21 +52,18 @@ const GridList = ({ style, ...rest }: React.HTMLAttributes<HTMLDivElement>) => (
   />
 );
 
-// Wrapper for each grid cell — Virtuoso needs an Item wrapper that does NOT
-// alter layout (no flex/grid on its own; the parent List is the grid).
 const GridItem = ({ style, ...rest }: React.HTMLAttributes<HTMLDivElement>) => (
   <div {...rest} style={{ ...style, display: "contents" }} />
 );
 
-export function MovieGrid({ streams }: MovieGridProps) {
-  // Enter on a poster opens the player overlay directly. The detail page
-  // (/movies/:id) was never implemented — navigating there produced a blank
-  // screen for the user. Opening the player matches the LiveRoute pattern
-  // and is the minimum viable path to "press play and it plays".
-  const { openPlayer } = usePlayerOpener();
-
-  // Stable components object — must not be re-created inline or Virtuoso
-  // will remount the entire grid on every render.
+export function MovieGrid({
+  streams,
+  onSelect,
+  onMoreInfo,
+  getProgress,
+  isWatched,
+  isTierLocked,
+}: MovieGridProps) {
   const components = useMemo(
     () => ({
       List: GridList,
@@ -70,57 +72,25 @@ export function MovieGrid({ streams }: MovieGridProps) {
     [],
   );
 
-  if (streams.length === 0) {
-    return (
-      <div
-        role="status"
-        aria-live="polite"
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          padding: "var(--space-12) var(--space-6)",
-          color: "var(--text-secondary)",
-          gap: "var(--space-4)",
-        }}
-      >
-        <span aria-hidden="true" style={{ fontSize: "48px" }}>
-          ○
-        </span>
-        <p
-          style={{
-            fontSize: "var(--text-body-size)",
-            margin: 0,
-          }}
-        >
-          No movies in this category
-        </p>
-      </div>
-    );
-  }
-
   return (
     <VirtuosoGrid
-      // useWindowScroll lets the page scroll naturally (same as the pre-Virtuoso
-      // plain div) rather than creating a second inner scrollable container.
       useWindowScroll
       totalCount={streams.length}
       components={components}
-      // overscan: keep ~500px of off-screen cards rendered so norigin focus
-      // stays mounted during normal D-pad navigation (avoids focus loss when
-      // the focused card scrolls just off the viewport edge).
       overscan={500}
       itemContent={(index) => {
         const stream = streams[index];
         if (!stream) return null;
+        const progress = getProgress?.(stream);
         return (
           <MovieCard
             key={stream.id}
             stream={stream}
-            onSelect={(id) =>
-              void openPlayer({ kind: "vod", id, title: stream.name })
-            }
+            onSelect={onSelect}
+            onMoreInfo={onMoreInfo}
+            {...(progress ? { progress } : {})}
+            watched={isWatched?.(stream) ?? false}
+            tierLocked={isTierLocked?.(stream) ?? false}
           />
         );
       }}

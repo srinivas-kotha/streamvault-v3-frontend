@@ -1,27 +1,26 @@
 /**
- * MoviesRoute tests (Phase 5b)
+ * MoviesRoute tests — Phase 2 rebuild.
  *
- * Scope:
- *  - Renders Skeleton while initial fetch is pending.
- *  - Renders ErrorShell on fetch failure; Retry calls the re-fetch (NOT reload).
- *  - Renders category chips when categories are returned.
- *  - Renders movie cards (poster buttons) when streams are returned.
- *  - Clicking a card calls navigate(`/movies/:id`).
- *  - CONTENT_AREA_MOVIES focus key is registered.
- *  - VOD_CAT_* and VOD_CARD_* focus keys are registered.
+ * The rebuilt route has no CategoryStrip. Streams come from fetchLanguageUnion
+ * (cached categories + bounded-parallel per-category fetches + dedupe) and
+ * are rendered through VirtuosoGrid. Tests mock the language-union module
+ * directly rather than re-running its internal orchestration.
  */
-import { render, screen, waitFor, act } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import React from "react";
-import type { VodCategory, VodStream } from "../api/schemas";
+import type { VodStream } from "../api/schemas";
 
 // ─── Mocks ──────────────────────────────────────────────────────────────────
 
 const useFocusableSpy = vi.hoisted(() => vi.fn());
 vi.mock("@noriginmedia/norigin-spatial-navigation", () => ({
   init: vi.fn(),
-  useFocusable: (opts?: { focusKey?: string; onEnterPress?: () => void }) => {
+  useFocusable: (opts?: {
+    focusKey?: string;
+    onEnterPress?: () => void;
+  }) => {
     useFocusableSpy(opts);
     return {
       ref: { current: null },
@@ -36,34 +35,50 @@ vi.mock("@noriginmedia/norigin-spatial-navigation", () => ({
   setFocus: vi.fn(),
 }));
 
-const mockNavigate = vi.hoisted(() => vi.fn());
-vi.mock("react-router-dom", () => ({
-  useNavigate: () => mockNavigate,
+const fetchLanguageUnionMock = vi.hoisted(() => vi.fn());
+const invalidateLanguageUnionCacheMock = vi.hoisted(() => vi.fn());
+vi.mock("../features/movies/languageUnion", () => ({
+  fetchLanguageUnion: fetchLanguageUnionMock,
+  invalidateLanguageUnionCache: invalidateLanguageUnionCacheMock,
 }));
 
-const fetchVodCategoriesMock = vi.hoisted(() => vi.fn());
-const fetchVodStreamsMock = vi.hoisted(() => vi.fn());
+const fetchHistoryMock = vi.hoisted(() => vi.fn());
+vi.mock("../api/history", () => ({
+  fetchHistory: fetchHistoryMock,
+  recordHistory: vi.fn(),
+}));
+
+vi.mock("../api/favorites", () => ({
+  addFavorite: vi.fn(),
+  removeFavorite: vi.fn(),
+  isFavorited: () => false,
+}));
+
 vi.mock("../api/vod", () => ({
-  fetchVodCategories: fetchVodCategoriesMock,
-  fetchVodStreams: fetchVodStreamsMock,
+  fetchVodInfo: vi.fn(() => new Promise(() => {})),
 }));
 
 const openPlayerMock = vi.hoisted(() => vi.fn());
-vi.mock("../player", () => ({
+vi.mock("../player/usePlayerOpener", () => ({
   usePlayerOpener: () => ({ openPlayer: openPlayerMock }),
 }));
 
-// Mock langPref: return "all" so language filter passes all mock streams
-// (mock category names like "Action"/"Comedy" don't match language patterns).
-vi.mock("../lib/langPref", () => ({
-  getLangPref: () => "all",
-  setLangPref: vi.fn(),
+// Use "all" for tests so all mock streams pass the language filter, and
+// force the hook's setLang to actually flip internal state so we can assert
+// on chip clicks.
+const langRef = { current: "all" as "all" | "telugu" | "hindi" | "english" };
+vi.mock("../lib/useLangPref", () => ({
+  useLangPref: () => {
+    const [value, setValue] = React.useState(langRef.current);
+    const set = (next: typeof langRef.current) => {
+      langRef.current = next;
+      setValue(next);
+    };
+    return [value, set] as const;
+  },
 }));
 
-// Mock react-virtuoso: jsdom has no real layout engine, so VirtuosoGrid renders
-// nothing (all items are virtualised out at zero scroll position). Replace with
-// a simple eager renderer that renders all items — virtualization is a runtime
-// perf concern, not a DOM-structure concern tested here.
+// react-virtuoso: jsdom has no real layout engine. Render all items eagerly.
 vi.mock("react-virtuoso", () => ({
   VirtuosoGrid: ({
     totalCount,
@@ -93,11 +108,6 @@ import { MoviesRoute } from "./MoviesRoute";
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────
 
-const mockCategories: VodCategory[] = [
-  { id: "cat1", name: "Action", parentId: null, type: "vod", count: 42 },
-  { id: "cat2", name: "Comedy", parentId: null, type: "vod", count: 18 },
-];
-
 const mockStreams: VodStream[] = [
   {
     id: "v1",
@@ -108,6 +118,7 @@ const mockStreams: VodStream[] = [
     isAdult: false,
     year: "1988",
     rating: "8.2",
+    added: "2024-01-01T00:00:00Z",
   },
   {
     id: "v2",
@@ -116,40 +127,37 @@ const mockStreams: VodStream[] = [
     categoryId: "cat1",
     icon: "https://example.com/aliens.jpg",
     isAdult: false,
+    added: "2026-04-01T00:00:00Z",
   },
 ];
-
-// ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe("MoviesRoute", () => {
   beforeEach(() => {
     useFocusableSpy.mockClear();
-    mockNavigate.mockClear();
-    fetchVodCategoriesMock.mockReset();
-    fetchVodStreamsMock.mockReset();
+    openPlayerMock.mockClear();
+    fetchLanguageUnionMock.mockReset();
+    invalidateLanguageUnionCacheMock.mockReset();
+    fetchHistoryMock.mockReset();
+    fetchHistoryMock.mockResolvedValue([]);
+    langRef.current = "all";
+    localStorage.clear();
   });
 
-  it("renders skeleton while initial fetch is pending", () => {
-    fetchVodCategoriesMock.mockReturnValue(new Promise(() => {})); // never resolves
-    fetchVodStreamsMock.mockReturnValue(new Promise(() => {}));
-
+  it("shows skeleton while the language union is pending", () => {
+    fetchLanguageUnionMock.mockReturnValue(new Promise(() => {}));
     const { container } = render(<MoviesRoute />);
     expect(container.querySelectorAll(".skeleton").length).toBeGreaterThan(0);
   });
 
-  it("renders ErrorShell when fetchVodCategories rejects", async () => {
-    fetchVodCategoriesMock.mockRejectedValue(new Error("network down"));
-    fetchVodStreamsMock.mockResolvedValue([]);
-
+  it("renders ErrorShell when the union fetch rejects", async () => {
+    fetchLanguageUnionMock.mockRejectedValue(new Error("network down"));
     render(<MoviesRoute />);
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     expect(screen.getByText(/can't load movies/i)).toBeInTheDocument();
   });
 
-  it("Retry button re-fetches (does NOT call window.location.reload)", async () => {
-    // First render errors
-    fetchVodCategoriesMock.mockRejectedValueOnce(new Error("oops"));
-
+  it("Retry re-runs the union fetch — does not call window.location.reload", async () => {
+    fetchLanguageUnionMock.mockRejectedValueOnce(new Error("oops"));
     render(<MoviesRoute />);
     await screen.findByRole("alert");
 
@@ -159,67 +167,40 @@ describe("MoviesRoute", () => {
       value: { ...window.location, reload: reloadSpy },
     });
 
-    // Now retry succeeds
-    fetchVodCategoriesMock.mockResolvedValueOnce(mockCategories);
-    fetchVodStreamsMock.mockResolvedValueOnce(mockStreams);
-
+    fetchLanguageUnionMock.mockResolvedValueOnce({
+      streams: mockStreams,
+      matchedCategories: 1,
+    });
     await userEvent.click(screen.getByRole("button", { name: /retry/i }));
 
     await waitFor(() => {
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     });
-
     expect(reloadSpy).not.toHaveBeenCalled();
-    expect(fetchVodCategoriesMock).toHaveBeenCalledTimes(2);
+    expect(invalidateLanguageUnionCacheMock).toHaveBeenCalled();
+    expect(fetchLanguageUnionMock).toHaveBeenCalledTimes(2);
   });
 
-  it("renders category chips after successful fetch", async () => {
-    fetchVodCategoriesMock.mockResolvedValue(mockCategories);
-    fetchVodStreamsMock.mockResolvedValue(mockStreams);
-
-    render(<MoviesRoute />);
-    await waitFor(() => {
-      expect(
-        screen.getByRole("tablist", { name: /movie categories/i }),
-      ).toBeInTheDocument();
+  it("renders movie cards once the union resolves", async () => {
+    fetchLanguageUnionMock.mockResolvedValue({
+      streams: mockStreams,
+      matchedCategories: 2,
     });
-
-    expect(screen.getByRole("tab", { name: /action/i })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: /comedy/i })).toBeInTheDocument();
-  });
-
-  it("renders movie cards (poster buttons) after successful fetch", async () => {
-    fetchVodCategoriesMock.mockResolvedValue(mockCategories);
-    fetchVodStreamsMock.mockResolvedValue(mockStreams);
-
     render(<MoviesRoute />);
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /die hard/i })).toBeInTheDocument();
-    });
+    expect(
+      await screen.findByRole("button", { name: /die hard/i }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /aliens/i })).toBeInTheDocument();
   });
 
-  it("renders empty state when streams array is empty", async () => {
-    fetchVodCategoriesMock.mockResolvedValue(mockCategories);
-    fetchVodStreamsMock.mockResolvedValue([]);
-
-    render(<MoviesRoute />);
-    await waitFor(() => {
-      expect(
-        screen.getByText(/no movies in this category/i),
-      ).toBeInTheDocument();
-    });
-  });
-
   it("clicking a movie card opens the player with the vod kind + item title", async () => {
-    fetchVodCategoriesMock.mockResolvedValue(mockCategories);
-    fetchVodStreamsMock.mockResolvedValue(mockStreams);
-    openPlayerMock.mockClear();
-
+    fetchLanguageUnionMock.mockResolvedValue({
+      streams: mockStreams,
+      matchedCategories: 1,
+    });
     render(<MoviesRoute />);
     const card = await screen.findByRole("button", { name: /die hard/i });
     await userEvent.click(card);
-
     expect(openPlayerMock).toHaveBeenCalledWith({
       kind: "vod",
       id: "v1",
@@ -227,64 +208,61 @@ describe("MoviesRoute", () => {
     });
   });
 
-  it("registers CONTENT_AREA_MOVIES focus key", async () => {
-    fetchVodCategoriesMock.mockResolvedValue(mockCategories);
-    fetchVodStreamsMock.mockResolvedValue(mockStreams);
-
+  it("renders the language-switch empty state when the union is empty", async () => {
+    langRef.current = "telugu";
+    fetchLanguageUnionMock.mockResolvedValue({
+      streams: [],
+      matchedCategories: 0,
+    });
     render(<MoviesRoute />);
-    await waitFor(() =>
-      expect(screen.getByRole("tablist", { name: /movie categories/i })).toBeInTheDocument(),
-    );
+    expect(
+      await screen.findByText(/no telugu movies in this catalog/i),
+    ).toBeInTheDocument();
+    // EmptyStateWithLanguageSwitch renders "Try Hindi" / "Try English" /
+    // "Show All" buttons (current lang is Telugu → Telugu button omitted).
+    expect(screen.getByRole("button", { name: /try hindi/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /show all/i })).toBeInTheDocument();
+  });
 
+  it("renders the sort toolbar with Added default + movie count", async () => {
+    fetchLanguageUnionMock.mockResolvedValue({
+      streams: mockStreams,
+      matchedCategories: 1,
+    });
+    render(<MoviesRoute />);
+    await screen.findByRole("button", { name: /die hard/i });
+    const addedBtn = screen.getByRole("button", { name: /added/i });
+    expect(addedBtn).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText(/2 movies/i)).toBeInTheDocument();
+  });
+
+  it("flipping sort to Name reorders the cards alphabetically", async () => {
+    fetchLanguageUnionMock.mockResolvedValue({
+      streams: mockStreams,
+      matchedCategories: 1,
+    });
+    render(<MoviesRoute />);
+    await screen.findByRole("button", { name: /die hard/i });
+    await userEvent.click(screen.getByRole("button", { name: /^name$/i }));
+    // "Aliens" should now render before "Die Hard" in DOM order.
+    const cards = screen
+      .getAllByRole("button")
+      .filter((b) => /die hard|aliens/i.test(b.getAttribute("aria-label") ?? ""));
+    expect(cards[0]?.getAttribute("aria-label")).toMatch(/aliens/i);
+  });
+
+  it("registers CONTENT_AREA_MOVIES focus key + per-card VOD_CARD_* keys", async () => {
+    fetchLanguageUnionMock.mockResolvedValue({
+      streams: mockStreams,
+      matchedCategories: 1,
+    });
+    render(<MoviesRoute />);
+    await screen.findByRole("button", { name: /die hard/i });
     const keys = useFocusableSpy.mock.calls
       .map((call) => call[0]?.focusKey)
       .filter(Boolean);
     expect(keys).toContain("CONTENT_AREA_MOVIES");
-  });
-
-  it("registers VOD_CAT_* and VOD_CARD_* focus keys", async () => {
-    fetchVodCategoriesMock.mockResolvedValue(mockCategories);
-    fetchVodStreamsMock.mockResolvedValue(mockStreams);
-
-    render(<MoviesRoute />);
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: /die hard/i })).toBeInTheDocument(),
-    );
-
-    const keys = useFocusableSpy.mock.calls
-      .map((call) => call[0]?.focusKey)
-      .filter(Boolean);
-    expect(keys).toContain("VOD_CAT_cat1");
-    expect(keys).toContain("VOD_CAT_cat2");
     expect(keys).toContain("VOD_CARD_v1");
     expect(keys).toContain("VOD_CARD_v2");
-  });
-
-  it("clicking a category chip triggers fetchVodStreams for that category", async () => {
-    fetchVodCategoriesMock.mockResolvedValue(mockCategories);
-    fetchVodStreamsMock.mockResolvedValue(mockStreams);
-
-    render(<MoviesRoute />);
-    await screen.findByRole("tab", { name: /comedy/i });
-
-    // Mock different streams for Comedy
-    fetchVodStreamsMock.mockResolvedValueOnce([
-      {
-        id: "v3",
-        name: "Superbad",
-        type: "vod" as const,
-        categoryId: "cat2",
-        icon: null,
-        isAdult: false,
-      },
-    ]);
-
-    await act(async () => {
-      await userEvent.click(screen.getByRole("tab", { name: /comedy/i }));
-    });
-
-    await waitFor(() => {
-      expect(fetchVodStreamsMock).toHaveBeenCalledWith("cat2");
-    });
   });
 });
