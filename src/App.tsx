@@ -209,10 +209,10 @@ function AppShell() {
     }
 
     const onPop = () => {
-      // If Back was just pressed from the dock, the user is asking to leave.
-      // Don't re-push the sentinel — let the pop resolve so the browser /
-      // Fire TV host can close the tab / PWA. 600ms window matches the
-      // Prime Video exit timing.
+      // If Back was just pressed from the dock via keyboard, the user is
+      // asking to leave. Don't re-push the sentinel — let the pop resolve
+      // so the browser / Fire TV host can close the tab / PWA. 600ms
+      // window matches the Prime Video exit timing.
       if (Date.now() - lastDockBackAtRef.current < 600) {
         sentinelPushedRef.current = false;
         return;
@@ -223,8 +223,25 @@ function AppShell() {
         // React-router will handle the navigation; don't interfere.
         return;
       }
-      // Root dock route and the user hasn't initiated an exit — re-push the
-      // sentinel so a stray popstate doesn't strand us outside the app.
+
+      // Root dock route AND popstate fired without a preceding keydown —
+      // this is how Fire TV / Android TV remote Back arrives. Mirror the
+      // keyboard flow:
+      //   • If the dock already has focus → the user wants OUT. Don't
+      //     re-push the sentinel; the next browser-level Back will close
+      //     the tab or return to the previous page.
+      //   • Otherwise focus is in the grid / hero — first Back should
+      //     anchor the user to the dock. Re-push the sentinel and set
+      //     focus so the next Back can exit.
+      const activeLabel =
+        document.activeElement?.getAttribute("aria-label") ?? "";
+      const dockLabels = Object.values(DOCK_LABELS);
+      const isDockFocused = dockLabels.includes(activeLabel);
+
+      if (isDockFocused) {
+        sentinelPushedRef.current = false;
+        return;
+      }
       window.history.pushState({ svExitGuard: true }, "");
       sentinelPushedRef.current = true;
       setFocus(`DOCK_${activeTabRef.current.toUpperCase()}`);
@@ -364,35 +381,38 @@ export default function App() {
   // TV browsers (Android TV / Google TV Chrome) keep the URL bar visible
   // unless the app is installed as a PWA or enters Fullscreen via user
   // gesture. The manifest declares display:fullscreen, but that only takes
-  // effect for installed PWAs. As a tab-mode fallback, request Fullscreen
-  // on the first keydown/pointer gesture. Fails silently where unsupported.
+  // effect for installed PWAs.
+  //
+  // Bug reported 2026-04-23 evening: earlier version requested fullscreen
+  // only on the FIRST gesture (`{ once: true }`). If the browser dropped
+  // fullscreen for any reason (route change, popstate, media control,
+  // some TV browsers re-show the URL bar on navigation), we never
+  // re-entered, and the URL bar stayed visible until reload.
+  //
+  // Fix: keep listeners alive for the whole authed session. On every
+  // gesture, if we're NOT in fullscreen, try to enter. Browsers require
+  // a user gesture to enter fullscreen, and a keypress / tap qualifies,
+  // so this silently re-arms the full-bleed view whenever the user is
+  // interacting with the app.
   useEffect(() => {
     if (gate !== "authed") return;
-    let armed = true;
-    const enter = () => {
-      if (!armed) return;
-      armed = false;
+    const tryEnter = () => {
+      if (document.fullscreenElement) return;
       const el = document.documentElement as HTMLElement & {
         webkitRequestFullscreen?: () => Promise<void>;
       };
-      if (document.fullscreenElement) return;
       const req =
         el.requestFullscreen?.bind(el) ?? el.webkitRequestFullscreen?.bind(el);
-      if (req) {
-        Promise.resolve(req()).catch(() => {
-          /* silent — TV browser may refuse without PWA install */
-        });
-      }
+      if (!req) return;
+      Promise.resolve(req()).catch(() => {
+        /* silent — TV browser may refuse without PWA install */
+      });
     };
-    window.addEventListener("keydown", enter, { once: true, passive: true });
-    window.addEventListener("pointerdown", enter, {
-      once: true,
-      passive: true,
-    });
+    window.addEventListener("keydown", tryEnter, { passive: true });
+    window.addEventListener("pointerdown", tryEnter, { passive: true });
     return () => {
-      armed = false;
-      window.removeEventListener("keydown", enter);
-      window.removeEventListener("pointerdown", enter);
+      window.removeEventListener("keydown", tryEnter);
+      window.removeEventListener("pointerdown", tryEnter);
     };
   }, [gate]);
 
