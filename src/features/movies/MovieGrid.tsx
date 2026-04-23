@@ -52,8 +52,13 @@ const GridList = ({
   />
 );
 
+// Item must be a real layout box so VirtuosoGrid can measure row height.
+// `display: contents` was previously used to let cards flow straight into
+// the parent grid, but it makes the item transparent to layout — Virtuoso's
+// size-observer reads 0 height for every row and freezes after rendering
+// index 0 alone (observed in prod with a 3,706-item Telugu union).
 const GridItem = ({ style, ...rest }: React.HTMLAttributes<HTMLDivElement>) => (
-  <div {...rest} style={{ ...style, display: "contents" }} />
+  <div {...rest} style={style} />
 );
 
 export function MovieGrid({
