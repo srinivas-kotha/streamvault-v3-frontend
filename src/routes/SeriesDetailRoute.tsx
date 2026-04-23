@@ -960,18 +960,41 @@ export function SeriesDetailRoute() {
     }
   }, [loading, error]);
 
-  const playEpisode = useCallback(
-    (ep: EpisodeInfo, seasonNum: number) => {
-      const title = info
-        ? buildEpisodeTitle(info.name, seasonNum, ep)
-        : `S${seasonNum}E${ep.episodeNumber} · ${ep.title}`;
+  // ─── Play handler ────────────────────────────────────────────────────────
+  // playEpisodeAt wires onPrev/onNext so the player's ⏮/⏭ walk within the
+  // same season's episode list in the user's current sort order (Phase 6c).
+  // Each call passes a new index into the same array, forming a cheap
+  // closure chain rather than storing list state in PlayerProvider.
+  const playEpisodeAt = useCallback(
+    (episodes: EpisodeInfo[], idx: number, seasonNum: number) => {
+      const ep = episodes[idx];
+      if (!ep || !info) return;
+      const title = buildEpisodeTitle(info.name, seasonNum, ep);
       void openPlayer({
         kind: "series-episode",
         id: ep.id,
         title,
+        ...(idx > 0 && {
+          onPrev: () => playEpisodeAt(episodes, idx - 1, seasonNum),
+        }),
+        ...(idx < episodes.length - 1 && {
+          onNext: () => playEpisodeAt(episodes, idx + 1, seasonNum),
+        }),
       });
     },
     [info, openPlayer],
+  );
+
+  const playEpisode = useCallback(
+    (ep: EpisodeInfo, seasonNum: number) => {
+      const seasonKey = String(seasonNum);
+      const rawEps = info?.episodes?.[seasonKey] ?? [];
+      // Walk within the user's current sort so ⏮/⏭ matches what's on screen.
+      const sortedEps = sortEpisodes(rawEps, episodeSort);
+      const idx = sortedEps.findIndex((e) => e.id === ep.id);
+      playEpisodeAt(sortedEps, Math.max(0, idx), seasonNum);
+    },
+    [info, episodeSort, playEpisodeAt],
   );
 
   const handleCtaPress = useCallback(() => {

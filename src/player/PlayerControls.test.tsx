@@ -364,4 +364,35 @@ describe("PlayerControls", () => {
     );
     expect(screen.queryByRole("button", { name: /audio/i })).toBeNull();
   });
+
+  // ─── 6c: prev/next wiring ───────────────────────────────────────────────
+
+  it("renders Previous/Next episode buttons when onPrev/onNext provided (series)", () => {
+    const onPrev = vi.fn();
+    const onNext = vi.fn();
+    render(
+      <PlayerControls
+        {...makeProps({ kind: "series-episode", onPrev, onNext })}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Previous episode" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Next episode" })).toBeTruthy();
+  });
+
+  it("hides Previous/Next when props not provided (movies)", () => {
+    render(<PlayerControls {...makeProps({ kind: "vod" })} />);
+    expect(screen.queryByRole("button", { name: /previous/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /next episode|next channel/i })).toBeNull();
+  });
+
+  it("Previous button fires onPrev when pressed", () => {
+    const onPrev = vi.fn();
+    render(
+      <PlayerControls {...makeProps({ kind: "series-episode", onPrev })} />,
+    );
+    act(() => {
+      screen.getByRole("button", { name: "Previous episode" }).click();
+    });
+    expect(onPrev).toHaveBeenCalledOnce();
+  });
 });

@@ -4,6 +4,10 @@
  * Used by LiveRoute, MoviesRoute, SeriesRoute, SearchRoute so they all share
  * the same open path. Fetches the stream URL for the given type/id, then
  * calls playerStore.open().
+ *
+ * Phase 6c: callers can pass onPrev/onNext callbacks to enable channel/
+ * episode navigation inside the player. The route owns the list state and
+ * re-calls openPlayer with updated indices; this hook is a thin pass-through.
  */
 import { useCallback } from "react";
 import { usePlayerStore, type PlayerKind } from "./PlayerProvider";
@@ -16,6 +20,10 @@ interface OpenPlayerOptions {
   /** For series episodes: season + episode numbers */
   season?: number;
   episode?: number;
+  /** In-player previous-sibling navigation (e.g. prev channel / prev episode) */
+  onPrev?: () => void;
+  /** In-player next-sibling navigation */
+  onNext?: () => void;
 }
 
 export function usePlayerOpener() {
@@ -23,10 +31,10 @@ export function usePlayerOpener() {
 
   const openPlayer = useCallback(
     async (opts: OpenPlayerOptions) => {
-      const { id, title, kind, season, episode } = opts;
+      const { id, title, kind, season, episode, onPrev, onNext } = opts;
 
-      // tsconfig has exactOptionalPropertyTypes:true — spread season/episode
-      // only when defined so the optional field isn't set to `undefined`.
+      // tsconfig has exactOptionalPropertyTypes:true — spread optional fields
+      // only when defined so they aren't set to `undefined`.
       const streamUrl = fetchStreamUrl({
         kind,
         id,
@@ -38,6 +46,9 @@ export function usePlayerOpener() {
         src: streamUrl,
         title,
         kind,
+        contentId: { kind, id },
+        ...(onPrev && { onPrev }),
+        ...(onNext && { onNext }),
       });
     },
     [open],
