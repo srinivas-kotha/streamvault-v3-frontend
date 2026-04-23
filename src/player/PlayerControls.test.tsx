@@ -425,4 +425,51 @@ describe("PlayerControls", () => {
     act(() => pressArrow("PLAYER_SEEK_BACK", "left"));
     expect(onSeek).toHaveBeenCalledWith(190);
   });
+
+  // ─── 6e: Prev/Next moved to top bar (UX option 1) ───────────────────────
+
+  it("Prev/Next render in the top bar, not the control bar", () => {
+    const { container } = render(
+      <PlayerControls
+        {...makeProps({ kind: "series-episode", onPrev: vi.fn(), onNext: vi.fn() })}
+      />,
+    );
+    // Buttons still exist and fire their callbacks (no regression on the
+    // click-through path); their DOM home is the top bar, not alongside the
+    // transport row.
+    expect(screen.getByRole("button", { name: "Previous episode" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Next episode" })).toBeTruthy();
+    // The top bar is the FIRST band in the controls; Back sits in it.
+    // Verify Prev/Next sit in the same band as Back (not with Play/Pause).
+    const backBtn = screen.getByRole("button", { name: "Back" });
+    const prevBtn = screen.getByRole("button", { name: "Previous episode" });
+    const playBtn = screen.getByRole("button", { name: /pause|play/i });
+    expect(backBtn.parentElement).toBe(prevBtn.parentElement);
+    expect(prevBtn.parentElement).not.toBe(playBtn.parentElement);
+    expect(container).toBeTruthy();
+  });
+
+  it("ArrowRight on Back jumps to Prev when onPrev provided", async () => {
+    const mod = await import("@noriginmedia/norigin-spatial-navigation");
+    const setFocusMock = mod.setFocus as unknown as Mock;
+    setFocusMock.mockClear();
+    render(
+      <PlayerControls
+        {...makeProps({ kind: "series-episode", onPrev: vi.fn(), onNext: vi.fn() })}
+      />,
+    );
+    act(() => pressArrow("PLAYER_BACK", "right"));
+    expect(setFocusMock).toHaveBeenCalledWith("PLAYER_PREV");
+  });
+
+  it("ArrowDown on Prev jumps to Play/Pause", async () => {
+    const mod = await import("@noriginmedia/norigin-spatial-navigation");
+    const setFocusMock = mod.setFocus as unknown as Mock;
+    setFocusMock.mockClear();
+    render(
+      <PlayerControls {...makeProps({ kind: "series-episode", onPrev: vi.fn() })} />,
+    );
+    act(() => pressArrow("PLAYER_PREV", "down"));
+    expect(setFocusMock).toHaveBeenCalledWith("PLAYER_PLAY_PAUSE");
+  });
 });
