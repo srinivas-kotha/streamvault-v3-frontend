@@ -67,7 +67,7 @@ export function SeriesGrid({
       style={{
         display: "grid",
         gridTemplateColumns:
-          "repeat(auto-fill, minmax(min(160px, 100%), 1fr))",
+          "repeat(auto-fill, minmax(min(220px, 100%), 1fr))",
         gap: "var(--space-4)",
         padding: "var(--space-4) var(--space-6)",
       }}

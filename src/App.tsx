@@ -8,7 +8,7 @@
  * Preserved dev-time routes: /test-primitives and /silk-probe (permanent
  * Playwright probe targets — Task 1.7 + Task 2.1).
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   BrowserRouter,
   Routes,
@@ -62,6 +62,12 @@ function AppShell() {
   const { pathname } = useLocation();
   const first = pathname.split("/")[1];
   const activeTab: DockItem = isDockItem(first) ? first : "movies";
+
+  // Back-to-dock-then-exit: when the user presses Back while already on a
+  // dock tab, we let the event through AND mark a timestamp here so the
+  // popstate sentinel stops re-pushing. Without this, Fire TV's hardware
+  // Back was absorbed even from the dock — there was no path out.
+  const lastDockBackAtRef = useRef<number>(0);
 
   // Hide the dock on dev-time probe routes so it doesn't overlap the fixture.
   const hideDock =
@@ -127,9 +133,13 @@ function AppShell() {
       const active = document.activeElement?.getAttribute("aria-label");
       const dockLabels = Object.values(DOCK_LABELS);
       if (active && dockLabels.includes(active)) {
-        // Already on the dock — swallow so the browser doesn't navigate
-        // history.back() from an already-cornered state and exit the app.
-        e.preventDefault();
+        // Back pressed while the dock is focused. Let the event through so
+        // the browser / Fire TV host can close the tab or PWA (a user on
+        // the dock signalling Back means "leave the app"). We also record
+        // the timestamp so the popstate sentinel below stops re-pushing
+        // the exit guard — otherwise Fire TV's hardware Back would be
+        // absorbed by the sentinel re-push and never reach the OS.
+        lastDockBackAtRef.current = Date.now();
         return;
       }
       setFocus(`DOCK_${activeTab.toUpperCase()}`);
@@ -153,6 +163,13 @@ function AppShell() {
       window.history.pushState({ svExitGuard: true }, "");
     }
     const onPop = () => {
+      // If Back was just pressed from the dock, the user is asking to leave.
+      // Don't re-push the sentinel — let the pop resolve so the browser /
+      // Fire TV host can close the tab / PWA. 600ms window matches the
+      // Prime Video exit timing.
+      if (Date.now() - lastDockBackAtRef.current < 600) {
+        return;
+      }
       const segments = window.location.pathname
         .split("/")
         .filter(Boolean);

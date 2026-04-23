@@ -61,6 +61,10 @@ vi.mock("../api/vod", () => ({
 }));
 
 const openPlayerMock = vi.hoisted(() => vi.fn());
+const navigateMock = vi.hoisted(() => vi.fn());
+vi.mock("react-router-dom", () => ({
+  useNavigate: () => navigateMock,
+}));
 vi.mock("../player/usePlayerOpener", () => ({
   usePlayerOpener: () => ({ openPlayer: openPlayerMock }),
 }));

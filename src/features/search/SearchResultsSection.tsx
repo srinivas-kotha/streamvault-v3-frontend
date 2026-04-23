@@ -7,13 +7,21 @@
  *   - live    → openPlayer directly
  *   - vod     → openPlayer directly
  *
- * Lazy images with --bg-surface placeholder for missing icons.
+ * ⋯ OverflowMenu (focus-only render) gives the user Play / Add-to-favorites /
+ * More-info reachability so they can favorite a hit without playing it first.
  */
 import type { RefObject } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useFocusable } from "@noriginmedia/norigin-spatial-navigation";
+import { OverflowMenu } from "../../components/OverflowMenu";
 import { usePlayerOpener } from "../../player";
-import type { CatalogItem } from "../../api/schemas";
+import {
+  addFavorite,
+  removeFavorite,
+  isFavorited,
+} from "../../api/favorites";
+import type { CatalogItem, ContentType } from "../../api/schemas";
 import type { PlayerKind } from "../../player/PlayerProvider";
 
 // Map backend content type → player kind. "vod" is the VOD movies shelf.
@@ -22,6 +30,12 @@ import type { PlayerKind } from "../../player/PlayerProvider";
 const KIND_MAP: Record<string, PlayerKind> = {
   live: "live",
   vod: "vod",
+};
+
+const FAVORITE_TYPE: Record<CatalogItem["type"], ContentType> = {
+  live: "channel",
+  vod: "vod",
+  series: "series",
 };
 
 interface SearchCardProps {
@@ -33,9 +47,11 @@ function SearchCard({ item }: SearchCardProps) {
   const navigate = useNavigate();
   const focusKey = `SEARCH_RESULT_${item.type.toUpperCase()}_${item.id}`;
 
+  const favoriteType = FAVORITE_TYPE[item.type];
+  const numericId = Number(item.id);
+
   const activateItem = () => {
     if (item.type === "series") {
-      // Series hits go to the detail page — not the player.
       navigate(`/series/${encodeURIComponent(item.id)}`);
       return;
     }
@@ -48,81 +64,148 @@ function SearchCard({ item }: SearchCardProps) {
     onEnterPress: activateItem,
   });
 
+  const [favorited, setFavorited] = useState(() =>
+    Number.isFinite(numericId) ? isFavorited(numericId, favoriteType) : false,
+  );
+
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === "sv_favorites" && Number.isFinite(numericId)) {
+        setFavorited(isFavorited(numericId, favoriteType));
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [numericId, favoriteType]);
+
+  const overflowActions = useMemo(
+    () => [
+      {
+        label: item.type === "series" ? "Open" : "Play",
+        onSelect: activateItem,
+      },
+      favorited
+        ? {
+            label: "Remove from favorites",
+            onSelect: () => {
+              if (Number.isFinite(numericId)) {
+                void removeFavorite(numericId, favoriteType);
+                setFavorited(false);
+              }
+            },
+          }
+        : {
+            label: "Add to favorites",
+            onSelect: () => {
+              if (!Number.isFinite(numericId)) return;
+              void addFavorite(numericId, {
+                content_type: favoriteType,
+                content_name: item.name,
+                ...(item.icon ? { content_icon: item.icon } : {}),
+              });
+              setFavorited(true);
+            },
+          },
+    ],
+    // activateItem closes over navigate/openPlayer which are hook-stable;
+    // favorited toggles re-memo naturally.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [favorited, item, numericId, favoriteType],
+  );
+
   return (
-    <button
-      ref={ref as RefObject<HTMLButtonElement>}
-      type="button"
-      onClick={activateItem}
-      aria-label={item.name}
-      style={{
-        flex: "0 0 auto",
-        width: 160,
-        background: focused ? "var(--bg-elevated)" : "var(--bg-surface)",
-        border: focused
-          ? "2px solid var(--accent-copper)"
-          : "2px solid transparent",
-        borderRadius: "var(--radius-sm)",
-        color: "var(--text-primary)",
-        cursor: "pointer",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        padding: "var(--space-3)",
-        gap: "var(--space-2)",
-        textAlign: "center",
-        // Avoid transition-all — only transition the properties we need
-        transition:
-          "background var(--motion-focus), border-color var(--motion-focus)",
-      }}
-    >
-      <div
+    <div style={{ position: "relative", flex: "0 0 auto" }}>
+      <button
+        ref={ref as RefObject<HTMLButtonElement>}
+        type="button"
+        onClick={activateItem}
+        aria-label={item.name}
         style={{
-          width: 120,
-          height: 90,
-          background: "var(--bg-surface)",
+          width: 160,
+          background: focused ? "var(--bg-elevated)" : "var(--bg-surface)",
+          border: focused
+            ? "2px solid var(--accent-copper)"
+            : "2px solid transparent",
           borderRadius: "var(--radius-sm)",
-          overflow: "hidden",
-          flexShrink: 0,
+          color: "var(--text-primary)",
+          cursor: "pointer",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          padding: "var(--space-3)",
+          gap: "var(--space-2)",
+          textAlign: "center",
+          transition:
+            "background var(--motion-focus), border-color var(--motion-focus)",
         }}
       >
-        {item.icon ? (
-          <img
-            src={item.icon}
-            alt=""
-            loading="lazy"
-            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+        <div
+          style={{
+            width: 120,
+            height: 90,
+            background: "var(--bg-surface)",
+            borderRadius: "var(--radius-sm)",
+            overflow: "hidden",
+            flexShrink: 0,
+          }}
+        >
+          {item.icon ? (
+            <img
+              src={item.icon}
+              alt=""
+              loading="lazy"
+              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            />
+          ) : (
+            <div
+              aria-hidden="true"
+              style={{
+                width: "100%",
+                height: "100%",
+                background: "var(--bg-elevated)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 32,
+                color: "var(--text-secondary)",
+              }}
+            >
+              {item.type === "live" ? "●" : item.type === "vod" ? "▶" : "⊞"}
+            </div>
+          )}
+        </div>
+        <span
+          style={{
+            fontSize: "var(--text-label-size)",
+            overflow: "hidden",
+            display: "-webkit-box",
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: "vertical",
+            lineHeight: 1.3,
+          }}
+        >
+          {item.name}
+        </span>
+      </button>
+
+      {focused && Number.isFinite(numericId) && (
+        <div
+          style={{
+            position: "absolute",
+            top: 4,
+            right: 4,
+            zIndex: 10,
+          }}
+        >
+          <OverflowMenu
+            focusKey={`SEARCH_OVERFLOW_${item.type.toUpperCase()}_${item.id}`}
+            actions={overflowActions}
+            triggerLabel={`More actions for ${item.name}`}
+            placement="below"
           />
-        ) : (
-          <div
-            aria-hidden="true"
-            style={{
-              width: "100%",
-              height: "100%",
-              background: "var(--bg-elevated)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 32,
-              color: "var(--text-secondary)",
-            }}
-          >
-            {item.type === "live" ? "●" : item.type === "vod" ? "▶" : "⊞"}
-          </div>
-        )}
-      </div>
-      <span
-        style={{
-          fontSize: "var(--text-label-size)",
-          overflow: "hidden",
-          display: "-webkit-box",
-          WebkitLineClamp: 2,
-          WebkitBoxOrient: "vertical",
-          lineHeight: 1.3,
-        }}
-      >
-        {item.name}
-      </span>
-    </button>
+        </div>
+      )}
+    </div>
   );
 }
 

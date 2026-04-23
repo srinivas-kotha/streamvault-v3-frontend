@@ -10,6 +10,17 @@ import { initSpatialNav } from "./nav/spatialNav";
 // Must run before createRoot so norigin is ready when React mounts.
 initSpatialNav();
 
+// TV platform sniff — Fire TV Silk identifies via "Silk" or "AFT…" in UA.
+// Setting data-tv on <html> lets tokens.css apply the 10-foot type scale
+// before first paint. Desktop browsers stay on desktop scale.
+(() => {
+  const ua = navigator.userAgent || "";
+  const isTv = /Silk|AFT/i.test(ua);
+  if (isTv) {
+    document.documentElement.setAttribute("data-tv", "true");
+  }
+})();
+
 // Task 2.4: expose setFocus on window in dev/test builds so Playwright can
 // prime norigin's focus tree (DOM focus alone doesn't update norigin's internal
 // lastFocused pointer). Guarded by import.meta.env.DEV so prod bundles

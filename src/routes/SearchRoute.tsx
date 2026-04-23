@@ -1,24 +1,23 @@
 /**
- * SearchRoute — Phase 7 unified search.
+ * SearchRoute — unified search across Live / Movies / Series.
  *
- * Architecture:
- *  - Controlled <input> bound via norigin useFocusable (SEARCH_INPUT).
- *  - 300ms debounce via useDebounce; also triggers on Enter (onEnterPress).
- *  - Results grouped: Live / Movies / Series (vod in API = Movies in UI).
- *  - Each result card: useFocusable SEARCH_RESULT_<TYPE>_<ID> + navigate.
- *  - States: idle (< 2 chars), loading, results, empty, error.
+ * Updated 2026-04-24 (search-favorites session):
+ *   - Section order Movies → Series → Live (04 spec §3.4)
+ *   - Debounce 300ms → 250ms (04 spec §1.3)
+ *   - Kind chips (All · Live · Movies · Series) post-query only
+ *   - Kind chip filters are client-side; does NOT re-fetch
+ *   - Each result card has an OverflowMenu (Play / Add to favorites / More info)
  *
- * D-pad flow:
- *  ArrowUp from dock → SEARCH_INPUT
- *  ArrowDown from input → first result row
- *  ArrowLeft/Right within a row → adjacent cards
- *  ArrowDown between rows → next section
+ * D-pad flow (unchanged except for kind chips step):
+ *   Dock → SEARCH_INPUT
+ *   Input Down → SEARCH_KIND_ALL (when results exist) → first section's first card
+ *   Card Right → SEARCH_OVERFLOW_<TYPE>_<ID>
  *
  * CONTENT_AREA_SEARCH useFocusable is load-bearing — dropping it breaks
  * BottomDock's setFocus("CONTENT_AREA_SEARCH") Esc-key routing.
  */
 import type { RefObject } from "react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   useFocusable,
   FocusContext,
@@ -29,6 +28,7 @@ import { fetchSearch } from "../api/search";
 import type { SearchResults } from "../api/schemas";
 import { SearchInput } from "../features/search/SearchInput";
 import { SearchResultsSection } from "../features/search/SearchResultsSection";
+import { SearchKindChips, type SearchKind } from "../features/search/SearchKindChips";
 import { useDebounce } from "../features/search/useDebounce";
 
 // ─── useSearchQuery — encapsulates fetch + state management ─────────────────
@@ -40,16 +40,10 @@ function useSearchQuery(debouncedQuery: string) {
   const [lastSearchedQuery, setLastSearchedQuery] = useState("");
 
   useEffect(() => {
-    // Only fire if >= 2 chars — guard ensures no fetch for short queries.
-    // The effect dep array drives reset implicitly: when debouncedQuery < 2,
-    // we don't enter this block, so we rely on handleQueryChange to clear
-    // state when the raw query shortens (below the 2-char threshold).
     if (debouncedQuery.length < 2) return;
 
     let cancelled = false;
 
-    // Wrap the entire fetch + setLoading(true) inside a microtask so the
-    // setState calls happen asynchronously, satisfying react-hooks/set-state-in-effect.
     void Promise.resolve().then(() => {
       if (cancelled) return;
       setLoading(true);
@@ -100,7 +94,6 @@ function useSearchQuery(debouncedQuery: string) {
         setLoading(false);
       });
 
-    // Note: cannot return cleanup from useCallback — caller must manage it.
     return () => {
       cancelled = true;
     };
@@ -112,27 +105,33 @@ function useSearchQuery(debouncedQuery: string) {
 // ─── SearchRoute ─────────────────────────────────────────────────────────────
 
 export function SearchRoute() {
-  // MUST PRESERVE: norigin root registration for the content area.
-  // Dropping this breaks BottomDock's setFocus("CONTENT_AREA_SEARCH") Esc flow.
   const { ref, focusKey } = useFocusable({
     focusKey: "CONTENT_AREA_SEARCH",
     focusable: false,
     trackChildren: true,
-    // Absorb dead-direction bubble-ups at the route's outer edges; Down
-    // stays open so results can still reach BottomDock. See
-    // streamvault-v3-focus-vanish-bug.md.
     isFocusBoundary: true,
     focusBoundaryDirections: ["left", "right", "up"],
   });
 
-  const [query, setQuery] = useState("");
-  const debouncedQuery = useDebounce(query, 300);
+  // Preseed the query from ?q=… — used by /movies + /series "Search
+  // everywhere" CTA when an in-route filter has zero matches.
+  const initialQuery = useMemo(() => {
+    if (typeof window === "undefined") return "";
+    try {
+      const params = new URLSearchParams(window.location.search);
+      return params.get("q") ?? "";
+    } catch {
+      return "";
+    }
+  }, []);
+
+  const [query, setQuery] = useState(initialQuery);
+  const [kind, setKind] = useState<SearchKind>("all");
+  const debouncedQuery = useDebounce(query, 250);
 
   const { results, loading, error, lastSearchedQuery, clearResults, runSearch } =
     useSearchQuery(debouncedQuery);
 
-  // When raw query drops below 2 chars, clear results immediately so the
-  // user doesn't see stale data while typing.
   const handleQueryChange = useCallback(
     (value: string) => {
       setQuery(value);
@@ -143,17 +142,14 @@ export function SearchRoute() {
     [clearResults],
   );
 
-  // Immediate search on Enter — bypasses debounce
   const handleSubmit = useCallback(() => {
     runSearch(query);
   }, [query, runSearch]);
 
-  // Prime norigin focus on mount — land on SEARCH_INPUT
   useEffect(() => {
     setFocus("SEARCH_INPUT");
   }, []);
 
-  // Derived state
   const hasResults =
     results !== null &&
     (results.live.length > 0 ||
@@ -168,6 +164,10 @@ export function SearchRoute() {
     !hasResults &&
     lastSearchedQuery.length >= 2;
 
+  const showMovies = kind === "all" || kind === "vod";
+  const showSeries = kind === "all" || kind === "series";
+  const showLive = kind === "all" || kind === "live";
+
   return (
     <FocusContext.Provider value={focusKey}>
       <main
@@ -179,14 +179,12 @@ export function SearchRoute() {
             "calc(var(--dock-height) + var(--space-6) + var(--space-6))",
         }}
       >
-        {/* Search input */}
         <SearchInput
           value={query}
           onChange={handleQueryChange}
           onSubmit={handleSubmit}
         />
 
-        {/* Help text — too short */}
         {showHelp && (
           <p
             aria-live="polite"
@@ -200,7 +198,10 @@ export function SearchRoute() {
           </p>
         )}
 
-        {/* Loading skeleton */}
+        {hasResults && !loading && !error && (
+          <SearchKindChips value={kind} onChange={setKind} />
+        )}
+
         {loading && (
           <div
             aria-live="polite"
@@ -222,7 +223,6 @@ export function SearchRoute() {
           </div>
         )}
 
-        {/* Error state */}
         {error && !loading && (
           <p
             role="alert"
@@ -236,7 +236,6 @@ export function SearchRoute() {
           </p>
         )}
 
-        {/* Empty state */}
         {showEmpty && (
           <p
             role="status"
@@ -250,12 +249,17 @@ export function SearchRoute() {
           </p>
         )}
 
-        {/* Results grouped by section */}
         {!loading && hasResults && results !== null && (
           <div>
-            <SearchResultsSection title="Live" items={results.live} />
-            <SearchResultsSection title="Movies" items={results.vod} />
-            <SearchResultsSection title="Series" items={results.series} />
+            {showMovies && (
+              <SearchResultsSection title="Movies" items={results.vod} />
+            )}
+            {showSeries && (
+              <SearchResultsSection title="Series" items={results.series} />
+            )}
+            {showLive && (
+              <SearchResultsSection title="Live" items={results.live} />
+            )}
           </div>
         )}
       </main>
