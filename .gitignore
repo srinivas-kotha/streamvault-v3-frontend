@@ -33,3 +33,8 @@ coverage/
 # Playwright artefacts
 test-results/
 playwright-report/
+playwright-report-prod/
+# Perf suite output (regenerated per run)
+perf-artifacts/
+perf-report.md
+perf-report.json
