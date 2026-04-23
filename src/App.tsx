@@ -107,23 +107,66 @@ function AppShell() {
   // Escape both land here. The player overlay's own back handler takes
   // precedence when open (see PlayerProvider popstate listener) — this one
   // only fires when a route content area owns focus.
+  //
+  // Fire TV Silk browser variants: the remote Back button arrives as
+  // `Backspace`, `Back`, `GoBack`, or keyCode 4 depending on firmware. Catch
+  // all of them.
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
-      // Escape anywhere OR Backspace on elements that aren't text inputs.
       const t = e.target as HTMLElement | null;
       const isTextInput =
         t?.tagName === "INPUT" || t?.tagName === "TEXTAREA";
-      if (e.key === "Escape" || (e.key === "Backspace" && !isTextInput)) {
-        const active = document.activeElement?.getAttribute("aria-label");
-        // Already on the dock? nothing to do.
-        const dockLabels = Object.values(DOCK_LABELS);
-        if (active && dockLabels.includes(active)) return;
-        setFocus(`DOCK_${activeTab.toUpperCase()}`);
+      const isBackKey =
+        e.key === "Escape" ||
+        e.key === "Back" ||
+        e.key === "GoBack" ||
+        (e.key === "Backspace" && !isTextInput) ||
+        e.keyCode === 4;
+      if (!isBackKey) return;
+
+      const active = document.activeElement?.getAttribute("aria-label");
+      const dockLabels = Object.values(DOCK_LABELS);
+      if (active && dockLabels.includes(active)) {
+        // Already on the dock — swallow so the browser doesn't navigate
+        // history.back() from an already-cornered state and exit the app.
         e.preventDefault();
+        return;
       }
+      setFocus(`DOCK_${activeTab.toUpperCase()}`);
+      e.preventDefault();
     };
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
+  }, [activeTab]);
+
+  // Exit-guard: keep a sentinel history entry so Fire TV's hardware Back (which
+  // can fire popstate directly without a keydown) doesn't pop us out of the
+  // PWA. The PlayerProvider's own popstate listener takes precedence while the
+  // player is open; this one runs for the rest of the app.
+  //
+  // Strategy: on mount, push one sentinel. Each time popstate fires, push
+  // another sentinel back — unless we're on a sub-route like /series/:id,
+  // where natural back-navigation is what the user wants. Detail routes are
+  // anything deeper than a single path segment ("/series/123" has two).
+  useEffect(() => {
+    if (!window.history.state?.svExitGuard) {
+      window.history.pushState({ svExitGuard: true }, "");
+    }
+    const onPop = () => {
+      const segments = window.location.pathname
+        .split("/")
+        .filter(Boolean);
+      const isDetailRoute = segments.length > 1;
+      if (isDetailRoute) {
+        // React-router will handle the navigation; don't interfere.
+        return;
+      }
+      // Root dock route — re-push the sentinel and anchor focus to the dock.
+      window.history.pushState({ svExitGuard: true }, "");
+      setFocus(`DOCK_${activeTab.toUpperCase()}`);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
   }, [activeTab]);
 
   // Global D-pad focus-recovery watcher. Any dead-direction arrow press

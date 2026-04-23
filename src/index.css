@@ -85,6 +85,15 @@ body {
 #root {
   min-height: 100svh;
   width: 100%;
+  /* Guard against horizontal overflow on TV browsers (reported 2026-04-23
+     from Fire TV Silk — the rightmost poster was bleeding past the viewport
+     because Virtuoso's absolute-positioned sizer briefly exceeded parent
+     width during row recalc). */
+  overflow-x: hidden;
+  /* Respect hardware safe areas on the rare TV/webview that reports them.
+     Fire TV Silk ignores env() so this is free there; iPad / Chromecast with
+     Google TV honour it and get a non-clipped top edge. */
+  padding-top: env(safe-area-inset-top, 0);
 }
 
 p {
