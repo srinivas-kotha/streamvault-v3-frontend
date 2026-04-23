@@ -4,11 +4,12 @@
  *   TOP BAR       ← Back · Title · [S2E5 "Title"] · live timestamp / ● LIVE
  *   SCRUBBER      progress + current/total time (hidden on Live, replaced by badge)
  *   CONTROL BAR   ⏯ · ◀◀ ▶▶ · 🔉 · Audio ▾ · Subs ▾ · Quality ▾
- *                 (prev/next episode + channel wiring is a Phase 6b follow-on)
+ *                 (prev/next episode + channel wiring is a Phase 6c follow-on)
  *
- * Phase 6a ships the structural shell: bands, focus flow, auto-hide, Enter
- * short-circuit. Popover list-walk + Left/Right advance, volume slider,
- * hold-to-scrub and amber failure overlay come in 6b / 6c.
+ * 6a shipped the structural shell; 6b layers hold-to-scrub, the volume
+ * slider popover, auto-focus on the current selection when a popover
+ * opens, and Left/Right on any popover item dismisses it and advances
+ * to the next sibling control (spec §5).
  */
 import type { RefObject, CSSProperties } from "react";
 import { useEffect, useRef, useState, useCallback } from "react";
@@ -17,6 +18,7 @@ import {
   FocusContext,
   setFocus,
 } from "@noriginmedia/norigin-spatial-navigation";
+import type { KeyPressDetails } from "@noriginmedia/norigin-spatial-navigation";
 import type {
   HlsLevel,
   HlsAudioTrack,
@@ -33,6 +35,7 @@ export const FK = {
   SEEK_BACK: "PLAYER_SEEK_BACK",
   SEEK_FORWARD: "PLAYER_SEEK_FORWARD",
   VOLUME: "PLAYER_VOLUME",
+  VOLUME_SLIDER: "PLAYER_VOLUME_SLIDER",
   AUDIO: "PLAYER_AUDIO",
   SUBTITLES: "PLAYER_SUBTITLES",
   QUALITY: "PLAYER_QUALITY",
@@ -40,6 +43,10 @@ export const FK = {
 
 const AUTO_HIDE_MS = 3000;
 const FADE_MS = 300;
+const HOLD_SEEK_STEP_S = 30;
+const HOLD_SEEK_TICK_MS = 500;
+const VOLUME_STEP = 0.05;
+const VOLUME_SLIDER_IDLE_MS = 2000;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -53,10 +60,14 @@ function formatTime(seconds: number): string {
   return h > 0 ? `${h}:${mm}:${ss}` : `${m}:${ss}`;
 }
 
-function volumeIcon(volume: number, muted: boolean): string {
-  if (muted || volume <= 0) return "🔇";
+function volumeIcon(volume: number): string {
+  if (volume <= 0) return "🔇";
   if (volume < 0.67) return "🔉";
   return "🔊";
+}
+
+function clamp01(v: number): number {
+  return Math.max(0, Math.min(1, v));
 }
 
 // ─── Props ───────────────────────────────────────────────────────────────────
@@ -68,7 +79,6 @@ export interface PlayerControlsProps {
   currentTime: number;
   duration: number;
   volume: number;
-  muted: boolean;
   levels: HlsLevel[];
   audioTracks: HlsAudioTrack[];
   subtitleTracks: HlsSubtitleTrack[];
@@ -79,25 +89,48 @@ export interface PlayerControlsProps {
   onPause: () => void;
   onSeek: (time: number) => void;
   onClose: () => void;
-  onToggleMute: () => void;
+  onSetVolume: (v: number) => void;
   onSelectLevel: (idx: number) => void;
   onSelectAudioTrack: (idx: number) => void;
   onSelectSubtitleTrack: (idx: number) => void;
 }
 
-// ─── Menu item used by the existing dropdown popovers ────────────────────────
+type MenuName = "audio" | "subtitles" | "quality" | "volume";
+
+// ─── Popover list item ───────────────────────────────────────────────────────
 
 interface MenuItemProps {
   label: string;
   isActive: boolean;
   focusKey: string;
   onSelect: () => void;
+  onDismissLeft?: () => void;
+  onDismissRight?: () => void;
 }
 
-function MenuItem({ label, isActive, focusKey: fk, onSelect }: MenuItemProps) {
+function MenuItem({
+  label,
+  isActive,
+  focusKey: fk,
+  onSelect,
+  onDismissLeft,
+  onDismissRight,
+}: MenuItemProps) {
   const { ref, focused } = useFocusable({
     focusKey: fk,
     onEnterPress: onSelect,
+    onArrowPress: (direction) => {
+      // Up/Down walks the list via norigin default geometric nav.
+      if (direction === "left" && onDismissLeft) {
+        onDismissLeft();
+        return false;
+      }
+      if (direction === "right" && onDismissRight) {
+        onDismissRight();
+        return false;
+      }
+      return true;
+    },
   });
   const highlighted = isActive || focused;
 
@@ -141,6 +174,12 @@ interface ControlButtonProps {
   ariaExpanded?: boolean;
   ariaHasPopup?: boolean;
   extraStyle?: CSSProperties;
+  /**
+   * When set, the first press fires onPress AND starts a hold-repeat.
+   * onHoldTick is called every HOLD_SEEK_TICK_MS until onEnterRelease.
+   * Used by the ±10s seek buttons (spec §3.2 — 30s jumps every 500ms).
+   */
+  onHoldTick?: () => void;
 }
 
 function ControlButton({
@@ -154,16 +193,36 @@ function ControlButton({
   ariaExpanded,
   ariaHasPopup,
   extraStyle,
+  onHoldTick,
 }: ControlButtonProps) {
+  const holdIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const clearHold = useCallback(() => {
+    if (holdIntervalRef.current) {
+      clearInterval(holdIntervalRef.current);
+      holdIntervalRef.current = null;
+    }
+  }, []);
+
   const { ref, focused } = useFocusable({
     focusKey,
     focusable,
-    onEnterPress: onPress,
-    // Up from any control bar button → Back (spec §4.2).
-    // Edge Left/Right blocks default nav so focus doesn't wander (spec: no wrap).
-    // Down is a no-op — nothing below the control bar.
-    // All returns false only when we explicitly handle the direction.
+    onEnterPress: (_: unknown, details: KeyPressDetails) => {
+      // pressedKeys.enter counts how many keydown events fired since the
+      // most recent keyup. `1` = initial press; `>1` = OS auto-repeat. We
+      // only want to run side effects on the initial press.
+      if ((details.pressedKeys?.enter ?? 0) > 1) return;
+      onPress();
+      if (onHoldTick) {
+        clearHold();
+        holdIntervalRef.current = setInterval(onHoldTick, HOLD_SEEK_TICK_MS);
+      }
+    },
+    onEnterRelease: clearHold,
     onArrowPress: (direction) => {
+      // Up from any control bar button → Back (spec §4.2).
+      // Edge Left/Right blocks default nav so focus doesn't wander (no wrap).
+      // Down is a no-op — nothing below the control bar.
       if (direction === "up") {
         setFocus(FK.BACK);
         return false;
@@ -174,6 +233,12 @@ function ControlButton({
       return true;
     },
   });
+
+  // Clear any in-flight hold on unmount / focusable-flip to avoid zombie
+  // intervals. (If the user clicks away to another control, onEnterRelease
+  // fires via keyup, but blur without keyup — e.g., programmatic setFocus —
+  // would otherwise leak.)
+  useEffect(() => clearHold, [clearHold]);
 
   return (
     <button
@@ -199,6 +264,132 @@ function ControlButton({
   );
 }
 
+// ─── Volume slider popover (spec §6) ─────────────────────────────────────────
+
+interface VolumeSliderProps {
+  volume: number;
+  onSetVolume: (v: number) => void;
+  onClose: () => void;
+  onDismissLeft?: () => void;
+  onDismissRight?: () => void;
+}
+
+function VolumeSlider({
+  volume,
+  onSetVolume,
+  onClose,
+  onDismissLeft,
+  onDismissRight,
+}: VolumeSliderProps) {
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const scheduleClose = useCallback(() => {
+    if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = setTimeout(onClose, VOLUME_SLIDER_IDLE_MS);
+  }, [onClose]);
+
+  const { ref, focused } = useFocusable({
+    focusKey: FK.VOLUME_SLIDER,
+    onEnterPress: onClose,
+    onArrowPress: (direction) => {
+      scheduleClose();
+      if (direction === "up") {
+        onSetVolume(clamp01(volume + VOLUME_STEP));
+        return false;
+      }
+      if (direction === "down") {
+        onSetVolume(clamp01(volume - VOLUME_STEP));
+        return false;
+      }
+      if (direction === "left" && onDismissLeft) {
+        onDismissLeft();
+        return false;
+      }
+      if (direction === "right" && onDismissRight) {
+        onDismissRight();
+        return false;
+      }
+      return false;
+    },
+  });
+
+  // Seed focus + start idle timer on mount. The setFocus in PlayerControls'
+  // openMenu effect also targets this key — duplicate is cheap and safe.
+  useEffect(() => {
+    setFocus(FK.VOLUME_SLIDER);
+    scheduleClose();
+    return () => {
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    };
+  }, [scheduleClose]);
+
+  const pct = Math.round(volume * 100);
+
+  return (
+    <div
+      ref={ref as RefObject<HTMLDivElement>}
+      role="slider"
+      aria-label="Volume"
+      aria-valuenow={pct}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-live="polite"
+      tabIndex={0}
+      style={{
+        position: "absolute",
+        bottom: "calc(100% + var(--space-2))",
+        left: "50%",
+        transform: "translateX(-50%)",
+        background: "var(--bg-elevated)",
+        borderRadius: "var(--radius-md)",
+        padding: "var(--space-3)",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        gap: "var(--space-2)",
+        width: "56px",
+        zIndex: 10,
+        outline: focused ? "2px solid var(--accent-copper)" : undefined,
+      }}
+    >
+      <span
+        style={{
+          fontSize: "var(--text-label-size)",
+          color: "var(--text-secondary)",
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
+        {pct}
+      </span>
+      <div
+        aria-hidden="true"
+        style={{
+          position: "relative",
+          width: "6px",
+          height: "120px",
+          background: "rgba(255,255,255,0.2)",
+          borderRadius: "3px",
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            position: "absolute",
+            bottom: 0,
+            left: 0,
+            width: "100%",
+            height: `${pct}%`,
+            background: "var(--accent-copper)",
+          }}
+        />
+      </div>
+      <span aria-hidden="true" style={{ fontSize: "18px" }}>
+        {volumeIcon(volume)}
+      </span>
+    </div>
+  );
+}
+
 // ─── PlayerControls ──────────────────────────────────────────────────────────
 
 export function PlayerControls({
@@ -208,7 +399,6 @@ export function PlayerControls({
   currentTime,
   duration,
   volume,
-  muted,
   levels,
   audioTracks,
   subtitleTracks,
@@ -219,19 +409,22 @@ export function PlayerControls({
   onPause,
   onSeek,
   onClose,
-  onToggleMute,
+  onSetVolume,
   onSelectLevel,
   onSelectAudioTrack,
   onSelectSubtitleTrack,
 }: PlayerControlsProps) {
   // Controls open visible (spec §4.1), then fade after AUTO_HIDE_MS idle.
   const [visible, setVisible] = useState(true);
-  const [openMenu, setOpenMenu] = useState<"audio" | "subtitles" | "quality" | null>(null);
+  const [openMenu, setOpenMenu] = useState<MenuName | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Use a ref for visibility inside capture-phase handler so we don't depend
-  // on stale state captured by the effect closure.
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
+
+  // Keep a ref to currentTime so hold-to-scrub ticks can seek from the
+  // latest position instead of the one captured when hold started.
+  const currentTimeRef = useRef(currentTime);
+  currentTimeRef.current = currentTime;
 
   const { ref: containerRef, focusKey: containerFocusKey } = useFocusable({
     focusKey: "PLAYER_CONTROLS",
@@ -269,17 +462,14 @@ export function PlayerControls({
     return () => {
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     };
-    // Intentionally mount-only — the focus grab is a one-shot. Re-seeding
-    // focus on every status flip would fight the D-pad.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Capture-phase key interceptor: when controls are hidden, swallow arrow
-  // keys (wake-only — spec §4.3) and short-circuit Enter to toggle play/pause
-  // (spec §4.3 exception). Also handles media keys (TV remote) and Escape.
+  // Capture-phase key interceptor: wake-only on first arrow when hidden,
+  // Enter short-circuits pause/play (spec §4.3). Also handles media keys
+  // (TV remote) and Escape.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      // Escape / Back always closes (or closes the topmost popover first).
       if (e.key === "Escape" || e.key === "Back" || e.key === "GoBack") {
         e.preventDefault();
         if (openMenu) {
@@ -290,9 +480,6 @@ export function PlayerControls({
         return;
       }
 
-      // Media keys + keyboard shortcuts — YouTube-style bindings. These work
-      // regardless of visibility because they're explicit "do thing" keys,
-      // not navigation.
       if (e.key === "MediaPlayPause" || e.key === " " || e.key === "k") {
         e.preventDefault();
         togglePlayPause();
@@ -301,13 +488,13 @@ export function PlayerControls({
       }
       if ((e.key === "MediaRewind" || e.key === "j") && !isLive) {
         e.preventDefault();
-        onSeek(currentTime - 10);
+        onSeek(currentTimeRef.current - 10);
         wake();
         return;
       }
       if ((e.key === "MediaFastForward" || e.key === "l") && !isLive) {
         e.preventDefault();
-        onSeek(currentTime + 10);
+        onSeek(currentTimeRef.current + 10);
         wake();
         return;
       }
@@ -321,17 +508,12 @@ export function PlayerControls({
 
       if (!visibleRef.current) {
         if (isArrow) {
-          // Wake-only: swallow this press so norigin doesn't navigate.
-          // The next press registers normally.
           e.preventDefault();
           e.stopPropagation();
           wake();
           return;
         }
         if (isEnter) {
-          // Spec §4.3: Enter while hidden short-circuits pause/play regardless
-          // of whichever control was last focused. Block norigin from also
-          // firing the focused button's onEnter (would double-toggle).
           e.preventDefault();
           e.stopPropagation();
           togglePlayPause();
@@ -339,21 +521,19 @@ export function PlayerControls({
           return;
         }
       } else {
-        // Visible: any key resets the idle timer. Let norigin handle nav.
         if (isArrow || isEnter) wake();
       }
     };
 
     const onMouseMove = () => wake();
 
-    // Capture phase so we can preempt norigin's window listener.
     window.addEventListener("keydown", onKeyDown, true);
     window.addEventListener("mousemove", onMouseMove);
     return () => {
       window.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("mousemove", onMouseMove);
     };
-  }, [onClose, onSeek, currentTime, isLive, openMenu, togglePlayPause, wake]);
+  }, [onClose, onSeek, isLive, openMenu, togglePlayPause, wake]);
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 
@@ -363,8 +543,6 @@ export function PlayerControls({
     focusKey: FK.BACK,
     onEnterPress: onClose,
     onArrowPress: (direction) => {
-      // Down from Back → Play/Pause (spec §4.2 — predictable return).
-      // Up/Left/Right are no-ops (nothing to navigate to).
       if (direction === "down") {
         setFocus(FK.PLAY_PAUSE);
         return false;
@@ -373,29 +551,50 @@ export function PlayerControls({
     },
   });
 
-  // ── Control bar button handlers ──────────────────────────────────────────
+  // ── Control bar wire-up ────────────────────────────────────────────────────
 
-  const handleSeekBack = useCallback(() => onSeek(currentTime - 10), [onSeek, currentTime]);
-  const handleSeekForward = useCallback(() => onSeek(currentTime + 10), [onSeek, currentTime]);
-  const openAudio = useCallback(() => setOpenMenu((m) => (m === "audio" ? null : "audio")), []);
-  const openSubs = useCallback(() => setOpenMenu((m) => (m === "subtitles" ? null : "subtitles")), []);
-  const openQuality = useCallback(() => setOpenMenu((m) => (m === "quality" ? null : "quality")), []);
+  const handleSeekBack = useCallback(
+    () => onSeek(currentTimeRef.current - 10),
+    [onSeek],
+  );
+  const handleSeekForward = useCallback(
+    () => onSeek(currentTimeRef.current + 10),
+    [onSeek],
+  );
+  const holdSeekBack = useCallback(
+    () => onSeek(currentTimeRef.current - HOLD_SEEK_STEP_S),
+    [onSeek],
+  );
+  const holdSeekForward = useCallback(
+    () => onSeek(currentTimeRef.current + HOLD_SEEK_STEP_S),
+    [onSeek],
+  );
+
+  const openAudio = useCallback(
+    () => setOpenMenu((m) => (m === "audio" ? null : "audio")),
+    [],
+  );
+  const openSubs = useCallback(
+    () => setOpenMenu((m) => (m === "subtitles" ? null : "subtitles")),
+    [],
+  );
+  const openQuality = useCallback(
+    () => setOpenMenu((m) => (m === "quality" ? null : "quality")),
+    [],
+  );
+  const openVolume = useCallback(
+    () => setOpenMenu((m) => (m === "volume" ? null : "volume")),
+    [],
+  );
+  const closeMenu = useCallback(() => setOpenMenu(null), []);
 
   // ── Adaptive control focusability ─────────────────────────────────────────
-  // Spec §3: disabled controls use focusable:false so D-pad walks past them.
-  //   Live: no ±10s (can't seek a live stream without a buffer window).
-  //   All kinds in 6a: Play/Pause is always the left edge (prev/next deferred).
-  //   Quality is the right edge — right-nav blocked there.
-  //   Volume / Audio / Subs are always focusable; their popovers are empty
-  //   when no data but the button itself should still accept Enter.
 
   const seekable = !isLive;
   const audioHasOptions = audioTracks.length > 1;
   const subsAvailable = subtitleTracks.length > 0;
   const qualityAvailable = levels.length > 0;
 
-  // Compute the rightmost focusable control so we know who should block the
-  // Right edge (spec §4.2: no wrap). Walk the list in visual order.
   const orderedKeys: string[] = [
     FK.PLAY_PAUSE,
     seekable ? FK.SEEK_BACK : null,
@@ -407,6 +606,81 @@ export function PlayerControls({
   ].filter((k): k is NonNullable<typeof k> => k !== null);
   const leftEdgeKey = orderedKeys[0];
   const rightEdgeKey = orderedKeys[orderedKeys.length - 1];
+
+  // Given a popover anchor control key, return the sibling control to jump
+  // to when the user presses Left/Right inside the popover (spec §5 —
+  // "Left/Right on any item closes popover + advances to the next sibling").
+  function dismissTargets(anchorKey: string): {
+    left: string | null;
+    right: string | null;
+  } {
+    const idx = orderedKeys.indexOf(anchorKey);
+    if (idx === -1) return { left: null, right: null };
+    return {
+      left: idx > 0 ? orderedKeys[idx - 1]! : null,
+      right: idx < orderedKeys.length - 1 ? orderedKeys[idx + 1]! : null,
+    };
+  }
+
+  // Auto-focus the current selection when a popover opens (spec §5). The
+  // effect runs after MenuItems have registered with norigin, so setFocus
+  // resolves synchronously.
+  useEffect(() => {
+    if (!openMenu) return;
+    if (openMenu === "audio") {
+      const key =
+        currentAudioTrack >= 0
+          ? `PLAYER_AUDIO_${currentAudioTrack}`
+          : audioTracks[0]
+            ? `PLAYER_AUDIO_${audioTracks[0].index}`
+            : null;
+      if (key) setFocus(key);
+    } else if (openMenu === "subtitles") {
+      const key =
+        currentSubtitleTrack >= 0
+          ? `PLAYER_SUBTITLE_${currentSubtitleTrack}`
+          : "PLAYER_SUBTITLES_OFF";
+      setFocus(key);
+    } else if (openMenu === "quality") {
+      const key =
+        currentLevel >= 0
+          ? `PLAYER_QUALITY_${currentLevel}`
+          : "PLAYER_QUALITY_AUTO";
+      setFocus(key);
+    } else if (openMenu === "volume") {
+      setFocus(FK.VOLUME_SLIDER);
+    }
+  }, [
+    openMenu,
+    currentAudioTrack,
+    currentSubtitleTrack,
+    currentLevel,
+    audioTracks,
+  ]);
+
+  // Helper to build Left/Right dismiss callbacks for a popover rooted at
+  // `anchorKey`. Always closes the popover, then hops to the sibling.
+  // tsconfig has exactOptionalPropertyTypes:true — only include the key
+  // when a sibling actually exists.
+  const buildDismiss = (
+    anchorKey: string,
+  ): { onDismissLeft?: () => void; onDismissRight?: () => void } => {
+    const { left, right } = dismissTargets(anchorKey);
+    const out: { onDismissLeft?: () => void; onDismissRight?: () => void } = {};
+    if (left) {
+      out.onDismissLeft = () => {
+        closeMenu();
+        setFocus(left);
+      };
+    }
+    if (right) {
+      out.onDismissRight = () => {
+        closeMenu();
+        setFocus(right);
+      };
+    }
+    return out;
+  };
 
   return (
     <FocusContext.Provider value={containerFocusKey}>
@@ -514,7 +788,6 @@ export function PlayerControls({
               "linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.45) 60%, transparent 100%)",
           }}
         >
-          {/* Scrubber band — hidden on Live (LIVE badge renders in top bar). */}
           {!isLive && (
             <div
               style={{
@@ -580,6 +853,7 @@ export function PlayerControls({
               icon="◀◀"
               focusable={seekable}
               onPress={handleSeekBack}
+              onHoldTick={holdSeekBack}
               isEdgeLeft={leftEdgeKey === FK.SEEK_BACK}
               isEdgeRight={rightEdgeKey === FK.SEEK_BACK}
             />
@@ -589,21 +863,33 @@ export function PlayerControls({
               icon="▶▶"
               focusable={seekable}
               onPress={handleSeekForward}
+              onHoldTick={holdSeekForward}
               isEdgeLeft={leftEdgeKey === FK.SEEK_FORWARD}
               isEdgeRight={rightEdgeKey === FK.SEEK_FORWARD}
             />
 
-            {/* Spacer pushes the right-hand selectors to the edge */}
             <div style={{ flex: 1 }} />
 
-            <ControlButton
-              focusKey={FK.VOLUME}
-              label={muted ? "Unmute" : "Mute"}
-              icon={volumeIcon(volume, muted)}
-              onPress={onToggleMute}
-              isEdgeLeft={leftEdgeKey === FK.VOLUME}
-              isEdgeRight={rightEdgeKey === FK.VOLUME}
-            />
+            <div style={{ position: "relative" }}>
+              <ControlButton
+                focusKey={FK.VOLUME}
+                label="Volume"
+                icon={`${volumeIcon(volume)} ${Math.round(volume * 100)}`}
+                onPress={openVolume}
+                ariaExpanded={openMenu === "volume"}
+                ariaHasPopup
+                isEdgeLeft={leftEdgeKey === FK.VOLUME}
+                isEdgeRight={rightEdgeKey === FK.VOLUME}
+              />
+              {openMenu === "volume" && (
+                <VolumeSlider
+                  volume={volume}
+                  onSetVolume={onSetVolume}
+                  onClose={closeMenu}
+                  {...buildDismiss(FK.VOLUME)}
+                />
+              )}
+            </div>
 
             {audioHasOptions && (
               <div style={{ position: "relative" }}>
@@ -631,8 +917,9 @@ export function PlayerControls({
                         focusKey={`PLAYER_AUDIO_${track.index}`}
                         onSelect={() => {
                           onSelectAudioTrack(track.index);
-                          setOpenMenu(null);
+                          closeMenu();
                         }}
+                        {...buildDismiss(FK.AUDIO)}
                       />
                     ))}
                   </ul>
@@ -664,8 +951,9 @@ export function PlayerControls({
                       focusKey="PLAYER_SUBTITLES_OFF"
                       onSelect={() => {
                         onSelectSubtitleTrack(-1);
-                        setOpenMenu(null);
+                        closeMenu();
                       }}
+                      {...buildDismiss(FK.SUBTITLES)}
                     />
                     {subtitleTracks.map((track) => (
                       <MenuItem
@@ -675,8 +963,9 @@ export function PlayerControls({
                         focusKey={`PLAYER_SUBTITLE_${track.index}`}
                         onSelect={() => {
                           onSelectSubtitleTrack(track.index);
-                          setOpenMenu(null);
+                          closeMenu();
                         }}
+                        {...buildDismiss(FK.SUBTITLES)}
                       />
                     ))}
                   </ul>
@@ -708,10 +997,10 @@ export function PlayerControls({
                       focusKey="PLAYER_QUALITY_AUTO"
                       onSelect={() => {
                         onSelectLevel(-1);
-                        setOpenMenu(null);
+                        closeMenu();
                       }}
+                      {...buildDismiss(FK.QUALITY)}
                     />
-                    {/* Spec §5.3: highest-first (most common intent = "lower it") */}
                     {[...levels]
                       .sort((a, b) => b.height - a.height)
                       .map((level) => (
@@ -722,8 +1011,9 @@ export function PlayerControls({
                           focusKey={`PLAYER_QUALITY_${level.index}`}
                           onSelect={() => {
                             onSelectLevel(level.index);
-                            setOpenMenu(null);
+                            closeMenu();
                           }}
+                          {...buildDismiss(FK.QUALITY)}
                         />
                       ))}
                   </ul>
