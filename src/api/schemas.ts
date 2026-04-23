@@ -267,6 +267,29 @@ export const VodStreamSchema = z.object({
 });
 export type VodStream = z.infer<typeof VodStreamSchema>;
 
+/**
+ * VodInfoSchema — detail response from GET /api/vod/info/:id.
+ * All fields except id + name are optional: backend aggregates from Xtream's
+ * get_vod_info which returns sparse data for many titles.
+ * containerExtension is the only source of tier-lock truth for VOD
+ * (03-movies.md §6, §9).
+ */
+export const VodInfoSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  plot: z.string().optional(),
+  cast: z.string().optional(),
+  director: z.string().optional(),
+  genre: z.string().optional(),
+  year: z.string().optional(),
+  rating: RatingSchema,
+  duration: z.number().optional(),
+  backdropUrl: z.string().optional(),
+  icon: z.string().nullable().optional(),
+  containerExtension: z.string().optional(),
+});
+export type VodInfo = z.infer<typeof VodInfoSchema>;
+
 // ─── Favorites ──────────────────────────────────────────────────────────────
 
 /** Content types the backend recognises. "live" is normalised to "channel" server-side. */

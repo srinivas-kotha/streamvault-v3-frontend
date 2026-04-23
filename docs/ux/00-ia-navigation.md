@@ -34,17 +34,17 @@ Every decision below was re-checked against actual backend capabilities on `stre
 │                                                                     │
 │  ROUTES (React Router 6, BrowserRouter)                             │
 │                                                                     │
-│  /              → redirect /live                                    │
+│  /              → redirect /movies                                  │
+│                                                                     │
+│  /movies        ◄── DOCK · Movies (landing home)                   │
+│    ├ LanguageRail  [Telugu · Hindi · English · All]  (no Sports)   │
+│    ├ Toolbar       [Sort: Added·Name   Count: N movies]            │
+│    └ PosterGrid (VirtuosoGrid, virtualized) → Player(kind=vod)     │
 │                                                                     │
 │  /live          ◄── DOCK · Live                                    │
 │    ├ LanguageRail  [Telugu · Hindi · English · Sports · All]       │
 │    ├ Toolbar       [Sort: Number·Name·Category   EPG: All·Now·2h]  │
 │    └ SplitGuide    [channel list + EPG panel] → Player(kind=live)  │
-│                                                                     │
-│  /movies        ◄── DOCK · Movies                                   │
-│    ├ LanguageRail  [Telugu · Hindi · English · Sports · All]       │
-│    ├ Toolbar       [Sort: Added·Name   Count: N movies]            │
-│    └ PosterGrid (VirtuosoGrid, virtualized) → Player(kind=vod)     │
 │                                                                     │
 │  /series        ◄── DOCK · Series                                   │
 │    ├ LanguageRail  [Telugu · Hindi · English · Sports · All]       │
@@ -64,7 +64,7 @@ Every decision below was re-checked against actual backend capabilities on `stre
 │  /favorites    (NOT docked — reached from Settings or ♥ toolbar)    │
 │  /history      (NOT docked — reached from Settings or Resume chip)  │
 │                                                                     │
-│  BOTTOM DOCK (fixed, z=100)   ● Live  ▶ Movies  ⊞ Series  ⌕ Search  ⚙ Settings │
+│  BOTTOM DOCK (fixed, z=100)   ▶ Movies  ⊞ Series  ● Live  ⌕ Search  ⚙ Settings │
 │                                                                     │
 │  PLAYER OVERLAY (fullscreen, z>dock) — spec'd in 05-player.md        │
 │    single <video>, single instance, control bar auto-shows on input │
@@ -82,7 +82,7 @@ Every decision below was re-checked against actual backend capabilities on `stre
 
 | Event | Behaviour | Source |
 |---|---|---|
-| Cold auth | Focus primes `DOCK_LIVE` after 100ms + retry | [src/App.tsx:77-97](../../src/App.tsx#L77) |
+| Cold auth | Focus primes `DOCK_MOVIES` after 100ms + retry (landing is `/movies`) | [src/App.tsx:77-97](../../src/App.tsx#L77) |
 | Deep link `/movies` | Focus primes `DOCK_MOVIES` (derived from URL) | [src/App.tsx:56-59](../../src/App.tsx#L56) |
 | Dock ArrowLeft/Right | Walks 5 tabs. **No wrap.** | norigin default |
 | Dock ArrowUp | `setFocus(CONTENT_AREA_<TAB>)` — explicit | [src/nav/BottomDock.tsx:107-113](../../src/nav/BottomDock.tsx#L107) |

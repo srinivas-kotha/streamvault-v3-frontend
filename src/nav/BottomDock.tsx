@@ -8,9 +8,9 @@ import {
 export type DockItem = "live" | "movies" | "series" | "search" | "settings";
 
 const DOCK_ITEMS: { id: DockItem; label: string; icon: string }[] = [
-  { id: "live", label: "Live", icon: "●" },
   { id: "movies", label: "Movies", icon: "▶" },
   { id: "series", label: "Series", icon: "⊞" },
+  { id: "live", label: "Live", icon: "●" },
   { id: "search", label: "Search", icon: "⌕" },
   { id: "settings", label: "Settings", icon: "⚙" },
 ];
