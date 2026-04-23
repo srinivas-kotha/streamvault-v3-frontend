@@ -23,14 +23,27 @@ function stream(id: string, categoryId: string): VodStream {
   return { id, name: `Movie ${id}`, type: "vod", categoryId };
 }
 
-describe("categoryMatchesLang", () => {
-  it("matches telugu categories by substring", () => {
+describe("categoryMatchesLang — strict mode", () => {
+  it("matches pure-language categories by word boundary", () => {
     expect(categoryMatchesLang(cat("1", "Telugu Action"), "telugu")).toBe(true);
     expect(categoryMatchesLang(cat("2", "Hindi Movies"), "telugu")).toBe(false);
   });
 
+  it("does NOT match categories that mention another language (ambiguous)", () => {
+    // "Telugu Dubbed Hindi" was leaking Bollywood under Telugu in prod.
+    expect(categoryMatchesLang(cat("1", "Telugu Dubbed Hindi"), "telugu")).toBe(false);
+    expect(categoryMatchesLang(cat("2", "Telugu Dubbed Hindi"), "hindi")).toBe(false);
+    expect(categoryMatchesLang(cat("3", "English Hindi Mix"), "english")).toBe(false);
+  });
+
+  it("requires word-boundary match (no substring leak)", () => {
+    // A hypothetical category "Telugumania" should NOT match telugu.
+    expect(categoryMatchesLang(cat("1", "Telugumania"), "telugu")).toBe(false);
+  });
+
   it("lets every category through when lang === 'all'", () => {
     expect(categoryMatchesLang(cat("1", "Random Stuff"), "all")).toBe(true);
+    expect(categoryMatchesLang(cat("2", "Telugu Dubbed Hindi"), "all")).toBe(true);
   });
 
   it("never matches when lang === 'sports' (Movies has no Sports chip)", () => {

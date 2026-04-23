@@ -27,8 +27,13 @@ describe("sortMovies prefs", () => {
   });
 
   it("ignores invalid stored values and falls back to 'added'", () => {
-    localStorage.setItem("sv_sort_movies", "year");
+    localStorage.setItem("sv_sort_movies", "banana");
     expect(getSortPref()).toBe("added");
+  });
+
+  it("round-trips 'year' as a valid sort", () => {
+    setSortPref("year");
+    expect(getSortPref()).toBe("year");
   });
 });
 
@@ -63,6 +68,19 @@ describe("sortStreams", () => {
       "added",
     );
     expect(out.map((s) => s.id)).toEqual(["2", "1", "3"]);
+  });
+
+  it("sorts by year newest-first; missing years sink to bottom", () => {
+    const out = sortStreams(
+      [
+        mk("1", { year: "2010" }),
+        mk("2", { year: "2024" }),
+        mk("3"),
+        mk("4", { year: "2019" }),
+      ],
+      "year",
+    );
+    expect(out.map((s) => s.id)).toEqual(["2", "4", "1", "3"]);
   });
 
   it("does not mutate the input array", () => {

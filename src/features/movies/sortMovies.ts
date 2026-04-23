@@ -12,13 +12,13 @@
  */
 import type { VodStream } from "../../api/schemas";
 
-export type MovieSortKey = "added" | "name";
+export type MovieSortKey = "added" | "year" | "name";
 
 const STORAGE_KEY = "sv_sort_movies";
 const DEFAULT_SORT: MovieSortKey = "added";
 
 function isValidSort(value: string): value is MovieSortKey {
-  return value === "added" || value === "name";
+  return value === "added" || value === "year" || value === "name";
 }
 
 export function getSortPref(): MovieSortKey {
@@ -48,6 +48,22 @@ export function sortStreams(
     copy.sort((a, b) => a.name.localeCompare(b.name));
     return copy;
   }
+  if (sort === "year") {
+    // Newest year first. Items with missing year sink to the bottom so the
+    // top of the grid is always something concrete.
+    copy.sort((a, b) => {
+      const ay = a.year ? Number(a.year) : NaN;
+      const by = b.year ? Number(b.year) : NaN;
+      const aValid = Number.isFinite(ay);
+      const bValid = Number.isFinite(by);
+      if (aValid && bValid) return by - ay;
+      if (aValid) return -1;
+      if (bValid) return 1;
+      return 0;
+    });
+    return copy;
+  }
+  // "added": newest-first by ISO string comparison. Items missing `added` sink.
   copy.sort((a, b) => {
     const aAdded = a.added ?? "";
     const bAdded = b.added ?? "";
