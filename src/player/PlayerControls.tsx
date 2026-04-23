@@ -480,10 +480,17 @@ export function PlayerControls({
   }, [isPlaying, onPlay, onPause]);
 
   // Initial focus on Play/Pause when the player opens (spec §4.1).
+  // Fire twice: once synchronously for the fast path, then again after a
+  // tick. When setFocus runs before norigin has finished registering the
+  // PLAY_PAUSE focusable (observed in prod — focus landed on Back instead),
+  // the first call silently falls back to the first registered focusable;
+  // the delayed call corrects it once everything is registered.
   useEffect(() => {
     setFocus(FK.PLAY_PAUSE);
+    const t = setTimeout(() => setFocus(FK.PLAY_PAUSE), 80);
     scheduleHide();
     return () => {
+      clearTimeout(t);
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -492,9 +499,25 @@ export function PlayerControls({
   // Capture-phase key interceptor: wake-only on first arrow when hidden,
   // Enter short-circuits pause/play (spec §4.3). Also handles media keys
   // (TV remote) and Escape.
+  //
+  // Fire TV / Android TV media keys are identified either by `event.key`
+  // (Silk recent firmware) or by `event.keyCode` (older WebViews). The
+  // Android KeyEvent codes:
+  //   85 MEDIA_PLAY_PAUSE, 126 MEDIA_PLAY, 127 MEDIA_PAUSE
+  //   89 MEDIA_REWIND,     90 MEDIA_FAST_FORWARD
+  //   87 MEDIA_NEXT,       88 MEDIA_PREVIOUS
+  //    4 BACK
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" || e.key === "Back" || e.key === "GoBack") {
+      const k = e.key;
+      const kc = e.keyCode;
+
+      const isBack =
+        k === "Escape" ||
+        k === "Back" ||
+        k === "GoBack" ||
+        kc === 4;
+      if (isBack) {
         e.preventDefault();
         if (openMenu) {
           setOpenMenu(null);
@@ -504,31 +527,61 @@ export function PlayerControls({
         return;
       }
 
-      if (e.key === "MediaPlayPause" || e.key === " " || e.key === "k") {
+      const isPlayPauseKey =
+        k === "MediaPlayPause" ||
+        k === "MediaPlay" ||
+        k === "MediaPause" ||
+        k === " " ||
+        k === "k" ||
+        kc === 85 ||
+        kc === 126 ||
+        kc === 127;
+      if (isPlayPauseKey) {
         e.preventDefault();
         togglePlayPause();
         wake();
         return;
       }
-      if ((e.key === "MediaRewind" || e.key === "j") && !isLive) {
+
+      const isRewindKey = k === "MediaRewind" || k === "j" || kc === 89;
+      if (isRewindKey && !isLive) {
         e.preventDefault();
         onSeek(currentTimeRef.current - 10);
         wake();
         return;
       }
-      if ((e.key === "MediaFastForward" || e.key === "l") && !isLive) {
+
+      const isFfKey =
+        k === "MediaFastForward" || k === "l" || kc === 90;
+      if (isFfKey && !isLive) {
         e.preventDefault();
         onSeek(currentTimeRef.current + 10);
         wake();
         return;
       }
 
+      // Fire TV's ⏭ / ⏮ media keys map to prev/next episode if provided.
+      const isMediaNext = k === "MediaTrackNext" || kc === 87;
+      if (isMediaNext && onNext) {
+        e.preventDefault();
+        onNext();
+        wake();
+        return;
+      }
+      const isMediaPrev = k === "MediaTrackPrevious" || kc === 88;
+      if (isMediaPrev && onPrev) {
+        e.preventDefault();
+        onPrev();
+        wake();
+        return;
+      }
+
       const isArrow =
-        e.key === "ArrowUp" ||
-        e.key === "ArrowDown" ||
-        e.key === "ArrowLeft" ||
-        e.key === "ArrowRight";
-      const isEnter = e.key === "Enter" || e.key === "OK";
+        k === "ArrowUp" ||
+        k === "ArrowDown" ||
+        k === "ArrowLeft" ||
+        k === "ArrowRight";
+      const isEnter = k === "Enter" || k === "OK";
 
       if (!visibleRef.current) {
         if (isArrow) {
@@ -557,7 +610,7 @@ export function PlayerControls({
       window.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("mousemove", onMouseMove);
     };
-  }, [onClose, onSeek, isLive, openMenu, togglePlayPause, wake]);
+  }, [onClose, onSeek, isLive, openMenu, togglePlayPause, wake, onNext, onPrev]);
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 

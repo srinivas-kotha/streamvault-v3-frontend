@@ -15,8 +15,14 @@ import {
   useReducer,
   useEffect,
   useCallback,
+  useRef,
   type ReactNode,
 } from "react";
+import {
+  getCurrentFocusKey,
+  doesFocusableExist,
+  setFocus,
+} from "@noriginmedia/norigin-spatial-navigation";
 
 export type PlayerKind = "live" | "vod" | "series-episode";
 
@@ -96,12 +102,35 @@ const PlayerContext = createContext<PlayerContextValue | null>(null);
 export function PlayerProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(playerReducer, { status: "idle" });
 
+  // Remember the focus key the user came from so we can restore it when the
+  // player closes. Without this, closing the player lands focus nowhere
+  // (reported 2026-04-23: "I can go back but there is no focus on any
+  // element on back"). norigin's autoRestoreFocus only walks up to the
+  // nearest parent; the player's FocusBoundary orphans that chain.
+  const previousFocusKeyRef = useRef<string | null>(null);
+
   const open = useCallback((payload: PlayerOpenPayload) => {
+    const current = getCurrentFocusKey();
+    previousFocusKeyRef.current = current || null;
     dispatch({ type: "OPEN", payload });
   }, []);
 
   const close = useCallback(() => {
+    const target = previousFocusKeyRef.current;
+    previousFocusKeyRef.current = null;
     dispatch({ type: "CLOSE" });
+    // Wait a tick so PlayerShell has unmounted and norigin has removed its
+    // focusables before re-seeding. Without the delay, setFocus races the
+    // unmount and the target can bounce back to the player.
+    if (target) {
+      const restore = () => {
+        if (doesFocusableExist(target)) {
+          setFocus(target);
+        }
+      };
+      setTimeout(restore, 0);
+      setTimeout(restore, 80);
+    }
   }, []);
 
   // Back-button handling: when player is open, intercept popstate (Fire TV
