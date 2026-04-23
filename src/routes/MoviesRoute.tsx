@@ -36,8 +36,9 @@ import { MovieGrid } from "../features/movies/MovieGrid";
 import { MovieDetailSheet } from "../features/movies/MovieDetailSheet";
 import { ResumeHero } from "../features/movies/ResumeHero";
 import {
-  fetchLanguageUnion,
+  streamLanguageUnion,
   invalidateLanguageUnionCache,
+  lookupCachedStream,
 } from "../features/movies/languageUnion";
 import {
   getSortPref,
@@ -138,20 +139,23 @@ export function MoviesRoute() {
   useEffect(() => {
     let cancelled = false;
 
-    fetchLanguageUnion(lang)
-      .then(({ streams: fetched }) => {
-        if (cancelled) return;
-        setStreams(fetched);
-        setLoading(false);
-        setError(false);
+    streamLanguageUnion(lang, ({ streams: fetched, isFinal }) => {
+      if (cancelled) return;
+      setStreams(fetched);
+      setLoading(false);
+      setError(false);
+      // Dismiss the transitioning dim as soon as we have content to show,
+      // or when the union is fully loaded (even if 0 results). The grid
+      // keeps growing silently as remaining categories resolve.
+      if (fetched.length > 0 || isFinal) {
         setTransitioning(false);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setLoading(false);
-        setError(true);
-        setTransitioning(false);
-      });
+      }
+    }).catch(() => {
+      if (cancelled) return;
+      setLoading(false);
+      setError(true);
+      setTransitioning(false);
+    });
 
     return () => {
       cancelled = true;
@@ -257,13 +261,21 @@ export function MoviesRoute() {
     };
   }, [resumeCandidate]);
 
-  const resumeTitle =
-    resumeCandidate?.content_name ??
-    (resumeCandidate &&
-    resumeTitleBackfill?.id === String(resumeCandidate.content_id)
-      ? resumeTitleBackfill.name
-      : null) ??
-    "your movie";
+  // Three-tier fallback: stored content_name → already-cached stream name
+  // (from any prior language union that happened to contain this id) →
+  // async /api/vod/info backfill → generic label. `streams` is in the deps
+  // list on purpose — its identity flips whenever a new category resolves,
+  // which is the signal that `lookupCachedStream` may now return a hit.
+  const resumeTitle = useMemo(() => {
+    void streams; // reactivity trigger for the module-level cache below
+    if (!resumeCandidate) return "your movie";
+    if (resumeCandidate.content_name) return resumeCandidate.content_name;
+    const candidateId = String(resumeCandidate.content_id);
+    const cached = lookupCachedStream(candidateId);
+    if (cached) return cached.name;
+    if (resumeTitleBackfill?.id === candidateId) return resumeTitleBackfill.name;
+    return "your movie";
+  }, [resumeCandidate, resumeTitleBackfill, streams]);
 
   const handleResume = useCallback(() => {
     if (!resumeCandidate) return;

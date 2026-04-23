@@ -269,21 +269,29 @@ export type VodStream = z.infer<typeof VodStreamSchema>;
 
 /**
  * VodInfoSchema — detail response from GET /api/vod/info/:id.
- * All fields except id + name are optional: backend aggregates from Xtream's
- * get_vod_info which returns sparse data for many titles.
- * containerExtension is the only source of tier-lock truth for VOD
- * (03-movies.md §6, §9).
+ *
+ * Mirrors backend `CatalogItemDetail` from provider.types.ts. Every field
+ * past `id` is optional because Xtream returns sparse data for many titles;
+ * a strict schema would reject the whole payload whenever one field is
+ * missing or loosely typed.
+ *
+ * `duration` is a DISPLAY STRING (e.g. "2h 15min") per the Xtream provider.
+ * Earlier versions of this schema declared it as `z.number()` and every
+ * `fetchVodInfo` call silently threw on parse — ResumeHero's title backfill
+ * then fell back to "your movie" forever. Observed in prod 2026-04-23.
+ * Use `durationSecs` for numeric computation.
  */
 export const VodInfoSchema = z.object({
   id: z.string(),
-  name: z.string(),
+  name: z.string().optional(),
   plot: z.string().optional(),
   cast: z.string().optional(),
   director: z.string().optional(),
   genre: z.string().optional(),
   year: z.string().optional(),
   rating: RatingSchema,
-  duration: z.number().optional(),
+  duration: z.string().optional(),
+  durationSecs: z.number().optional(),
   backdropUrl: z.string().optional(),
   icon: z.string().nullable().optional(),
   containerExtension: z.string().optional(),

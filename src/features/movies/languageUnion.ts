@@ -28,6 +28,17 @@ interface CacheEntry<T> {
 let categoriesCache: CacheEntry<VodCategory[]> | null = null;
 const streamsCache = new Map<string, CacheEntry<VodStream[]>>();
 
+// Sync (id → VodStream) index populated as streamsCache promises resolve.
+// Used by MoviesRoute to look up a resume-candidate's name without a round
+// trip whenever any category containing that id has already been fetched
+// (e.g., the user paused a Hindi movie, the Hindi union ran, the name is
+// now in this index and available on the Telugu view too).
+const resolvedStreamsIndex = new Map<string, VodStream>();
+
+export function lookupCachedStream(id: string): VodStream | undefined {
+  return resolvedStreamsIndex.get(id);
+}
+
 function fresh<T>(entry: CacheEntry<T> | null | undefined): Promise<T> | null {
   if (!entry) return null;
   if (Date.now() - entry.at > TTL_MS) return null;
@@ -38,6 +49,7 @@ function fresh<T>(entry: CacheEntry<T> | null | undefined): Promise<T> | null {
 export function invalidateLanguageUnionCache(): void {
   categoriesCache = null;
   streamsCache.clear();
+  resolvedStreamsIndex.clear();
 }
 
 /** Fetch /api/vod/categories, memoised module-wide with a 5-min TTL. */
@@ -57,7 +69,11 @@ export function getCategoriesCached(): Promise<VodCategory[]> {
 export function getStreamsCached(categoryId: string): Promise<VodStream[]> {
   const hit = fresh(streamsCache.get(categoryId));
   if (hit) return hit;
-  const promise = fetchVodStreams(categoryId);
+  const promise = fetchVodStreams(categoryId).then((items) => {
+    // Populate the sync lookup index as soon as the fetch resolves.
+    for (const s of items) resolvedStreamsIndex.set(s.id, s);
+    return items;
+  });
   streamsCache.set(categoryId, { at: Date.now(), promise });
   promise.catch(() => {
     if (streamsCache.get(categoryId)?.promise === promise) {
@@ -137,6 +153,9 @@ export interface LanguageUnionResult {
 /**
  * Fetch the union of streams across all categories matching `lang`.
  * Duplicates (same stream in multiple categories) are collapsed to one entry.
+ *
+ * Single-shot version: resolves once with the full result. Prefer
+ * `streamLanguageUnion` in UI code so partial results can render quickly.
  */
 export async function fetchLanguageUnion(
   lang: LangId,
@@ -164,4 +183,67 @@ export async function fetchLanguageUnion(
   }
 
   return { streams: merged, matchedCategories: matching.length };
+}
+
+export interface LanguageUnionBatch {
+  streams: VodStream[];
+  isFinal: boolean;
+  matchedCategories: number;
+  completedCategories: number;
+}
+
+/**
+ * Progressive variant of {@link fetchLanguageUnion}. Fires `onBatch` each
+ * time a matching category resolves, carrying the accumulated deduped
+ * streams. The first batch typically arrives within one network RTT, so
+ * the grid can render while the remaining categories trickle in silently.
+ *
+ * Spec rationale (user feedback 2026-04-23 PM): Hindi waited 3-5s before
+ * showing ANY posters; the "Loading Hindi movies…" state felt like the
+ * click didn't register. Progressive rendering dismisses the loader on
+ * first batch and the remaining cards stream in over the next few seconds.
+ */
+export async function streamLanguageUnion(
+  lang: LangId,
+  onBatch: (batch: LanguageUnionBatch) => void,
+): Promise<void> {
+  const cats = await getCategoriesCached();
+  const matching = cats.filter((c) => categoryMatchesLang(c, lang));
+
+  if (matching.length === 0) {
+    onBatch({
+      streams: [],
+      isFinal: true,
+      matchedCategories: 0,
+      completedCategories: 0,
+    });
+    return;
+  }
+
+  const seen = new Set<string>();
+  const merged: VodStream[] = [];
+  let completed = 0;
+
+  await poolMap(matching, MAX_CONCURRENCY, async (c) => {
+    try {
+      const items = await getStreamsCached(c.id);
+      for (const s of items) {
+        if (!seen.has(s.id)) {
+          seen.add(s.id);
+          merged.push(s);
+        }
+      }
+    } catch {
+      // per-category failures contribute zero streams, same as fetchLanguageUnion
+    }
+    completed += 1;
+    const isFinal = completed === matching.length;
+    // Shallow copy so React's setState sees a new reference.
+    onBatch({
+      streams: merged.slice(),
+      isFinal,
+      matchedCategories: matching.length,
+      completedCategories: completed,
+    });
+  });
 }
