@@ -22,8 +22,14 @@ import "../features/settings/settings.css";
 // ─── Read username from the session sentinel ─────────────────────────────────
 // sv_access_token stores the username string set during login
 // (see ApiClient.setSession). It is NOT a real token — just a display handle.
+// Moved from sessionStorage → localStorage in Phase 1 of the UX rebuild
+// (see docs/ux/00-ia-navigation.md §7). After tryBootRefresh promotes a
+// cookie-only user, the sentinel may read the literal "authenticated" when
+// no username is available in the /auth/refresh response.
 function getSessionUsername(): string {
-  return sessionStorage.getItem("sv_access_token") ?? "Unknown";
+  const raw = localStorage.getItem("sv_access_token");
+  if (!raw || raw === "authenticated") return "Unknown";
+  return raw;
 }
 
 // ─── Account section ──────────────────────────────────────────────────────────

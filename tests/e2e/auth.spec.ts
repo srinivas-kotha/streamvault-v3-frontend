@@ -48,7 +48,7 @@ test.describe("Auth E2E", () => {
     await page.click('button[type="submit"]');
     await expect(page).toHaveURL(/\/live/, { timeout: 15000 });
     const token = await page.evaluate(() =>
-      sessionStorage.getItem("sv_access_token"),
+      localStorage.getItem("sv_access_token"),
     );
     expect(token).toBeTruthy();
   });

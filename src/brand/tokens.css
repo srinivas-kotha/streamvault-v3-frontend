@@ -67,6 +67,42 @@
     --text-caption-weight: 400;
 
     /* ──────────────────────────────────────────────
+       Typography — UX rebuild 7-token scale
+       Source: docs/ux/00-ia-navigation.md §6.7
+       New tokens; consumed by Phase 2+ surfaces. Existing
+       --text-*-size tokens kept for Phase 0 surfaces until
+       Phase 7 polish sweep consolidates them.
+       ────────────────────────────────────────────── */
+    --type-hero: 48px;
+    --type-hero-line: 1.1;
+    --type-hero-weight: 700;
+
+    --type-title-lg: 32px;
+    --type-title-lg-line: 1.2;
+    --type-title-lg-weight: 600;
+
+    --type-title: 24px;
+    --type-title-line: 1.2;
+    --type-title-weight: 600;
+
+    --type-body: 20px;
+    --type-body-line: 1.4;
+    --type-body-weight: 500;
+
+    --type-body-sm: 16px;
+    --type-body-sm-line: 1.4;
+    --type-body-sm-weight: 400;
+
+    --type-caption: 14px;
+    --type-caption-line: 1.3;
+    --type-caption-weight: 500;
+
+    --type-overline: 12px;
+    --type-overline-line: 1.2;
+    --type-overline-weight: 600;
+    --type-overline-tracking: 0.08em;
+
+    /* ──────────────────────────────────────────────
        Spacing — 8px base
        Scale: 4 · 8 · 12 · 16 · 24 · 32 · 48 · 64 · 96
        Source: design spec §6 Spacing
@@ -124,6 +160,43 @@
 
     /* Copper inset glow when card focused */
     --card-inset-glow: inset 0 0 0 1px rgba(200, 121, 65, 0.25);
+
+    /* ──────────────────────────────────────────────
+       Focus ring — UX rebuild (docs/ux/00 §6.8)
+       One token, every focusable, no exceptions. Phase 2+
+       surfaces apply this via box-shadow directly.
+       ────────────────────────────────────────────── */
+    --focus-ring-shadow:
+      0 0 0 2px var(--accent-copper),
+      0 0 24px 4px rgba(200, 121, 65, 0.35);
+
+    /* ──────────────────────────────────────────────
+       Glass / surface treatment (docs/ux/00 §6.8)
+       Blur on floating overlays only. Never on cards
+       or page background (prevents blur-on-blur murk).
+       ────────────────────────────────────────────── */
+    --glass-toolbar-bg: rgba(18, 16, 14, 0.72);
+    --glass-toolbar-blur: blur(16px);
+    --glass-toolbar-border: 1px solid rgba(255, 255, 255, 0.06);
+
+    --glass-popover-bg: rgba(18, 16, 14, 0.85);
+    --glass-popover-blur: blur(24px);
+    --glass-popover-border: 1px solid rgba(255, 255, 255, 0.08);
+    --glass-popover-radius: 12px;
+
+    --glass-sheet-bg: rgba(18, 16, 14, 0.88);
+    --glass-sheet-blur: blur(24px);
+    --glass-sheet-border: 1px solid rgba(255, 255, 255, 0.08);
+    --glass-sheet-radius-top: 16px;
+
+    --glass-player-bg: rgba(0, 0, 0, 0.45);
+    --glass-player-blur: blur(12px);
+
+    /* Card surface values per §6.8 — new tokens, do not
+       overwrite legacy --bg-surface (used as solid fill by
+       Phase 0 surfaces). */
+    --surface-card-idle-bg: rgba(255, 255, 255, 0.04);
+    --surface-card-idle-border: 1px solid rgba(255, 255, 255, 0.08);
 
     /* Dock floating bar */
     --dock-glass-bg: rgba(18, 16, 14, 0.85);

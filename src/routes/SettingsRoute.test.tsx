@@ -38,7 +38,7 @@ Object.defineProperty(window, "location", {
 import { SettingsRoute } from "./SettingsRoute";
 
 function renderSettings(username = "testuser") {
-  sessionStorage.setItem("sv_access_token", username);
+  localStorage.setItem("sv_access_token", username);
   render(<SettingsRoute />);
 }
 

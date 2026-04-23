@@ -2,17 +2,43 @@
 // The browser attaches those cookies automatically when fetch uses
 // `credentials: "include"`, so the client does NOT read or write JWTs itself.
 //
-// `sv_session` (sessionStorage) is a lightweight sentinel — not a credential —
-// used only by App.tsx to decide whether to show LoginPage vs AppShell on
-// initial mount. A stale sentinel without a real cookie just causes the first
-// API call to 401, at which point we clear it and re-show LoginPage.
+// `sv_access_token` (localStorage — moved from sessionStorage in Phase 1 of
+// the UX rebuild, docs/ux/00-ia-navigation.md §7) is a lightweight sentinel,
+// NOT a credential. App.tsx uses it to decide whether to show LoginPage vs
+// AppShell on initial mount. A stale sentinel without a real cookie just
+// causes the boot refresh or first API call to 401, at which point we clear
+// it and re-show LoginPage.
 //
-// `sv_access_token` is retained as an alias for backward-compat with the
-// E2E suite (tests/e2e/helpers.ts seeds it, tests/e2e/auth.spec.ts asserts on
-// it post-login). Its value is the username, not a JWT.
+// Migration: existing users with the key in sessionStorage are promoted to
+// localStorage on first `hasSession()` call (see migrateLegacySession below).
+// The promotion is one-shot — subsequent reads find the key in localStorage
+// directly. Once every live client has warmed through this path, the
+// migration branch is safe to delete.
+//
+// The sentinel's VALUE is the username when written post-login, or the
+// literal string "authenticated" when written post-boot-refresh (the
+// /auth/refresh response does not include a username). Consumers must treat
+// it as opaque — only `hasSession()` checks presence.
 const SESSION_KEY = "sv_access_token";
 const CSRF_COOKIE = "sv_csrf";
 const CSRF_HEADER = "x-csrf-token";
+
+function migrateLegacySession(): void {
+  try {
+    const legacy = sessionStorage.getItem(SESSION_KEY);
+    const current = localStorage.getItem(SESSION_KEY);
+    if (legacy && !current) {
+      localStorage.setItem(SESSION_KEY, legacy);
+    }
+    if (legacy) {
+      sessionStorage.removeItem(SESSION_KEY);
+    }
+  } catch {
+    // sessionStorage / localStorage may throw in restricted contexts.
+    // The auth gate's boot refresh will fall through to unauthed on any
+    // real inconsistency — migration is best-effort.
+  }
+}
 
 export class ApiError extends Error {
   readonly status: number;
@@ -40,15 +66,58 @@ export class ApiClient {
   }
 
   setSession(username: string): void {
-    sessionStorage.setItem(SESSION_KEY, username);
+    try {
+      localStorage.setItem(SESSION_KEY, username);
+    } catch {
+      // Quota / private-mode — swallow; the next API call will 401 and we
+      // fall through to LoginPage.
+    }
   }
 
   clearSession(): void {
-    sessionStorage.removeItem(SESSION_KEY);
+    try {
+      localStorage.removeItem(SESSION_KEY);
+      // Belt-and-braces: also wipe the legacy sessionStorage key so a stale
+      // sentinel from a pre-migration tab can't resurrect an auth state.
+      sessionStorage.removeItem(SESSION_KEY);
+    } catch {
+      /* see setSession */
+    }
   }
 
   hasSession(): boolean {
-    return Boolean(sessionStorage.getItem(SESSION_KEY));
+    try {
+      migrateLegacySession();
+      return Boolean(localStorage.getItem(SESSION_KEY));
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Silent refresh called exactly once at app boot, BEFORE the auth gate
+   * renders. Always hits /auth/refresh (even without a sentinel) so users
+   * whose sentinel was wiped but still have a valid refresh_token cookie
+   * recover gracefully. On success, ensures a sentinel exists so the gate
+   * stays authed on subsequent mounts.
+   *
+   * Returns true iff /auth/refresh returned 2xx.
+   */
+  async tryBootRefresh(): Promise<boolean> {
+    try {
+      const res = await fetch(`${this.baseUrl}/api/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+      });
+      if (!res.ok) return false;
+      if (!this.hasSession()) {
+        this.setSession("authenticated");
+      }
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private async request<T>(
