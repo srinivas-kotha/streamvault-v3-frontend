@@ -188,7 +188,7 @@ export function SeriesCard({
       style={{
         position: "relative",
         transform: focused ? "scale(1.03)" : "scale(1)",
-        transition: "transform 150ms ease-out",
+        transition: "transform var(--motion-focus)",
       }}
     >
       <button
@@ -210,10 +210,10 @@ export function SeriesCard({
           padding: 0,
           cursor: "pointer",
           boxShadow: focused
-            ? "var(--focus-glow, 0 0 0 2px var(--accent-copper), 0 8px 32px -8px rgba(200,121,65,0.45))"
+            ? "var(--focus-ring-shadow)"
             : "0 2px 6px rgba(0,0,0,0.2)",
           transition:
-            "box-shadow 150ms ease-out, border-color 150ms ease-out",
+            "box-shadow var(--motion-focus), border-color var(--motion-focus)",
           overflow: "hidden",
           textAlign: "left",
         }}
@@ -292,7 +292,7 @@ export function SeriesCard({
             textOverflow: "ellipsis",
             width: "100%",
             boxSizing: "border-box",
-            transition: "padding-right 150ms ease-out",
+            transition: "padding-right var(--motion-focus)",
           }}
         >
           {item.name}
