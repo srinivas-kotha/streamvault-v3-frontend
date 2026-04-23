@@ -1,24 +1,24 @@
 /**
- * MovieGrid — VirtuosoGrid wrapper for the VOD poster grid.
+ * MovieGrid — virtualized poster grid using row-chunking.
  *
- * Virtualization mandate (03-movies.md §3 + §4): the VOD catalog has ~61k
- * rows. Without virtualization, the Silk browser on Fire TV OOMs around
- * ~600–1000 cards. VirtuosoGrid keeps DOM card count under ~150 regardless
- * of list length.
+ * Why row-chunks instead of VirtuosoGrid:
+ *   VirtuosoGrid + CSS Grid `auto-fill` + `useWindowScroll` measured row
+ *   heights unreliably in prod and the viewport froze at a single visible
+ *   card for a 3,706-item Telugu union (observed 2026-04-23 after PR #75).
+ *   Row-chunking turns the 2-D grid into a 1-D list of row items, which is
+ *   Virtuoso's happy path — each row has a measurable box and windowing
+ *   works out of the box.
  *
- * Card state lookups (progress / watched / tier-locked) are supplied by the
- * route through the lookup functions in props so the grid stays stateless
- * across re-renders and language/sort switches. Lookups must be referentially
- * stable (useCallback on the route side) or the item key churns.
+ * Spec compliance: 03-movies.md §3 still honoured — DOM card count stays
+ * bounded (COLS × overscan rows ≈ 30-60 cards live at once), catalogs of
+ * 61k items remain scrollable without OOM on Silk.
  *
- * Focus persistence: each MovieCard uses `VOD_CARD_<id>` as its focus key,
- * and the 500px overscan keeps the focused card mounted through normal
- * D-pad scroll. VirtuosoGrid's default windowing would otherwise unmount the
- * focused key, which norigin handles by silently losing focus — a known
- * anti-pattern flagged in MEMORY.md (feedback_e2e-not-done-until-proven).
+ * Responsive columns: COLS is picked from viewport width on mount + on
+ * resize. The poster aspect ratio is 2:3, so rows have a predictable
+ * height that Virtuoso measures once per breakpoint.
  */
-import { useMemo } from "react";
-import { VirtuosoGrid } from "react-virtuoso";
+import { useEffect, useMemo, useState } from "react";
+import { Virtuoso } from "react-virtuoso";
 import { MovieCard, type MovieCardProgress } from "./MovieCard";
 import type { VodStream } from "../../api/schemas";
 
@@ -26,40 +26,39 @@ export interface MovieGridProps {
   streams: VodStream[];
   onSelect: (stream: VodStream) => void;
   onMoreInfo: (stream: VodStream) => void;
-  /** Return the watch progress for a given stream, or undefined. */
   getProgress?: (stream: VodStream) => MovieCardProgress | undefined;
-  /** Return true if the stream is fully watched (≥90% or explicitly marked). */
   isWatched?: (stream: VodStream) => boolean;
-  /** Return true if the stream's container is known unplayable under the plan. */
   isTierLocked?: (stream: VodStream) => boolean;
 }
 
-const GridList = ({
-  style,
-  ...rest
-}: React.HTMLAttributes<HTMLDivElement>) => (
-  <div
-    {...rest}
-    aria-label="Movie poster grid"
-    style={{
-      ...style,
-      display: "grid",
-      gridTemplateColumns:
-        "repeat(auto-fill, minmax(clamp(120px, 14vw, 280px), 1fr))",
-      gap: "var(--space-4)",
-      padding: "var(--space-6)",
-    }}
-  />
-);
+function columnsForWidth(width: number): number {
+  if (width >= 1600) return 6;
+  if (width >= 1280) return 5;
+  if (width >= 960) return 4;
+  if (width >= 640) return 3;
+  return 2;
+}
 
-// Item must be a real layout box so VirtuosoGrid can measure row height.
-// `display: contents` was previously used to let cards flow straight into
-// the parent grid, but it makes the item transparent to layout — Virtuoso's
-// size-observer reads 0 height for every row and freezes after rendering
-// index 0 alone (observed in prod with a 3,706-item Telugu union).
-const GridItem = ({ style, ...rest }: React.HTMLAttributes<HTMLDivElement>) => (
-  <div {...rest} style={style} />
-);
+function useResponsiveColumns(): number {
+  const [cols, setCols] = useState<number>(() =>
+    typeof window === "undefined" ? 6 : columnsForWidth(window.innerWidth),
+  );
+  useEffect(() => {
+    let frame = 0;
+    const onResize = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        setCols(columnsForWidth(window.innerWidth));
+      });
+    };
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      cancelAnimationFrame(frame);
+    };
+  }, []);
+  return cols;
+}
 
 export function MovieGrid({
   streams,
@@ -69,36 +68,56 @@ export function MovieGrid({
   isWatched,
   isTierLocked,
 }: MovieGridProps) {
-  const components = useMemo(
-    () => ({
-      List: GridList,
-      Item: GridItem,
-    }),
-    [],
-  );
+  const cols = useResponsiveColumns();
+
+  const rows = useMemo<VodStream[][]>(() => {
+    const out: VodStream[][] = [];
+    for (let i = 0; i < streams.length; i += cols) {
+      out.push(streams.slice(i, i + cols));
+    }
+    return out;
+  }, [streams, cols]);
 
   return (
-    <VirtuosoGrid
-      useWindowScroll
-      totalCount={streams.length}
-      components={components}
-      overscan={500}
-      itemContent={(index) => {
-        const stream = streams[index];
-        if (!stream) return null;
-        const progress = getProgress?.(stream);
-        return (
-          <MovieCard
-            key={stream.id}
-            stream={stream}
-            onSelect={onSelect}
-            onMoreInfo={onMoreInfo}
-            {...(progress ? { progress } : {})}
-            watched={isWatched?.(stream) ?? false}
-            tierLocked={isTierLocked?.(stream) ?? false}
-          />
-        );
-      }}
-    />
+    <div aria-label="Movie poster grid" role="grid">
+      <Virtuoso
+        useWindowScroll
+        totalCount={rows.length}
+        overscan={600}
+        itemContent={(rowIndex) => {
+          const row = rows[rowIndex];
+          if (!row) return null;
+          return (
+            <div
+              role="row"
+              style={{
+                display: "grid",
+                gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+                gap: "var(--space-4)",
+                padding: "0 var(--space-6)",
+                marginTop: rowIndex === 0 ? "var(--space-6)" : 0,
+                marginBottom: "var(--space-4)",
+              }}
+            >
+              {row.map((stream) => {
+                const progress = getProgress?.(stream);
+                return (
+                  <div role="gridcell" key={stream.id}>
+                    <MovieCard
+                      stream={stream}
+                      onSelect={onSelect}
+                      onMoreInfo={onMoreInfo}
+                      {...(progress ? { progress } : {})}
+                      watched={isWatched?.(stream) ?? false}
+                      tierLocked={isTierLocked?.(stream) ?? false}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          );
+        }}
+      />
+    </div>
   );
 }
