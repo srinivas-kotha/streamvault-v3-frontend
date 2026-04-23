@@ -142,6 +142,16 @@ Full spec in `00-ia §4` and `04-search-and-language-rail §A`. On Movies:
 
 **Deferred (backend gap):** Year filter, Genre filter, Rating min, "Most watched" sort. All flagged in `99-grill-findings`.
 
+### 5.1 FIND chip — in-route substring filter
+
+Added post-spec 2026-04-24 (documented here 2026-04-23 PR). A pill labelled `🔍 FIND` sits to the right of Sort. Pressing Enter reveals an inline input (`components/FindInput.tsx`); pressing Back / Esc collapses it again. The input is optional — the Sort + chip-trigger pattern keeps the bar narrow for dock-first users.
+
+**Scope.** Client-side. `filterByQuery(streams, query, (s) => s.name)` — zero network, tokenised, case-insensitive, every token must appear in the name. Runs against whatever the current language-union already returned. It does NOT cross into Series or Live.
+
+**Mental model — Find vs Search.** "FIND" narrows what's on this screen. The dock Search tab (`04-search-and-language-rail.md`) is the cross-library escalation: FTS across all three libraries, all languages. When Find's result set is empty, the empty state offers "Search everywhere" → `/search?q=<findQuery>` so the user can escalate with one D-pad press.
+
+**Why both exist.** Find is zero-latency (no on-screen-keyboard round-trip), scoped to the slice the user is already browsing, and doesn't change the route. Search is the only way to find a title when the user doesn't know which library holds it. Removing either breaks a real flow — see `99-grill-findings` §Search.
+
 ---
 
 ## 6. Card states

@@ -64,6 +64,12 @@ Same structure as Movies (`03-movies.md §2`). Differences:
 - Grid not virtualized by default — series count per language is typically <500. Virtualize only if we hit 2k+ on "All".
 - Card Enter navigates to detail, not plays
 
+### 2.0 FIND chip — in-route substring filter
+
+Identical contract to Movies (`03-movies.md §5.1`): a `🔍 FIND` pill in the toolbar that expands into a client-side substring filter over the already-loaded series union. Zero network. Runs `filterByQuery(seriesList, query, (s) => s.name)`. Empty state escalates to `/search?q=<findQuery>` — the dock Search tab (`04-search-and-language-rail.md`) is the only way to cross into Movies / Live from here.
+
+**Find vs Search (mental model).** FIND narrows this screen. Search crosses libraries. Both exist intentionally — removing either breaks a real flow. See `03-movies.md §5.1` for the full rationale.
+
 ### 2.1 Card states
 
 Badges on focused OR idle cards (not hover-only):

@@ -7,6 +7,30 @@
 
 ---
 
+## 0.a Find vs Search — the two-tier model
+
+StreamVault ships **two** search-like affordances. They are intentionally different and both are load-bearing. Removing either breaks a real flow.
+
+| | **Search** (dock tab) | **Find** (in-route chip) |
+|---|---|---|
+| Lives on | Bottom dock (`Search` tab → `/search`) | Movies + Series toolbars (`🔍 FIND` pill) |
+| Scope | Live + Movies + Series, **all languages** | Current library, current language union only |
+| Backend | `GET /api/search?q=` — Postgres FTS, stemmed, ranked | None — zero network, filters in-memory |
+| Use case | "Where is *Panchayat*? Is it a movie or a series?" | "Filter these 1,234 Telugu movies by name" |
+| Latency | Network + debounce (250ms) | Immediate (keystroke-local) |
+| Empty state | Plain "no results" | **Escalates to `/search?q=<findQuery>`** — one D-pad press to cross libraries |
+| Implementation | `src/routes/SearchRoute.tsx` | `src/components/FindInput.tsx`, consumed by Movies + Series routes |
+
+**Mental model:** _Find narrows what's on this screen. Search crosses libraries._
+
+**Why both.** Find is zero-latency — no on-screen-keyboard round-trip, no route change, no loss of scroll position — so it's the right primitive for "I already know which library it's in, I just want to shrink the grid". Search is the only way to answer "I don't know if this title is a Movie or a Series" and the only way to hit FTS / stemming. The Movies/Series empty state hands `findQuery` off to `/search?q=…`, which this route preseeds from the URL param — so users never hit a dead end.
+
+**Naming guidance.** Keep the toolbar pill labelled `🔍 FIND` (not "Search"). Keep the dock tab labelled `Search`. The input placeholder on `/search` reads "Find across Live, Movies & Series…" to reinforce the cross-library framing.
+
+See `03-movies.md §5.1` and `02-series.md §2.0` for the in-route Find spec.
+
+---
+
 ## 0. Reality anchor
 
 | Available | Missing |

@@ -47,7 +47,7 @@ export function SearchInput({ value, onChange, onSubmit }: SearchInputProps) {
         type="search"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        placeholder="Type to search…"
+        placeholder="Find across Live, Movies & Series…"
         autoComplete="off"
         spellCheck={false}
         aria-label="Search channels, movies, and series"
