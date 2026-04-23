@@ -1,20 +1,26 @@
 /**
- * SeriesDetailRoute — `/series/:id` detail page with seasons + episode picker.
+ * SeriesDetailRoute — /series/:id (Phase 4b rebuild).
  *
- * Responsibilities:
- *  - Fetch `GET /api/series/info/:id` on mount (seasons + episodes).
- *  - Fetch `/api/history` to determine resume state.
- *  - Hero CTA: "Play S1E1" (cold) | "Continue S{n}E{n}" (in-progress) |
- *    "Rewatch S1E1" (all watched). Auto-focused on arrival → 1 Enter = watching.
- *  - Season tabs: horizontal chip rail, D-pad ArrowLeft/Right.
- *    Season 0 renders as "Specials", sorted to end.
- *  - Episode list: vertical rows, D-pad ArrowUp/Down.
- *    Enter on an episode row opens the player (series-episode kind).
- *  - Back button / Escape → navigate(-1) back to prior surface.
- *  - Reuses ErrorShell, Skeleton, FocusContext patterns from LiveRoute.
+ * Spec: docs/ux/02-series.md §3-§8.
  *
- * MUST PRESERVE: CONTENT_AREA_SERIES_DETAIL FocusContext registration
- * (prevents BottomDock focus conflicts when this route is active).
+ * Changes vs previous iteration:
+ *  - Full backdrop image (dimmed) behind the hero.
+ *  - Complete hero CTA branches: "Continue S_E_" | "Play next episode" |
+ *    "Rewatch S1E1" | "Play S1E1". The "Play next" branch fires when the
+ *    most-recent episode crossed the 0.9 watched threshold.
+ *  - ♥ Favorite toggle + "Mark all watched" button in the CTA row.
+ *  - Episode sort controls: Latest First / Oldest First / Episode # (user
+ *    ask 2026-04-23). Persists in sv_episode_sort.
+ *  - Season persistence: sv_series_last_season:{seriesId} remembers the
+ *    active season between visits (spec §10).
+ *  - Episode title convention includes series name: "Panchayat · S2E4 ·
+ *    Title" — enables ResumeHero on /series to label episodes with their
+ *    series without the (not-yet-migrated) series_id column.
+ *
+ * Focus:
+ *  - CONTENT_AREA_SERIES_DETAIL (trackChildren) registered on mount.
+ *  - SERIES_DETAIL_PLAY_CTA auto-focused once the data is loaded.
+ *  - Escape / Backspace → navigate(-1).
  */
 import type { RefObject } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -29,15 +35,38 @@ import { Skeleton } from "../primitives/Skeleton";
 import { OverflowMenu } from "../components/OverflowMenu";
 import { fetchSeriesInfo } from "../api/series";
 import { fetchHistory, recordHistory, removeHistoryItem } from "../api/history";
-import { usePlayerStore } from "../player/PlayerProvider";
-import { fetchStreamUrl } from "../api/stream";
-import type { SeriesInfo, EpisodeInfo, SeasonInfo, HistoryItem } from "../api/schemas";
+import {
+  addFavorite,
+  removeFavorite,
+  isFavorited,
+} from "../api/favorites";
+import { usePlayerOpener } from "../player/usePlayerOpener";
+import type {
+  SeriesInfo,
+  EpisodeInfo,
+  SeasonInfo,
+  HistoryItem,
+} from "../api/schemas";
+
+// ─── Constants ───────────────────────────────────────────────────────────────
+
+const WATCHED_THRESHOLD = 0.9;
+const EPISODE_SORT_KEY = "sv_episode_sort";
+const SEASON_KEY_PREFIX = "sv_series_last_season:";
+
+type EpisodeSortKey = "latest" | "oldest" | "episode";
+
+const EPISODE_SORT_OPTIONS: { id: EpisodeSortKey; label: string }[] = [
+  { id: "latest", label: "Latest first" },
+  { id: "oldest", label: "Oldest first" },
+  { id: "episode", label: "Episode #" },
+];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
+  const s = Math.floor(seconds % 60);
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
@@ -45,7 +74,6 @@ function formatProgress(progress: number, duration: number): string {
   return `${formatDuration(progress)} / ${formatDuration(duration)}`;
 }
 
-/** Sort seasons: numeric ascending, season 0 ("Specials") moved to end. */
 function sortSeasons(seasons: SeasonInfo[]): SeasonInfo[] {
   return [...seasons].sort((a, b) => {
     if (a.seasonNumber === 0) return 1;
@@ -57,6 +85,80 @@ function sortSeasons(seasons: SeasonInfo[]): SeasonInfo[] {
 function seasonLabel(s: SeasonInfo): string {
   if (s.seasonNumber === 0) return "Specials";
   return s.name || `Season ${s.seasonNumber}`;
+}
+
+function sortEpisodes(
+  episodes: readonly EpisodeInfo[],
+  key: EpisodeSortKey,
+): EpisodeInfo[] {
+  const copy = episodes.slice();
+  if (key === "episode") {
+    copy.sort((a, b) => a.episodeNumber - b.episodeNumber);
+    return copy;
+  }
+  copy.sort((a, b) => {
+    const ta = a.added ? Date.parse(a.added) : NaN;
+    const tb = b.added ? Date.parse(b.added) : NaN;
+    const aValid = Number.isFinite(ta);
+    const bValid = Number.isFinite(tb);
+    if (aValid && bValid) {
+      return key === "latest" ? tb - ta : ta - tb;
+    }
+    if (aValid) return -1;
+    if (bValid) return 1;
+    // Both missing `added` — fall back to episode number in requested direction.
+    return key === "latest"
+      ? b.episodeNumber - a.episodeNumber
+      : a.episodeNumber - b.episodeNumber;
+  });
+  return copy;
+}
+
+function readEpisodeSort(): EpisodeSortKey {
+  try {
+    const v = localStorage.getItem(EPISODE_SORT_KEY);
+    if (v === "latest" || v === "oldest" || v === "episode") return v;
+  } catch {
+    /* private browsing */
+  }
+  return "latest";
+}
+
+function writeEpisodeSort(v: EpisodeSortKey): void {
+  try {
+    localStorage.setItem(EPISODE_SORT_KEY, v);
+  } catch {
+    /* swallow */
+  }
+}
+
+function readLastSeason(seriesId: string): number | null {
+  try {
+    const v = localStorage.getItem(`${SEASON_KEY_PREFIX}${seriesId}`);
+    if (!v) return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeLastSeason(seriesId: string, season: number): void {
+  try {
+    localStorage.setItem(`${SEASON_KEY_PREFIX}${seriesId}`, String(season));
+  } catch {
+    /* swallow */
+  }
+}
+
+/** Build the content_name we store in history (includes series name so
+ * /series ResumeHero can label the episode with its series). */
+function buildEpisodeTitle(
+  seriesName: string,
+  seasonNum: number,
+  ep: EpisodeInfo,
+): string {
+  return `${seriesName} · S${seasonNum}E${ep.episodeNumber} · ${ep.title}`;
 }
 
 // ─── SeasonTab ────────────────────────────────────────────────────────────────
@@ -104,72 +206,108 @@ function SeasonTab({
   );
 }
 
+// ─── EpisodeSortButton ───────────────────────────────────────────────────────
+
+function EpisodeSortButton({
+  id,
+  label,
+  isActive,
+  onSelect,
+}: {
+  id: EpisodeSortKey;
+  label: string;
+  isActive: boolean;
+  onSelect: () => void;
+}) {
+  const { ref, focused } = useFocusable<HTMLButtonElement>({
+    focusKey: `SERIES_DETAIL_EP_SORT_${id.toUpperCase()}`,
+    onEnterPress: onSelect,
+  });
+  const active = isActive || focused;
+  return (
+    <button
+      ref={ref as RefObject<HTMLButtonElement>}
+      type="button"
+      aria-pressed={isActive}
+      onClick={onSelect}
+      className="focus-ring"
+      style={{
+        padding: "var(--space-2) var(--space-3)",
+        borderRadius: "var(--radius-sm)",
+        border: "none",
+        background: active ? "var(--accent-copper)" : "var(--bg-surface)",
+        color: active ? "var(--bg-base)" : "var(--text-primary)",
+        fontSize: "var(--text-label-size)",
+        letterSpacing: "var(--text-label-tracking)",
+        textTransform: "uppercase",
+        cursor: "pointer",
+        transition:
+          "background var(--motion-focus), color var(--motion-focus)",
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
 // ─── EpisodeRow ───────────────────────────────────────────────────────────────
 
 interface EpisodeRowProps {
   episode: EpisodeInfo;
   seriesId: string;
+  seriesName: string;
   seasonNumber: number;
   historyItem: HistoryItem | undefined;
+  onPlay: (ep: EpisodeInfo, seasonNum: number) => void;
 }
 
-function EpisodeRow({ episode, seriesId, seasonNumber, historyItem }: EpisodeRowProps) {
-  const { open } = usePlayerStore();
+function EpisodeRow({
+  episode,
+  seriesId,
+  seriesName,
+  seasonNumber,
+  historyItem,
+  onPlay,
+}: EpisodeRowProps) {
   const focusKey = `SERIES_DETAIL_EP_${seriesId}_S${seasonNumber}_${episode.id}`;
   const overflowFocusKey = `EPISODE_OVERFLOW_${seriesId}_S${seasonNumber}_${episode.id}`;
 
-  const playEpisode = useCallback(() => {
-    const streamUrl = fetchStreamUrl({
-      kind: "series-episode",
-      id: episode.id,
-    });
-    open({
-      src: streamUrl,
-      title: `S${seasonNumber}E${episode.episodeNumber} · ${episode.title}`,
-      kind: "series-episode",
-    });
-  }, [episode, seasonNumber, open]);
-
   const { ref, focused } = useFocusable<HTMLButtonElement>({
     focusKey,
-    onEnterPress: playEpisode,
+    onEnterPress: () => onPlay(episode, seasonNumber),
   });
 
   const progress = historyItem?.progress_seconds ?? 0;
   const duration = historyItem?.duration_seconds ?? episode.duration ?? 0;
-  const isWatched = duration > 0 && progress >= duration * 0.9;
+  const isWatched = duration > 0 && progress >= duration * WATCHED_THRESHOLD;
   const isInProgress = progress > 0 && !isWatched;
 
-  // ⋯ overflow actions for this episode
-  // TODO(#58): recordHistory uses optimistic localStorage write; the backend
-  // PATCH /api/history/:id upsert will sync it server-side when reachable.
-  // removeHistoryItem is localStorage-only; no backend DELETE exists in the
-  // current phase — see history.ts.
-  const overflowActions = useMemo(() => [
-    {
-      label: "Mark as watched",
-      onSelect: () => {
-        if (duration > 0) {
+  const overflowActions = useMemo(
+    () => [
+      {
+        label: "Mark as watched",
+        onSelect: () => {
+          const dur = duration > 0 ? duration : 1;
           void recordHistory(Number(episode.id), {
             content_type: "series",
-            content_name: `S${seasonNumber}E${episode.episodeNumber} · ${episode.title}`,
-            content_icon: episode.icon ?? undefined,
-            progress_seconds: duration,
-            duration_seconds: duration,
+            content_name: buildEpisodeTitle(seriesName, seasonNumber, episode),
+            ...(episode.icon ? { content_icon: episode.icon } : {}),
+            progress_seconds: dur,
+            duration_seconds: dur,
           });
-        }
+        },
       },
-    },
-    {
-      label: "Remove from history",
-      onSelect: () => {
-        removeHistoryItem(Number(episode.id), "series");
+      {
+        label: "Remove from history",
+        onSelect: () => {
+          removeHistoryItem(Number(episode.id), "series");
+        },
       },
-    },
-  ], [episode, seasonNumber, duration]);
+    ],
+    [episode, seasonNumber, seriesName, duration],
+  );
 
   return (
-    // Outer wrapper — not a button; holds both the play row + overflow trigger.
     <div
       style={{
         display: "flex",
@@ -182,14 +320,14 @@ function EpisodeRow({ episode, seriesId, seasonNumber, historyItem }: EpisodeRow
           ? "2px solid var(--accent-copper)"
           : "2px solid transparent",
         borderRadius: "var(--radius-sm)",
-        transition: "background var(--motion-focus), border-color var(--motion-focus)",
+        transition:
+          "background var(--motion-focus), border-color var(--motion-focus)",
       }}
     >
-      {/* Play button — the episode row itself */}
       <button
         ref={ref as RefObject<HTMLButtonElement>}
         type="button"
-        onClick={playEpisode}
+        onClick={() => onPlay(episode, seasonNumber)}
         aria-label={`Season ${seasonNumber} Episode ${episode.episodeNumber}: ${episode.title}`}
         style={{
           flex: 1,
@@ -206,7 +344,7 @@ function EpisodeRow({ episode, seriesId, seasonNumber, historyItem }: EpisodeRow
           minWidth: 0,
         }}
       >
-        {/* Thumbnail */}
+        {/* Still image */}
         <div
           style={{
             flexShrink: 0,
@@ -215,6 +353,7 @@ function EpisodeRow({ episode, seriesId, seasonNumber, historyItem }: EpisodeRow
             background: "var(--bg-surface)",
             borderRadius: "var(--radius-sm)",
             overflow: "hidden",
+            position: "relative",
           }}
         >
           {episode.icon ? (
@@ -241,16 +380,46 @@ function EpisodeRow({ episode, seriesId, seasonNumber, historyItem }: EpisodeRow
               {isWatched ? "✓" : isInProgress ? "⏵" : "▶"}
             </div>
           )}
+          {isInProgress && duration > 0 ? (
+            <div
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                bottom: 0,
+                left: 0,
+                width: `${Math.min(100, (progress / duration) * 100)}%`,
+                height: 3,
+                background: "var(--accent-copper)",
+              }}
+            />
+          ) : null}
         </div>
 
         {/* Info */}
-        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: "var(--space-1)" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: "var(--space-2)" }}>
+        <div
+          style={{
+            flex: 1,
+            minWidth: 0,
+            display: "flex",
+            flexDirection: "column",
+            gap: "var(--space-1)",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "baseline",
+              gap: "var(--space-2)",
+            }}
+          >
             <span
               style={{
                 fontSize: 20,
                 fontWeight: 500,
-                color: isWatched ? "var(--text-secondary)" : "var(--text-primary)",
+                color: isWatched
+                  ? "var(--text-secondary)"
+                  : "var(--text-primary)",
                 overflow: "hidden",
                 whiteSpace: "nowrap",
                 textOverflow: "ellipsis",
@@ -261,17 +430,24 @@ function EpisodeRow({ episode, seriesId, seasonNumber, historyItem }: EpisodeRow
             <span
               style={{
                 flexShrink: 0,
+                display: "flex",
+                alignItems: "center",
+                gap: "var(--space-2)",
                 fontSize: "var(--text-label-size)",
                 color: "var(--text-secondary)",
+                fontVariantNumeric: "tabular-nums",
               }}
             >
               {episode.duration !== undefined
                 ? formatDuration(episode.duration)
                 : null}
+              <span aria-hidden="true" style={{ fontSize: 14 }}>
+                {isWatched ? "✓" : isInProgress ? "●" : "○"}
+              </span>
             </span>
           </div>
 
-          {episode.plot && (
+          {episode.plot ? (
             <p
               style={{
                 margin: 0,
@@ -285,44 +461,31 @@ function EpisodeRow({ episode, seriesId, seasonNumber, historyItem }: EpisodeRow
             >
               {episode.plot}
             </p>
-          )}
+          ) : null}
 
-          {/* Progress bar for in-progress episodes */}
-          {isInProgress && duration > 0 && (
-            <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", marginTop: "var(--space-1)" }}>
-              <div
+          {isInProgress && duration > 0 ? (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "var(--space-2)",
+                marginTop: "var(--space-1)",
+              }}
+            >
+              <span
                 style={{
-                  flex: 1,
-                  height: 4,
-                  background: "var(--bg-surface)",
-                  borderRadius: 2,
-                  overflow: "hidden",
+                  fontSize: "var(--text-label-size)",
+                  color: "var(--accent-copper)",
+                  fontVariantNumeric: "tabular-nums",
                 }}
               >
-                <div
-                  style={{
-                    width: `${Math.min(100, (progress / duration) * 100)}%`,
-                    height: "100%",
-                    background: "var(--accent-copper)",
-                  }}
-                />
-              </div>
-              <span style={{ fontSize: "var(--text-label-size)", color: "var(--text-secondary)", flexShrink: 0 }}>
                 {formatProgress(progress, duration)}
               </span>
             </div>
-          )}
-
-          {/* State glyph */}
-          {isWatched && (
-            <span style={{ fontSize: "var(--text-label-size)", color: "var(--accent-copper)" }}>
-              Watched
-            </span>
-          )}
+          ) : null}
         </div>
       </button>
 
-      {/* ⋯ overflow menu — right-aligned, reachable via ArrowRight from episode row */}
       <div
         style={{
           display: "flex",
@@ -342,15 +505,17 @@ function EpisodeRow({ episode, seriesId, seasonNumber, historyItem }: EpisodeRow
   );
 }
 
-// ─── HeroCTA ─────────────────────────────────────────────────────────────────
+// ─── HeroCta ─────────────────────────────────────────────────────────────────
 
-interface HeroCtaProps {
+function HeroCta({
+  label,
+  ariaLabel,
+  onPress,
+}: {
   label: string;
   ariaLabel: string;
   onPress: () => void;
-}
-
-function HeroCta({ label, ariaLabel, onPress }: HeroCtaProps) {
+}) {
   const { ref, focused } = useFocusable({
     focusKey: "SERIES_DETAIL_PLAY_CTA",
     onEnterPress: onPress,
@@ -377,7 +542,7 @@ function HeroCta({ label, ariaLabel, onPress }: HeroCtaProps) {
         fontSize: "var(--text-body-size)",
         fontWeight: 600,
         cursor: "pointer",
-        minWidth: 200,
+        minWidth: 220,
         transition:
           "background var(--motion-focus), color var(--motion-focus), border-color var(--motion-focus)",
       }}
@@ -388,14 +553,158 @@ function HeroCta({ label, ariaLabel, onPress }: HeroCtaProps) {
   );
 }
 
-// ─── SeriesDetailRoute ────────────────────────────────────────────────────────
+// ─── FavoriteButton ──────────────────────────────────────────────────────────
+
+function FavoriteButton({
+  seriesId,
+  seriesName,
+  seriesIcon,
+}: {
+  seriesId: string;
+  seriesName: string;
+  seriesIcon: string | null | undefined;
+}) {
+  const [favorited, setFavorited] = useState(() =>
+    isFavorited(Number(seriesId), "series"),
+  );
+
+  const toggle = useCallback(() => {
+    if (favorited) {
+      void removeFavorite(Number(seriesId), "series");
+      setFavorited(false);
+    } else {
+      void addFavorite(Number(seriesId), {
+        content_type: "series",
+        content_name: seriesName,
+        ...(seriesIcon ? { content_icon: seriesIcon } : {}),
+      });
+      setFavorited(true);
+    }
+  }, [favorited, seriesId, seriesName, seriesIcon]);
+
+  const { ref, focused } = useFocusable<HTMLButtonElement>({
+    focusKey: "SERIES_DETAIL_FAVORITE",
+    onEnterPress: toggle,
+  });
+
+  return (
+    <button
+      ref={ref as RefObject<HTMLButtonElement>}
+      type="button"
+      className="focus-ring"
+      aria-label={favorited ? "Remove from favorites" : "Add to favorites"}
+      aria-pressed={favorited}
+      onClick={toggle}
+      style={{
+        width: 48,
+        height: 48,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: focused ? "var(--accent-copper)" : "var(--bg-elevated)",
+        border: focused
+          ? "2px solid var(--accent-copper)"
+          : "2px solid var(--bg-surface)",
+        borderRadius: "var(--radius-sm)",
+        color: favorited
+          ? "var(--accent-copper)"
+          : focused
+            ? "var(--bg-base)"
+            : "var(--text-primary)",
+        fontSize: 22,
+        cursor: "pointer",
+        transition:
+          "background var(--motion-focus), color var(--motion-focus), border-color var(--motion-focus)",
+      }}
+    >
+      {favorited ? "♥" : "♡"}
+    </button>
+  );
+}
+
+// ─── MarkAllWatchedButton ────────────────────────────────────────────────────
+
+function MarkAllWatchedButton({
+  seriesName,
+  allEpisodes,
+  onDone,
+}: {
+  seriesName: string;
+  allEpisodes: { season: number; ep: EpisodeInfo }[];
+  onDone: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  const run = useCallback(async () => {
+    if (busy) return;
+    const ok = window.confirm(
+      `Mark every episode of "${seriesName}" as watched?`,
+    );
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await Promise.all(
+        allEpisodes.map(({ season, ep }) => {
+          const dur = ep.duration ?? 1;
+          return recordHistory(Number(ep.id), {
+            content_type: "series",
+            content_name: buildEpisodeTitle(seriesName, season, ep),
+            ...(ep.icon ? { content_icon: ep.icon } : {}),
+            progress_seconds: dur,
+            duration_seconds: dur,
+          });
+        }),
+      );
+    } finally {
+      setBusy(false);
+      onDone();
+    }
+  }, [busy, allEpisodes, seriesName, onDone]);
+
+  const { ref, focused } = useFocusable<HTMLButtonElement>({
+    focusKey: "SERIES_DETAIL_MARK_ALL",
+    onEnterPress: run,
+  });
+
+  return (
+    <button
+      ref={ref as RefObject<HTMLButtonElement>}
+      type="button"
+      className="focus-ring"
+      aria-label="Mark all episodes watched"
+      onClick={run}
+      disabled={busy}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "var(--space-2)",
+        padding: "var(--space-2) var(--space-4)",
+        background: focused ? "var(--accent-copper)" : "var(--bg-elevated)",
+        border: focused
+          ? "2px solid var(--accent-copper)"
+          : "2px solid var(--bg-surface)",
+        borderRadius: "var(--radius-sm)",
+        color: focused ? "var(--bg-base)" : "var(--text-primary)",
+        fontSize: "var(--text-label-size)",
+        letterSpacing: "var(--text-label-tracking)",
+        textTransform: "uppercase",
+        cursor: busy ? "wait" : "pointer",
+        opacity: busy ? 0.6 : 1,
+        transition:
+          "background var(--motion-focus), color var(--motion-focus), border-color var(--motion-focus)",
+      }}
+    >
+      ✓ Mark all watched
+    </button>
+  );
+}
+
+// ─── SeriesDetailRoute ───────────────────────────────────────────────────────
 
 interface ResumeState {
   seasonNumber: number;
   episodeId: string;
   episodeNumber: number;
-  label: string;
-  ariaLabel: string;
   progress: number;
   duration: number;
 }
@@ -403,7 +712,7 @@ interface ResumeState {
 export function SeriesDetailRoute() {
   const { id: seriesId } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { open } = usePlayerStore();
+  const { openPlayer } = usePlayerOpener();
 
   const { ref, focusKey } = useFocusable({
     focusKey: "CONTENT_AREA_SERIES_DETAIL",
@@ -416,78 +725,17 @@ export function SeriesDetailRoute() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [activeSeasonNumber, setActiveSeasonNumber] = useState<number>(1);
+  const [episodeSort, setEpisodeSort] = useState<EpisodeSortKey>(() =>
+    readEpisodeSort(),
+  );
+  // Bumped after "Mark all watched" writes — drives a re-read of history.
+  const [historyGeneration, setHistoryGeneration] = useState(0);
 
-  // Track whether initial focus has been seeded (only once on mount).
   const focusSeeded = useRef(false);
 
-  // ─── Fetch ──────────────────────────────────────────────────────────────
+  // ─── Fetch (info + history) ─────────────────────────────────────────────
   useEffect(() => {
     if (!seriesId) return;
-
-    let cancelled = false;
-
-    // Promise.resolve() indirection: defers the first setState call out of
-    // the synchronous effect body — satisfies react-hooks/set-state-in-effect.
-    Promise.resolve()
-      .then(() => {
-        if (cancelled) return;
-        setLoading(true);
-        setError(false);
-        return Promise.all([
-          fetchSeriesInfo(seriesId),
-          fetchHistory().catch((): HistoryItem[] => []),
-        ]);
-      })
-      .then((result) => {
-        if (cancelled || result === undefined) return;
-        const [seriesInfo, hist] = result;
-        setInfo(seriesInfo);
-        setHistory(hist);
-        // Seed active season: prefer in-progress season from history,
-        // fall back to first sorted season.
-        const sorted = sortSeasons(seriesInfo.seasons ?? []);
-        const defaultSeason = sorted[0]?.seasonNumber ?? 1;
-        // Quick resume-season probe from history (mirrors the useMemo logic below).
-        const histMap = new Map<string, HistoryItem>();
-        for (const h of hist) {
-          if (h.content_type === "series") histMap.set(String(h.content_id), h);
-        }
-        let seededSeason = defaultSeason;
-        let latestWatchedAt = 0;
-        for (const [seasonKey, eps] of Object.entries(seriesInfo.episodes ?? {})) {
-          const sn = Number(seasonKey);
-          for (const ep of eps) {
-            const h = histMap.get(ep.id);
-            if (!h) continue;
-            const prog = h.progress_seconds;
-            const dur = h.duration_seconds || ep.duration || 0;
-            const isWatched = dur > 0 && prog >= dur * 0.9;
-            if (!isWatched && prog > 0) {
-              const wa = new Date(h.watched_at).getTime();
-              if (wa > latestWatchedAt) {
-                latestWatchedAt = wa;
-                seededSeason = sn;
-              }
-            }
-          }
-        }
-        setActiveSeasonNumber(seededSeason);
-        setLoading(false);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setError(true);
-        setLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [seriesId]);
-
-  const handleRetry = useCallback(() => {
-    if (!seriesId) return;
-
     let cancelled = false;
 
     Promise.resolve()
@@ -505,32 +753,48 @@ export function SeriesDetailRoute() {
         const [seriesInfo, hist] = result;
         setInfo(seriesInfo);
         setHistory(hist);
+
+        // Seed active season: stored pref → in-progress season → first sorted.
         const sorted = sortSeasons(seriesInfo.seasons ?? []);
         const defaultSeason = sorted[0]?.seasonNumber ?? 1;
-        const histMap = new Map<string, HistoryItem>();
-        for (const h of hist) {
-          if (h.content_type === "series") histMap.set(String(h.content_id), h);
-        }
-        let seededSeason = defaultSeason;
-        let latestWatchedAt = 0;
-        for (const [seasonKey, eps] of Object.entries(seriesInfo.episodes ?? {})) {
-          const sn = Number(seasonKey);
-          for (const ep of eps) {
-            const h = histMap.get(ep.id);
-            if (!h) continue;
-            const prog = h.progress_seconds;
-            const dur = h.duration_seconds || ep.duration || 0;
-            const isWatched = dur > 0 && prog >= dur * 0.9;
-            if (!isWatched && prog > 0) {
-              const wa = new Date(h.watched_at).getTime();
-              if (wa > latestWatchedAt) {
-                latestWatchedAt = wa;
-                seededSeason = sn;
+        const stored = readLastSeason(seriesId);
+        if (
+          stored !== null &&
+          sorted.some((s) => s.seasonNumber === stored)
+        ) {
+          setActiveSeasonNumber(stored);
+        } else {
+          const histMap = new Map<string, HistoryItem>();
+          for (const h of hist) {
+            if (h.content_type === "series") {
+              histMap.set(String(h.content_id), h);
+            }
+          }
+          let seededSeason = defaultSeason;
+          let latestWatchedAt = 0;
+          for (const [seasonKey, eps] of Object.entries(
+            seriesInfo.episodes ?? {},
+          )) {
+            const sn = Number(seasonKey);
+            for (const ep of eps) {
+              const h = histMap.get(ep.id);
+              if (!h) continue;
+              const prog = h.progress_seconds;
+              const dur = h.duration_seconds || ep.duration || 0;
+              const isWatched =
+                dur > 0 && prog >= dur * WATCHED_THRESHOLD;
+              if (!isWatched && prog > 0) {
+                const wa = Date.parse(h.watched_at);
+                if (Number.isFinite(wa) && wa > latestWatchedAt) {
+                  latestWatchedAt = wa;
+                  seededSeason = sn;
+                }
               }
             }
           }
+          setActiveSeasonNumber(seededSeason);
         }
-        setActiveSeasonNumber(seededSeason);
+
         setLoading(false);
       })
       .catch(() => {
@@ -542,106 +806,153 @@ export function SeriesDetailRoute() {
     return () => {
       cancelled = true;
     };
-  }, [seriesId]);
+  }, [seriesId, historyGeneration]);
 
-  // ─── Resume logic ────────────────────────────────────────────────────────
-  // Find in-progress or most-recently-watched series episode from history.
-  // History content_id is the numeric episode id from the backend.
-  // We match against string episode ids (converting content_id to string).
-
-  const allEpisodes = useMemo<{ season: number; ep: EpisodeInfo }[]>(() => {
-    if (!info?.episodes) return [];
-    const result: { season: number; ep: EpisodeInfo }[] = [];
-    for (const [seasonKey, eps] of Object.entries(info.episodes)) {
-      const sn = Number(seasonKey);
-      for (const ep of eps) {
-        result.push({ season: sn, ep });
-      }
-    }
-    return result;
-  }, [info]);
-
-  // Build a map from episode id string → history item for fast lookup.
-  const historyByEpId = useMemo<Map<string, HistoryItem>>(() => {
-    const m = new Map<string, HistoryItem>();
-    for (const h of history) {
-      if (h.content_type === "series") {
-        m.set(String(h.content_id), h);
-      }
-    }
-    return m;
-  }, [history]);
-
-  // Determine CTA state — derived from allEpisodes + historyByEpId.
-  const { resumeState, allWatched } = useMemo<{
-    resumeState: ResumeState | null;
-    allWatched: boolean;
-  }>(() => {
-    if (allEpisodes.length === 0) return { resumeState: null, allWatched: false };
-
-    // Find the most recently in-progress episode.
-    let inProgressEp: typeof allEpisodes[0] | undefined;
-    let inProgressHist: HistoryItem | undefined;
-    let latestWatchedAt = 0;
-
-    for (const { season, ep } of allEpisodes) {
-      const h = historyByEpId.get(ep.id);
-      if (!h) continue;
-      const prog = h.progress_seconds;
-      const dur = h.duration_seconds || ep.duration || 0;
-      const isWatched = dur > 0 && prog >= dur * 0.9;
-      if (!isWatched && prog > 0) {
-        const wa = new Date(h.watched_at).getTime();
-        if (wa > latestWatchedAt) {
-          latestWatchedAt = wa;
-          inProgressEp = { season, ep };
-          inProgressHist = h;
-        }
-      }
-    }
-
-    if (inProgressEp && inProgressHist) {
-      const prog = inProgressHist.progress_seconds;
-      const dur = inProgressHist.duration_seconds || inProgressEp.ep.duration || 0;
-      return {
-        resumeState: {
-          seasonNumber: inProgressEp.season,
-          episodeId: inProgressEp.ep.id,
-          episodeNumber: inProgressEp.ep.episodeNumber,
-          label: `Continue S${inProgressEp.season}E${inProgressEp.ep.episodeNumber}`,
-          ariaLabel: `Continue Season ${inProgressEp.season} Episode ${inProgressEp.ep.episodeNumber} from ${formatProgress(prog, dur)}`,
-          progress: prog,
-          duration: dur,
-        },
-        allWatched: false,
-      };
-    }
-
-    // Check if all episodes are watched.
-    const watchedCount = allEpisodes.filter(({ ep }) => {
-      const h = historyByEpId.get(ep.id);
-      if (!h) return false;
-      const dur = h.duration_seconds || ep.duration || 0;
-      return dur > 0 && h.progress_seconds >= dur * 0.9;
-    }).length;
-
-    return {
-      resumeState: null,
-      allWatched: watchedCount === allEpisodes.length && allEpisodes.length > 0,
-    };
-  }, [allEpisodes, historyByEpId]);
-
-  // ─── Derive sorted seasons ──────────────────────────────────────────────
+  // ─── Derived ────────────────────────────────────────────────────────────
   const sortedSeasons = useMemo(
     () => sortSeasons(info?.seasons ?? []),
     [info],
   );
 
-  // ─── Seed focus to CTA once loaded ──────────────────────────────────────
+  const allEpisodes = useMemo<{ season: number; ep: EpisodeInfo }[]>(() => {
+    if (!info?.episodes) return [];
+    const out: { season: number; ep: EpisodeInfo }[] = [];
+    for (const [seasonKey, eps] of Object.entries(info.episodes)) {
+      const sn = Number(seasonKey);
+      for (const ep of eps) out.push({ season: sn, ep });
+    }
+    return out;
+  }, [info]);
+
+  const historyByEpId = useMemo<Map<string, HistoryItem>>(() => {
+    const m = new Map<string, HistoryItem>();
+    for (const h of history) {
+      if (h.content_type === "series") m.set(String(h.content_id), h);
+    }
+    return m;
+  }, [history]);
+
+  const { mostRecentEp, mostRecentHist, watchedCount } = useMemo(() => {
+    let pickedEp: { season: number; ep: EpisodeInfo } | undefined;
+    let pickedHist: HistoryItem | undefined;
+    let latestAt = 0;
+    let watched = 0;
+
+    for (const { season, ep } of allEpisodes) {
+      const h = historyByEpId.get(ep.id);
+      if (!h) continue;
+      const dur = h.duration_seconds || ep.duration || 0;
+      const isWatched = dur > 0 && h.progress_seconds >= dur * WATCHED_THRESHOLD;
+      if (isWatched) watched += 1;
+      const at = Date.parse(h.watched_at);
+      if (Number.isFinite(at) && at > latestAt) {
+        latestAt = at;
+        pickedEp = { season, ep };
+        pickedHist = h;
+      }
+    }
+
+    return {
+      mostRecentEp: pickedEp,
+      mostRecentHist: pickedHist,
+      watchedCount: watched,
+    };
+  }, [allEpisodes, historyByEpId]);
+
+  /** Episodes ordered by (season asc, episode asc) for "next episode" walks. */
+  const chronoEpisodes = useMemo(() => {
+    const out = allEpisodes.slice();
+    out.sort((a, b) => {
+      if (a.season !== b.season) return a.season - b.season;
+      return a.ep.episodeNumber - b.ep.episodeNumber;
+    });
+    return out;
+  }, [allEpisodes]);
+
+  const resumeState = useMemo<ResumeState | null>(() => {
+    if (!mostRecentEp || !mostRecentHist) return null;
+    const prog = mostRecentHist.progress_seconds;
+    const dur =
+      mostRecentHist.duration_seconds || mostRecentEp.ep.duration || 0;
+    const isWatched = dur > 0 && prog >= dur * WATCHED_THRESHOLD;
+    if (isWatched || prog <= 0) return null;
+    return {
+      seasonNumber: mostRecentEp.season,
+      episodeId: mostRecentEp.ep.id,
+      episodeNumber: mostRecentEp.ep.episodeNumber,
+      progress: prog,
+      duration: dur,
+    };
+  }, [mostRecentEp, mostRecentHist]);
+
+  const allWatched =
+    allEpisodes.length > 0 && watchedCount === allEpisodes.length;
+
+  /** The episode the CTA should play. */
+  const ctaTarget = useMemo<{ season: number; ep: EpisodeInfo } | null>(() => {
+    if (resumeState) {
+      return (
+        allEpisodes.find(
+          ({ ep }) => ep.id === resumeState.episodeId,
+        ) ?? null
+      );
+    }
+    // Mostly-watched episode → walk to the next one
+    if (mostRecentEp && mostRecentHist) {
+      const dur =
+        mostRecentHist.duration_seconds || mostRecentEp.ep.duration || 0;
+      const prog = mostRecentHist.progress_seconds;
+      if (dur > 0 && prog >= dur * WATCHED_THRESHOLD) {
+        const idx = chronoEpisodes.findIndex(
+          (x) =>
+            x.season === mostRecentEp.season &&
+            x.ep.id === mostRecentEp.ep.id,
+        );
+        if (idx >= 0 && idx + 1 < chronoEpisodes.length) {
+          return chronoEpisodes[idx + 1]!;
+        }
+      }
+    }
+    // First visit (or all-watched → S1E1 for rewatch)
+    return chronoEpisodes[0] ?? null;
+  }, [resumeState, mostRecentEp, mostRecentHist, allEpisodes, chronoEpisodes]);
+
+  const { ctaLabel, ctaAriaLabel } = useMemo(() => {
+    if (resumeState) {
+      return {
+        ctaLabel: `Continue S${resumeState.seasonNumber}E${resumeState.episodeNumber}  ${formatProgress(resumeState.progress, resumeState.duration)}`,
+        ctaAriaLabel: `Continue Season ${resumeState.seasonNumber} Episode ${resumeState.episodeNumber} from ${formatDuration(resumeState.progress)}`,
+      };
+    }
+    if (allWatched) {
+      const first = chronoEpisodes[0];
+      const s = first?.season ?? 1;
+      const e = first?.ep.episodeNumber ?? 1;
+      return {
+        ctaLabel: `Rewatch S${s}E${e}`,
+        ctaAriaLabel: `Rewatch Season ${s} Episode ${e} from the beginning`,
+      };
+    }
+    if (ctaTarget) {
+      const s = ctaTarget.season;
+      const e = ctaTarget.ep.episodeNumber;
+      const isNext = mostRecentEp && mostRecentEp.ep.id !== ctaTarget.ep.id;
+      return {
+        ctaLabel: isNext
+          ? `Play next: S${s}E${e}`
+          : `Play S${s}E${e}`,
+        ctaAriaLabel: `Play Season ${s} Episode ${e}`,
+      };
+    }
+    return {
+      ctaLabel: "Play S1E1",
+      ctaAriaLabel: "Play Season 1 Episode 1",
+    };
+  }, [resumeState, allWatched, ctaTarget, chronoEpisodes, mostRecentEp]);
+
   useEffect(() => {
     if (!loading && !error && !focusSeeded.current) {
       focusSeeded.current = true;
-      // Short defer — norigin child registration races mount.
       const t = setTimeout(() => {
         setFocus("SERIES_DETAIL_PLAY_CTA");
       }, 80);
@@ -649,42 +960,37 @@ export function SeriesDetailRoute() {
     }
   }, [loading, error]);
 
-  // ─── Play handler ────────────────────────────────────────────────────────
   const playEpisode = useCallback(
     (ep: EpisodeInfo, seasonNum: number) => {
-      const streamUrl = fetchStreamUrl({
+      const title = info
+        ? buildEpisodeTitle(info.name, seasonNum, ep)
+        : `S${seasonNum}E${ep.episodeNumber} · ${ep.title}`;
+      void openPlayer({
         kind: "series-episode",
         id: ep.id,
-      });
-      open({
-        src: streamUrl,
-        title: `S${seasonNum}E${ep.episodeNumber} · ${ep.title}`,
-        kind: "series-episode",
+        title,
       });
     },
-    [open],
+    [info, openPlayer],
   );
 
   const handleCtaPress = useCallback(() => {
-    if (!info) return;
-    if (resumeState) {
-      // Resume the in-progress episode.
-      const ep = allEpisodes.find(
-        ({ ep: e }) => e.id === resumeState!.episodeId,
-      );
-      if (ep) playEpisode(ep.ep, ep.season);
-      return;
-    }
-    // Play first episode of first season (or S1E1).
-    const firstSeason = sortedSeasons[0];
-    if (!firstSeason) return;
-    const seasonKey = String(firstSeason.seasonNumber);
-    const eps = info.episodes?.[seasonKey] ?? [];
-    const firstEp = eps[0];
-    if (firstEp) playEpisode(firstEp, firstSeason.seasonNumber);
-  }, [info, resumeState, allEpisodes, sortedSeasons, playEpisode]);
+    if (ctaTarget) playEpisode(ctaTarget.ep, ctaTarget.season);
+  }, [ctaTarget, playEpisode]);
 
-  // ─── Back handler ────────────────────────────────────────────────────────
+  const handleSeasonSelect = useCallback(
+    (n: number) => {
+      setActiveSeasonNumber(n);
+      if (seriesId) writeLastSeason(seriesId, n);
+    },
+    [seriesId],
+  );
+
+  const handleEpisodeSortChange = useCallback((next: EpisodeSortKey) => {
+    setEpisodeSort(next);
+    writeEpisodeSort(next);
+  }, []);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
@@ -698,22 +1004,20 @@ export function SeriesDetailRoute() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [navigate]);
 
-  // ─── CTA label ──────────────────────────────────────────────────────────
-  let ctaLabel = "Play S1E1";
-  let ctaAriaLabel = "Play Season 1 Episode 1";
-  if (resumeState) {
-    ctaLabel = resumeState.label;
-    ctaAriaLabel = resumeState.ariaLabel;
-  } else if (allWatched) {
-    ctaLabel = "Rewatch S1E1";
-    ctaAriaLabel = "Rewatch Season 1 Episode 1 from the beginning";
-  }
+  const handleRetry = useCallback(() => {
+    if (!seriesId) return;
+    setHistoryGeneration((g) => g + 1);
+  }, [seriesId]);
 
-  // ─── Episodes for active season ─────────────────────────────────────────
-  const activeEpisodes: EpisodeInfo[] =
-    info?.episodes?.[String(activeSeasonNumber)] ?? [];
+  const activeEpisodes: EpisodeInfo[] = useMemo(() => {
+    const raw = info?.episodes?.[String(activeSeasonNumber)] ?? [];
+    return sortEpisodes(raw, episodeSort);
+  }, [info, activeSeasonNumber, episodeSort]);
 
-  // ─── Render ──────────────────────────────────────────────────────────────
+  const activeSeason = sortedSeasons.find(
+    (s) => s.seasonNumber === activeSeasonNumber,
+  );
+
   return (
     <FocusContext.Provider value={focusKey}>
       <main
@@ -723,10 +1027,6 @@ export function SeriesDetailRoute() {
         style={{
           paddingBottom:
             "calc(var(--dock-height) + var(--space-6) + var(--space-6))",
-          backgroundImage: "var(--hero-ambient)",
-          backgroundRepeat: "no-repeat",
-          backgroundSize: "100% 320px",
-          backgroundPosition: "top center",
         }}
       >
         {loading ? (
@@ -738,7 +1038,7 @@ export function SeriesDetailRoute() {
               gap: "var(--space-4)",
             }}
           >
-            <Skeleton width="100%" height={200} />
+            <Skeleton width="100%" height={260} />
             <Skeleton width="100%" height={52} />
             <Skeleton width="100%" height={400} />
           </div>
@@ -749,146 +1049,175 @@ export function SeriesDetailRoute() {
             subtext="Check your connection and try again."
             onRetry={handleRetry}
             onBack={() => navigate(-1)}
-            backLabel="Back to list"
+            backLabel="Back to series"
           />
         ) : info ? (
           <>
-            {/* ── Hero ──────────────────────────────────────────────── */}
+            {/* ── Backdrop + hero ─────────────────────────────────────── */}
             <div
               style={{
-                display: "flex",
-                flexDirection: "row",
-                gap: "var(--space-6)",
-                padding: "var(--space-6)",
-                alignItems: "flex-start",
+                position: "relative",
+                background: info.backdropUrl
+                  ? `linear-gradient(180deg, rgba(18,16,14,0.35) 0%, rgba(18,16,14,0.75) 60%, var(--bg-base) 100%), url("${info.backdropUrl.replace(/"/g, '\\"')}")`
+                  : "var(--hero-ambient)",
+                backgroundSize: info.backdropUrl ? "cover" : "100% 320px",
+                backgroundPosition: "center top",
+                backgroundRepeat: "no-repeat",
               }}
             >
-              {/* Poster */}
               <div
                 style={{
-                  flexShrink: 0,
-                  width: 160,
-                  borderRadius: "var(--radius-sm)",
-                  overflow: "hidden",
-                  background: "var(--bg-surface)",
-                }}
-              >
-                {info.icon ? (
-                  <img
-                    src={info.icon}
-                    alt={info.name}
-                    style={{ width: "100%", display: "block" }}
-                  />
-                ) : (
-                  <div
-                    aria-hidden="true"
-                    style={{
-                      width: 160,
-                      height: 220,
-                      background: "var(--bg-elevated)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontSize: 48,
-                      color: "var(--text-secondary)",
-                    }}
-                  >
-                    ⊞
-                  </div>
-                )}
-              </div>
-
-              {/* Title + meta + CTA */}
-              <div
-                style={{
-                  flex: 1,
                   display: "flex",
-                  flexDirection: "column",
-                  gap: "var(--space-3)",
+                  flexDirection: "row",
+                  gap: "var(--space-6)",
+                  padding: "var(--space-8) var(--space-6) var(--space-6)",
+                  alignItems: "flex-start",
                 }}
               >
-                <h1
-                  style={{
-                    margin: 0,
-                    fontSize: "var(--text-title-size, 32px)",
-                    color: "var(--text-primary)",
-                  }}
-                >
-                  {info.name}
-                </h1>
-
-                {/* Meta row */}
+                {/* Poster */}
                 <div
                   style={{
-                    display: "flex",
-                    gap: "var(--space-3)",
-                    color: "var(--text-secondary)",
-                    fontSize: "var(--text-label-size)",
-                    flexWrap: "wrap",
+                    flexShrink: 0,
+                    width: 180,
+                    borderRadius: "var(--radius-sm)",
+                    overflow: "hidden",
+                    background: "var(--bg-surface)",
+                    boxShadow: "0 12px 32px rgba(0,0,0,0.5)",
                   }}
                 >
-                  {info.rating && <span>★ {info.rating}</span>}
-                  {info.year && <span>{info.year}</span>}
-                  {info.genre && <span>{info.genre}</span>}
-                  {sortedSeasons.length > 0 && (
-                    <span>
-                      {sortedSeasons.length}{" "}
-                      {sortedSeasons.length === 1 ? "Season" : "Seasons"}
-                    </span>
+                  {info.icon ? (
+                    <img
+                      src={info.icon}
+                      alt={info.name}
+                      style={{ width: "100%", display: "block" }}
+                    />
+                  ) : (
+                    <div
+                      aria-hidden="true"
+                      style={{
+                        width: 180,
+                        height: 270,
+                        background: "var(--bg-elevated)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: 48,
+                        color: "var(--text-secondary)",
+                      }}
+                    >
+                      ⊞
+                    </div>
                   )}
                 </div>
 
-                {/* Synopsis */}
-                {info.plot && (
-                  <p
+                <div
+                  style={{
+                    flex: 1,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "var(--space-3)",
+                    minWidth: 0,
+                  }}
+                >
+                  <h1
                     style={{
                       margin: 0,
-                      fontSize: 16,
-                      color: "var(--text-secondary)",
-                      overflow: "hidden",
-                      display: "-webkit-box",
-                      WebkitLineClamp: 3,
-                      WebkitBoxOrient: "vertical",
+                      fontSize: "var(--text-title-size, 32px)",
+                      color: "var(--text-primary)",
                     }}
                   >
-                    {info.plot}
-                  </p>
-                )}
+                    {info.name}
+                  </h1>
 
-                {/* CTA row */}
-                <div style={{ display: "flex", gap: "var(--space-3)", alignItems: "center", flexWrap: "wrap", marginTop: "var(--space-2)" }}>
-                  <HeroCta
-                    label={ctaLabel}
-                    ariaLabel={ctaAriaLabel}
-                    onPress={handleCtaPress}
-                  />
-                </div>
-
-                {/* Resume progress bar (shown under CTA when in-progress) */}
-                {resumeState && resumeState.duration > 0 && (
                   <div
                     style={{
-                      width: 200,
-                      height: 4,
-                      background: "var(--bg-surface)",
-                      borderRadius: 2,
-                      overflow: "hidden",
+                      display: "flex",
+                      gap: "var(--space-3)",
+                      color: "var(--text-secondary)",
+                      fontSize: "var(--text-label-size)",
+                      flexWrap: "wrap",
                     }}
                   >
+                    {info.rating ? <span>★ {info.rating}</span> : null}
+                    {info.year ? <span>{info.year}</span> : null}
+                    {info.genre ? <span>{info.genre}</span> : null}
+                    {sortedSeasons.length > 0 ? (
+                      <span>
+                        {sortedSeasons.length}{" "}
+                        {sortedSeasons.length === 1 ? "Season" : "Seasons"}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {info.plot ? (
+                    <p
+                      style={{
+                        margin: 0,
+                        fontSize: 16,
+                        color: "var(--text-secondary)",
+                        overflow: "hidden",
+                        display: "-webkit-box",
+                        WebkitLineClamp: 3,
+                        WebkitBoxOrient: "vertical",
+                      }}
+                    >
+                      {info.plot}
+                    </p>
+                  ) : null}
+
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: "var(--space-3)",
+                      alignItems: "center",
+                      flexWrap: "wrap",
+                      marginTop: "var(--space-2)",
+                    }}
+                  >
+                    <HeroCta
+                      label={ctaLabel}
+                      ariaLabel={ctaAriaLabel}
+                      onPress={handleCtaPress}
+                    />
+                    <FavoriteButton
+                      seriesId={info.id}
+                      seriesName={info.name}
+                      seriesIcon={info.icon}
+                    />
+                    {allEpisodes.length > 0 ? (
+                      <MarkAllWatchedButton
+                        seriesName={info.name}
+                        allEpisodes={allEpisodes}
+                        onDone={() => setHistoryGeneration((g) => g + 1)}
+                      />
+                    ) : null}
+                  </div>
+
+                  {resumeState && resumeState.duration > 0 ? (
                     <div
                       style={{
-                        width: `${Math.min(100, (resumeState.progress / resumeState.duration) * 100)}%`,
-                        height: "100%",
-                        background: "var(--accent-copper)",
+                        width: 220,
+                        height: 4,
+                        background: "var(--bg-surface)",
+                        borderRadius: 2,
+                        overflow: "hidden",
                       }}
-                    />
-                  </div>
-                )}
+                    >
+                      <div
+                        style={{
+                          width: `${Math.min(100, (resumeState.progress / resumeState.duration) * 100)}%`,
+                          height: "100%",
+                          background: "var(--accent-copper)",
+                        }}
+                      />
+                    </div>
+                  ) : null}
+                </div>
               </div>
             </div>
 
             {/* ── Season rail ───────────────────────────────────────── */}
-            {sortedSeasons.length > 0 && (
+            {sortedSeasons.length > 0 ? (
               <div
                 role="toolbar"
                 aria-label="Season selector"
@@ -896,7 +1225,7 @@ export function SeriesDetailRoute() {
                   display: "flex",
                   flexWrap: "nowrap",
                   gap: "var(--space-3)",
-                  padding: "var(--space-2) var(--space-6)",
+                  padding: "var(--space-3) var(--space-6)",
                   overflowX: "auto",
                   borderTop: "1px solid var(--bg-surface)",
                   borderBottom: "1px solid var(--bg-surface)",
@@ -907,59 +1236,116 @@ export function SeriesDetailRoute() {
                     key={season.seasonNumber}
                     season={season}
                     isActive={activeSeasonNumber === season.seasonNumber}
-                    onSelect={() => setActiveSeasonNumber(season.seasonNumber)}
+                    onSelect={() => handleSeasonSelect(season.seasonNumber)}
                   />
                 ))}
               </div>
-            )}
+            ) : null}
 
-            {/* ── Episode list ──────────────────────────────────────── */}
-            <div
-              style={{
-                padding: "var(--space-4) var(--space-6)",
-                display: "flex",
-                flexDirection: "column",
-                gap: "var(--space-1)",
-              }}
-            >
-              {sortedSeasons.length > 0 && (
+            {/* ── Episode sort + title row ─────────────────────────── */}
+            {sortedSeasons.length > 0 ? (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: "var(--space-3)",
+                  padding: "var(--space-4) var(--space-6) 0",
+                  flexWrap: "wrap",
+                }}
+              >
                 <h2
                   style={{
-                    margin: "0 0 var(--space-3) 0",
+                    margin: 0,
                     fontSize: "var(--text-label-size)",
                     color: "var(--text-secondary)",
                     letterSpacing: "var(--text-label-tracking)",
                     textTransform: "uppercase",
                   }}
                 >
-                  {(() => {
-                    const s =
-                      sortedSeasons.find(
-                        (ss) => ss.seasonNumber === activeSeasonNumber,
-                      ) ?? sortedSeasons[0];
-                    return s ? seasonLabel(s) : "";
-                  })()}
+                  {activeSeason ? seasonLabel(activeSeason) : "Episodes"}
+                  {activeEpisodes.length > 0 ? (
+                    <span
+                      style={{
+                        marginLeft: "var(--space-3)",
+                        fontVariantNumeric: "tabular-nums",
+                        color: "var(--text-secondary)",
+                      }}
+                    >
+                      {activeEpisodes.length}{" "}
+                      {activeEpisodes.length === 1 ? "episode" : "episodes"}
+                    </span>
+                  ) : null}
                 </h2>
-              )}
 
-              {activeEpisodes.length === 0 ? (
-                <p
+                <div
+                  role="group"
+                  aria-label="Sort episodes"
                   style={{
-                    color: "var(--text-secondary)",
-                    fontSize: "var(--text-body-size)",
-                    padding: "var(--space-4) 0",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "var(--space-2)",
                   }}
                 >
-                  No episodes in this season yet.
-                </p>
+                  <span
+                    style={{
+                      fontSize: "var(--text-label-size)",
+                      letterSpacing: "var(--text-label-tracking)",
+                      textTransform: "uppercase",
+                      color: "var(--text-secondary)",
+                    }}
+                  >
+                    Sort
+                  </span>
+                  {EPISODE_SORT_OPTIONS.map((opt) => (
+                    <EpisodeSortButton
+                      key={opt.id}
+                      id={opt.id}
+                      label={opt.label}
+                      isActive={episodeSort === opt.id}
+                      onSelect={() => handleEpisodeSortChange(opt.id)}
+                    />
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {/* ── Episode list ──────────────────────────────────────── */}
+            <div
+              style={{
+                padding: "var(--space-3) var(--space-6) var(--space-6)",
+                display: "flex",
+                flexDirection: "column",
+                gap: "var(--space-1)",
+              }}
+            >
+              {activeEpisodes.length === 0 ? (
+                <div
+                  style={{
+                    padding: "var(--space-6) 0",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: "var(--space-3)",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  <p style={{ margin: 0, fontSize: "var(--text-body-size)" }}>
+                    No episodes in{" "}
+                    {activeSeason ? seasonLabel(activeSeason) : "this season"}{" "}
+                    yet.
+                  </p>
+                </div>
               ) : (
                 activeEpisodes.map((ep) => (
                   <EpisodeRow
                     key={ep.id}
                     episode={ep}
                     seriesId={seriesId ?? ""}
+                    seriesName={info.name}
                     seasonNumber={activeSeasonNumber}
                     historyItem={historyByEpId.get(ep.id)}
+                    onPlay={playEpisode}
                   />
                 ))
               )}
