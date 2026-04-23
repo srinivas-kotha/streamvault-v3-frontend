@@ -268,7 +268,7 @@ export function SettingsRoute() {
         style={{
           padding: "var(--space-8) var(--gutter-tv, var(--space-8))",
           paddingBottom:
-            "calc(var(--dock-height) + var(--space-6) + var(--space-6))",
+            "var(--dock-content-reserve, calc(var(--dock-height) + var(--space-6) + var(--space-6)))",
           maxWidth: "900px",
         }}
       >

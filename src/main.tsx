@@ -10,12 +10,16 @@ import { initSpatialNav } from "./nav/spatialNav";
 // Must run before createRoot so norigin is ready when React mounts.
 initSpatialNav();
 
-// TV platform sniff — Fire TV Silk identifies via "Silk" or "AFT…" in UA.
-// Setting data-tv on <html> lets tokens.css apply the 10-foot type scale
+// TV platform sniff — covers Fire TV (Silk/AFT*), Android TV, Google TV,
+// Chromecast (CrKey), Tizen, webOS, HbbTV, and common smart-TV UA markers.
+// Setting data-tv on <html> lets tokens.css apply the fluid 10-foot scale
 // before first paint. Desktop browsers stay on desktop scale.
 (() => {
   const ua = navigator.userAgent || "";
-  const isTv = /Silk|AFT/i.test(ua);
+  const isTv =
+    /Silk|AFT|AndroidTV|GoogleTV|BRAVIA|Tizen|Web0S|WebOS|SMART-TV|SmartTV|HbbTV|CrKey|PhilipsTV|VIDAA/i.test(
+      ua,
+    );
   if (isTv) {
     document.documentElement.setAttribute("data-tv", "true");
   }

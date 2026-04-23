@@ -48,7 +48,7 @@ export function BottomDock({
         aria-label="Main navigation"
         style={{
           position: "fixed",
-          bottom: "var(--space-6)",
+          bottom: "var(--dock-bottom-offset, var(--space-6))",
           left: "var(--safe-inset)",
           right: "var(--safe-inset)",
           // Task 2.3 follow-up A: iOS/Android safe-area inset so the dock clears notches.
@@ -61,7 +61,7 @@ export function BottomDock({
           display: "flex",
           alignItems: "center",
           justifyContent: "space-around",
-          padding: "0 var(--space-8)",
+          padding: "0 var(--dock-h-padding, var(--space-8))",
           opacity: hidden ? 0 : 1,
           pointerEvents: hidden ? "none" : "auto",
           transition: "opacity var(--motion-dock)",
@@ -154,25 +154,29 @@ function DockTab({
         color: active ? "var(--bg-base)" : "var(--text-secondary)",
         border: "none",
         borderRadius: "var(--radius-sm)",
-        padding: "var(--space-2) var(--space-4)",
+        padding:
+          "var(--dock-tab-v-padding, var(--space-2)) var(--space-4)",
         cursor: "pointer",
-        fontSize: "var(--text-body-size)",
+        fontSize: "var(--dock-label-size, var(--text-label-size))",
         fontWeight: active ? 600 : 400,
         transition:
           "background var(--motion-focus), color var(--motion-focus), box-shadow var(--motion-focus)",
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        gap: "4px",
-        minWidth: "80px",
+        gap: "var(--dock-tab-gap, 4px)",
+        minWidth: "var(--dock-tab-min-width, 80px)",
       }}
     >
-      <span aria-hidden="true" style={{ fontSize: "20px" }}>
+      <span
+        aria-hidden="true"
+        style={{ fontSize: "var(--dock-icon-size, 20px)" }}
+      >
         {item.icon}
       </span>
       <span
         style={{
-          fontSize: "var(--text-label-size)",
+          fontSize: "var(--dock-label-size, var(--text-label-size))",
           letterSpacing: "var(--text-label-tracking)",
           textTransform: "uppercase",
         }}

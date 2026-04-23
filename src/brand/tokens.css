@@ -246,16 +246,99 @@
     font-family: var(--font-ui);
   }
 
-  /* TV-class readability override. Fire TV Silk / 10-foot viewing needs ~24px
-     floor on primary label type. Gated on [data-tv="true"] which is set in
-     main.tsx by sniffing the UA (Silk/AFT). Desktop browsers on big monitors
-     stay on the ordinary desktop scale. */
+  /* TV-class fluid responsive scale.
+     Applies when `data-tv="true"` is set by main.tsx UA sniff (Fire TV, Android
+     TV, Google TV, Chromecast, Tizen, webOS, HbbTV, etc.) OR when the auto-gate
+     below promotes a TV-class viewport. Every value is clamp(min, ratio, max)
+     so 720p / 900p / 1080p TVs all land inside their tier — 55"/65"/75"
+     physical sizes read back to the browser as a range of logical pixels,
+     which we scale against. */
   :root[data-tv="true"] {
-    --text-label-size: 22px;
-    --text-label-tracking: 0.6px;
-    --text-caption-size: 20px;
-    --text-body-size: 24px;
-    --text-body-lg-size: 28px;
-    --text-title-size: 36px;
+    /* ── Type scale (fluid, 7-token) ─────────────────────────── */
+    --type-hero:       clamp(32px, 4.8vh, 56px);
+    --type-title-lg:   clamp(24px, 3.6vh, 40px);
+    --type-title:      clamp(20px, 2.8vh, 30px);
+    --type-body:       clamp(16px, 2.2vh, 24px);
+    --type-body-sm:    clamp(14px, 1.8vh, 20px);
+    --type-caption:    clamp(12px, 1.5vh, 17px);
+    --type-overline:   clamp(11px, 1.3vh, 14px);
+
+    /* Legacy aliases — existing surfaces still reference these */
+    --text-hero-size:      var(--type-hero);
+    --text-title-size:     var(--type-title-lg);
+    --text-body-lg-size:   var(--type-title);
+    --text-body-size:      var(--type-body);
+    --text-caption-size:   var(--type-caption);
+    --text-label-size:     var(--type-overline);
+    --text-label-tracking: 0.06em;
+
+    /* ── Spacing scale (fluidised from 8px base) ─────────────── */
+    --space-1:  clamp(3px,  0.35vh, 5px);
+    --space-2:  clamp(6px,  0.8vh,  10px);
+    --space-3:  clamp(8px,  1.1vh,  14px);
+    --space-4:  clamp(12px, 1.5vh,  20px);
+    --space-6:  clamp(16px, 2.2vh,  32px);
+    --space-8:  clamp(20px, 3.0vh,  44px);
+    --space-12: clamp(28px, 4.2vh,  60px);
+    --space-16: clamp(36px, 5.6vh,  80px);
+    --space-24: clamp(56px, 8.4vh, 120px);
+
+    /* ── Gutters & safe insets ───────────────────────────────── */
+    --gutter-tv:     clamp(24px, 3.5vw, 64px);
+    --gutter-mobile: clamp(16px, 2.5vw, 32px);
+    --safe-inset:    clamp(16px, 2.5vw, 56px);
+
+    /* ── Focus ring — thicker for 10-foot viewing ────────────── */
+    --focus-ring-shadow:
+      0 0 0 clamp(2px, 0.35vh, 4px) var(--accent-copper),
+      0 0 clamp(16px, 2.4vh, 32px) clamp(3px, 0.5vh, 6px) rgba(200, 121, 65, 0.4);
+
+    /* ── Bottom dock (floating pill) ─────────────────────────── */
+    --dock-height:          clamp(56px, 8vh, 88px);
+    --dock-bottom-offset:   clamp(10px, 1.8vh, 22px);
+    --dock-h-padding:       clamp(16px, 2.5vw, 40px);
+    --dock-tab-min-width:   clamp(72px, 8vw, 120px);
+    --dock-tab-v-padding:   clamp(4px, 0.7vh, 10px);
+    --dock-tab-gap:         clamp(2px, 0.35vh, 6px);
+    --dock-label-size:      clamp(11px, 1.35vh, 15px);
+    --dock-icon-size:       clamp(16px, 2.0vh, 24px);
+
+    /* Content bottom-reserve — routes add this as padding-bottom so the
+       final poster row never sits under the floating dock. */
+    --dock-content-reserve:
+      calc(var(--dock-height) + var(--dock-bottom-offset) + var(--space-6));
+
+    /* ── Hero banner ─────────────────────────────────────────── */
+    --hero-height:         clamp(280px, 42vh, 560px);
+    --hero-side-padding:   var(--gutter-tv);
+
+    /* ── Poster card (2:3 aspect fixed; width fluid per tier) ── */
+    --poster-min-width:    clamp(140px, 14vw, 240px);
+    --poster-gap:          var(--space-4);
+    --poster-label-pad:    var(--space-3);
+
+    /* ── Player chrome ───────────────────────────────────────── */
+    --player-chrome-h:     clamp(72px, 10vh, 120px);
+    --player-ctrl-size:    clamp(40px, 5.5vh, 64px);
+    --player-seek-thick:   clamp(4px, 0.6vh, 8px);
+  }
+
+  /* Density tiers — drive grid column count via --poster-min-width.
+     auto-fill grids pick up these values automatically. Tiers approx:
+     <960 → 4 cols · 960-1279 → 5 · 1280-1599 → 6 · 1600-1919 → 7 · 1920+ → 7-8 */
+  :root[data-tv="true"] {
+    --poster-min-width: 160px; /* ≤ 959 fallback */
+  }
+  @media (min-width: 960px) and (max-width: 1279px) {
+    :root[data-tv="true"] { --poster-min-width: 180px; }
+  }
+  @media (min-width: 1280px) and (max-width: 1599px) {
+    :root[data-tv="true"] { --poster-min-width: 195px; }
+  }
+  @media (min-width: 1600px) and (max-width: 1919px) {
+    :root[data-tv="true"] { --poster-min-width: 210px; }
+  }
+  @media (min-width: 1920px) {
+    :root[data-tv="true"] { --poster-min-width: 230px; }
   }
 }

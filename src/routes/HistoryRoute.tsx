@@ -230,7 +230,7 @@ export function HistoryRoute() {
         style={{
           padding: "var(--space-6)",
           paddingBottom:
-            "calc(var(--dock-height) + var(--space-6) + var(--space-6))",
+            "var(--dock-content-reserve, calc(var(--dock-height) + var(--space-6) + var(--space-6)))",
         }}
       >
         {/* Back button */}

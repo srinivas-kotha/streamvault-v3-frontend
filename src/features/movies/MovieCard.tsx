@@ -224,10 +224,61 @@ export function MovieCard({
                 objectFit: "cover",
               }}
               onError={(e) => {
-                (e.currentTarget as HTMLImageElement).style.display = "none";
+                // Show fallback when Xtream returns a broken/404 icon URL.
+                const img = e.currentTarget as HTMLImageElement;
+                img.style.display = "none";
+                const sibling = img.nextElementSibling as HTMLElement | null;
+                if (sibling?.dataset.role === "poster-fallback") {
+                  sibling.style.display = "flex";
+                }
               }}
             />
           ) : null}
+          <div
+            data-role="poster-fallback"
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              inset: 0,
+              display: stream.icon ? "none" : "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "var(--space-2)",
+              padding: "var(--space-3)",
+              background:
+                "linear-gradient(135deg, var(--bg-elevated, #2a2520) 0%, var(--bg-surface, #1e1a16) 100%)",
+              color: "var(--text-tertiary)",
+              textAlign: "center",
+            }}
+          >
+            <span
+              aria-hidden="true"
+              style={{
+                fontSize: "clamp(28px, 4vh, 48px)",
+                lineHeight: 1,
+                opacity: 0.45,
+                letterSpacing: "-0.08em",
+                color: "var(--accent-copper-dim)",
+              }}
+            >
+              {"▶"}
+            </span>
+            <span
+              style={{
+                fontSize: "var(--text-caption-size, 14px)",
+                color: "var(--text-secondary)",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                display: "-webkit-box",
+                WebkitLineClamp: 3,
+                WebkitBoxOrient: "vertical",
+                maxWidth: "100%",
+              }}
+            >
+              {stream.name}
+            </span>
+          </div>
 
           {watched ? <WatchedBadge /> : null}
           {tierLocked && !watched ? (

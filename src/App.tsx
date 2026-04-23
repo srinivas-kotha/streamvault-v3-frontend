@@ -345,6 +345,41 @@ export default function App() {
     };
   }, []);
 
+  // TV browsers (Android TV / Google TV Chrome) keep the URL bar visible
+  // unless the app is installed as a PWA or enters Fullscreen via user
+  // gesture. The manifest declares display:fullscreen, but that only takes
+  // effect for installed PWAs. As a tab-mode fallback, request Fullscreen
+  // on the first keydown/pointer gesture. Fails silently where unsupported.
+  useEffect(() => {
+    if (gate !== "authed") return;
+    let armed = true;
+    const enter = () => {
+      if (!armed) return;
+      armed = false;
+      const el = document.documentElement as HTMLElement & {
+        webkitRequestFullscreen?: () => Promise<void>;
+      };
+      if (document.fullscreenElement) return;
+      const req =
+        el.requestFullscreen?.bind(el) ?? el.webkitRequestFullscreen?.bind(el);
+      if (req) {
+        Promise.resolve(req()).catch(() => {
+          /* silent — TV browser may refuse without PWA install */
+        });
+      }
+    };
+    window.addEventListener("keydown", enter, { once: true, passive: true });
+    window.addEventListener("pointerdown", enter, {
+      once: true,
+      passive: true,
+    });
+    return () => {
+      armed = false;
+      window.removeEventListener("keydown", enter);
+      window.removeEventListener("pointerdown", enter);
+    };
+  }, [gate]);
+
   if (gate === "checking") {
     return null;
   }

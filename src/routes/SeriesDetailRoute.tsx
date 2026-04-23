@@ -23,12 +23,13 @@
  *  - Escape / Backspace → navigate(-1).
  */
 import type { RefObject } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   useFocusable,
   FocusContext,
   setFocus,
 } from "@noriginmedia/norigin-spatial-navigation";
+import { Virtuoso } from "react-virtuoso";
 import { useParams, useNavigate } from "react-router-dom";
 import { ErrorShell } from "../primitives/ErrorShell";
 import { Skeleton } from "../primitives/Skeleton";
@@ -261,7 +262,11 @@ interface EpisodeRowProps {
   onPlay: (ep: EpisodeInfo, seasonNum: number) => void;
 }
 
-function EpisodeRow({
+// Memoized — with 97+ episodes every un-memoed re-render on D-pad focus change
+// registered/re-registered norigin focusables and stalled spatial nav. The
+// useCallback on `onPlay` in the parent keeps the reference stable between
+// renders so memo actually short-circuits.
+const EpisodeRow = memo(function EpisodeRow({
   episode,
   seriesId,
   seriesName,
@@ -503,7 +508,7 @@ function EpisodeRow({
       </div>
     </div>
   );
-}
+});
 
 // ─── HeroCta ─────────────────────────────────────────────────────────────────
 
@@ -920,9 +925,21 @@ export function SeriesDetailRoute() {
         }
       }
     }
-    // First visit (or all-watched → S1E1 for rewatch)
-    return chronoEpisodes[0] ?? null;
-  }, [resumeState, mostRecentEp, mostRecentHist, allEpisodes, chronoEpisodes]);
+    // All-watched → rewatch from S1E1 (existing behaviour, gated by allWatched
+    // label branch below).
+    if (allWatched) return chronoEpisodes[0] ?? null;
+    // First visit with no history — for daily-serial / long-running content
+    // (the bulk of this library) users expect the latest episode, not the
+    // pilot. Default to the final episode in chrono order.
+    return chronoEpisodes[chronoEpisodes.length - 1] ?? null;
+  }, [
+    resumeState,
+    mostRecentEp,
+    mostRecentHist,
+    allEpisodes,
+    chronoEpisodes,
+    allWatched,
+  ]);
 
   const { ctaLabel, ctaAriaLabel } = useMemo(() => {
     if (resumeState) {
@@ -972,6 +989,11 @@ export function SeriesDetailRoute() {
   // same season's episode list in the user's current sort order (Phase 6c).
   // Each call passes a new index into the same array, forming a cheap
   // closure chain rather than storing list state in PlayerProvider.
+  // Self-reference is routed through a ref to avoid the TDZ that the
+  // react-hooks/immutability rule flags on a useCallback that names itself.
+  const playEpisodeAtRef = useRef<
+    (episodes: EpisodeInfo[], idx: number, seasonNum: number) => void
+  >(() => {});
   const playEpisodeAt = useCallback(
     (episodes: EpisodeInfo[], idx: number, seasonNum: number) => {
       const ep = episodes[idx];
@@ -982,15 +1004,20 @@ export function SeriesDetailRoute() {
         id: ep.id,
         title,
         ...(idx > 0 && {
-          onPrev: () => playEpisodeAt(episodes, idx - 1, seasonNum),
+          onPrev: () =>
+            playEpisodeAtRef.current(episodes, idx - 1, seasonNum),
         }),
         ...(idx < episodes.length - 1 && {
-          onNext: () => playEpisodeAt(episodes, idx + 1, seasonNum),
+          onNext: () =>
+            playEpisodeAtRef.current(episodes, idx + 1, seasonNum),
         }),
       });
     },
     [info, openPlayer],
   );
+  useEffect(() => {
+    playEpisodeAtRef.current = playEpisodeAt;
+  }, [playEpisodeAt]);
 
   const playEpisode = useCallback(
     (ep: EpisodeInfo, seasonNum: number) => {
@@ -1341,45 +1368,51 @@ export function SeriesDetailRoute() {
             ) : null}
 
             {/* ── Episode list ──────────────────────────────────────── */}
-            <div
-              style={{
-                padding: "var(--space-3) var(--space-6) var(--space-6)",
-                display: "flex",
-                flexDirection: "column",
-                gap: "var(--space-1)",
-              }}
-            >
-              {activeEpisodes.length === 0 ? (
-                <div
-                  style={{
-                    padding: "var(--space-6) 0",
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    gap: "var(--space-3)",
-                    color: "var(--text-secondary)",
-                  }}
-                >
-                  <p style={{ margin: 0, fontSize: "var(--text-body-size)" }}>
-                    No episodes in{" "}
-                    {activeSeason ? seasonLabel(activeSeason) : "this season"}{" "}
-                    yet.
-                  </p>
-                </div>
-              ) : (
-                activeEpisodes.map((ep) => (
-                  <EpisodeRow
-                    key={ep.id}
-                    episode={ep}
-                    seriesId={seriesId ?? ""}
-                    seriesName={info.name}
-                    seasonNumber={activeSeasonNumber}
-                    historyItem={historyByEpId.get(ep.id)}
-                    onPlay={playEpisode}
-                  />
-                ))
-              )}
-            </div>
+            {/* Virtualized via react-virtuoso. At 97+ episodes, the former
+                plain .map() mounted every row into the DOM + registered every
+                useFocusable with norigin; D-pad arrow presses then re-rendered
+                all rows and stalled spatial nav. Virtuoso windows the DOM to
+                visible rows, keeping registration cost bounded. */}
+            {activeEpisodes.length === 0 ? (
+              <div
+                style={{
+                  padding: "var(--space-6) var(--space-6) var(--space-6)",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: "var(--space-3)",
+                  color: "var(--text-secondary)",
+                }}
+              >
+                <p style={{ margin: 0, fontSize: "var(--text-body-size)" }}>
+                  No episodes in{" "}
+                  {activeSeason ? seasonLabel(activeSeason) : "this season"}{" "}
+                  yet.
+                </p>
+              </div>
+            ) : (
+              <Virtuoso
+                data={activeEpisodes}
+                style={{
+                  height: "70vh",
+                  padding: "var(--space-3) var(--space-6) var(--space-6)",
+                }}
+                overscan={400}
+                computeItemKey={(_, ep) => ep.id}
+                itemContent={(_, ep) => (
+                  <div style={{ paddingBottom: "var(--space-1)" }}>
+                    <EpisodeRow
+                      episode={ep}
+                      seriesId={seriesId ?? ""}
+                      seriesName={info.name}
+                      seasonNumber={activeSeasonNumber}
+                      historyItem={historyByEpId.get(ep.id)}
+                      onPlay={playEpisode}
+                    />
+                  </div>
+                )}
+              />
+            )}
           </>
         ) : null}
       </main>
