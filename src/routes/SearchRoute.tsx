@@ -30,6 +30,8 @@ import { SearchInput } from "../features/search/SearchInput";
 import { SearchResultsSection } from "../features/search/SearchResultsSection";
 import { SearchKindChips, type SearchKind } from "../features/search/SearchKindChips";
 import { useDebounce } from "../features/search/useDebounce";
+import { consumeOriginator } from "../nav/backStack";
+import { logEvent } from "../telemetry";
 
 // ─── useSearchQuery — encapsulates fetch + state management ─────────────────
 
@@ -147,6 +149,19 @@ export function SearchRoute() {
   }, [query, runSearch]);
 
   useEffect(() => {
+    // If the user is returning from a detail route they opened from a
+    // search-result card, restore focus there instead of the input.
+    // consumeOriginator is read-once — on a fresh mount with no stored
+    // key, fall back to the input seed.
+    const saved = consumeOriginator("/search");
+    if (saved) {
+      logEvent("nav_originator_restored", {
+        route: "/search",
+        focus_key: saved,
+      });
+      setFocus(saved);
+      return;
+    }
     setFocus("SEARCH_INPUT");
   }, []);
 

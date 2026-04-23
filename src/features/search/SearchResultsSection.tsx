@@ -21,6 +21,7 @@ import {
   removeFavorite,
   isFavorited,
 } from "../../api/favorites";
+import { rememberOriginator } from "../../nav/backStack";
 import type { CatalogItem, ContentType } from "../../api/schemas";
 import type { PlayerKind } from "../../player/PlayerProvider";
 
@@ -52,6 +53,9 @@ function SearchCard({ item }: SearchCardProps) {
 
   const activateItem = () => {
     if (item.type === "series") {
+      // Remember which search-result card launched the detail-route nav
+      // so Back pops the user back here, not to the first card.
+      rememberOriginator("/search", focusKey);
       navigate(`/series/${encodeURIComponent(item.id)}`);
       return;
     }
