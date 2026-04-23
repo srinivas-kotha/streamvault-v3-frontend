@@ -48,6 +48,11 @@ import { EmptyStateWithLanguageSwitch } from "../primitives/EmptyStateWithLangua
 import { useLangPref } from "../lib/useLangPref";
 import { fetchHistory } from "../api/history";
 import { usePlayerOpener } from "../player/usePlayerOpener";
+import {
+  rememberOriginator,
+  consumeOriginator,
+} from "../nav/backStack";
+import { logEvent } from "../telemetry";
 import type { HistoryItem, SeriesItem } from "../api/schemas";
 import type { LangId } from "../lib/langPref";
 
@@ -267,6 +272,31 @@ export function SeriesRoute() {
 
   useEffect(() => {
     if (!didInitialSeedRef.current) {
+      // Originator restore takes priority over resume-hero + first-card
+      // seed: if the user is returning here from a detail route they
+      // opened from a specific card, put focus back on that card.
+      // consumeOriginator is read-once — subsequent mounts fall back to
+      // the default seed logic.
+      if (sortedItems.length > 0) {
+        const saved = consumeOriginator("/series");
+        if (saved) {
+          const ids = new Set(sortedItems.map((s) => s.id));
+          const restoredId = saved.replace(/^SERIES_CARD_/, "");
+          if (ids.has(restoredId)) {
+            didInitialSeedRef.current = true;
+            lastSeededLangRef.current = lang;
+            logEvent("nav_originator_restored", {
+              route: "/series",
+              focus_key: saved,
+            });
+            const t = setTimeout(() => setFocus(saved), 0);
+            return () => clearTimeout(t);
+          }
+          // Saved card is no longer in the list (filter changed, data
+          // refreshed). Fall through to the default seed below.
+        }
+      }
+
       if (resumeCandidate) {
         didInitialSeedRef.current = true;
         lastSeededLangRef.current = lang;
@@ -295,6 +325,10 @@ export function SeriesRoute() {
   // ─── Handlers ─────────────────────────────────────────────────────────────
   const handleCardClick = useCallback(
     (id: string) => {
+      // Remember which card launched this detail-route nav so the user
+      // lands back on it when they press Back (Netflix-style focus
+      // restoration).
+      rememberOriginator("/series", `SERIES_CARD_${id}`);
       navigate(`/series/${encodeURIComponent(id)}`);
     },
     [navigate],

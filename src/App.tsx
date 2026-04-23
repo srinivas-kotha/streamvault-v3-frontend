@@ -23,6 +23,8 @@ import {
   doesFocusableExist,
 } from "@noriginmedia/norigin-spatial-navigation";
 import { BottomDock, type DockItem } from "./nav/BottomDock";
+import { resetOriginators } from "./nav/backStack";
+import { logEvent } from "./telemetry";
 import { LiveRoute } from "./routes/LiveRoute";
 import { MoviesRoute } from "./routes/MoviesRoute";
 import { SeriesRoute } from "./routes/SeriesRoute";
@@ -132,10 +134,19 @@ function AppShell() {
 
       const active = document.activeElement?.getAttribute("aria-label");
       const dockLabels = Object.values(DOCK_LABELS);
+      const segments = window.location.pathname.split("/").filter(Boolean);
+      const route = "/" + segments.join("/") || "/";
+      const depth = segments.length;
+
       if (active && dockLabels.includes(active)) {
         // Back on the dock → exit. Record the timestamp so the popstate
         // sentinel stops re-pushing and the hardware Back reaches the OS.
         lastDockBackAtRef.current = Date.now();
+        logEvent("back_pressed", {
+          route,
+          depth,
+          handled_by: "dock_exit",
+        });
         return;
       }
 
@@ -146,16 +157,22 @@ function AppShell() {
       //     focus to the active dock tab, preventDefault so we stay on the
       //     page. The *next* Back (now on the dock) exits per the branch
       //     above.
-      // The previous implementation always setFocus'd to the dock, which
-      // stranded detail routes — user on /series/16420 couldn't get back
-      // to /series without manually navigating.
-      const segments = window.location.pathname.split("/").filter(Boolean);
       const isDetailRoute = segments.length > 1;
       if (isDetailRoute) {
         // Let the browser's default (or the popstate listener below)
         // handle the history pop. Don't preventDefault.
+        logEvent("back_pressed", {
+          route,
+          depth,
+          handled_by: "detail_route_pop",
+        });
         return;
       }
+      logEvent("back_pressed", {
+        route,
+        depth,
+        handled_by: "root_to_dock",
+      });
       setFocus(`DOCK_${activeTab.toUpperCase()}`);
       e.preventDefault();
     };
@@ -274,7 +291,16 @@ function AppShell() {
       </Routes>
       <BottomDock
         activeItem={activeTab}
-        onNavigate={(item) => navigate(`/${item}`)}
+        onNavigate={(item) => {
+          // Dock taps are lateral surface swaps, not back-stack pushes:
+          // navigate with `replace: true` so a Back from the new
+          // surface doesn't return to the previous detail route. Also
+          // wipe any stored originators — tapping the dock is a
+          // deliberate fresh-start signal.
+          resetOriginators();
+          logEvent("dock_navigated", { to: item });
+          navigate(`/${item}`, { replace: true });
+        }}
         hidden={hideDock}
       />
       {/* Single player overlay — mounts here so it's above all routes */}
