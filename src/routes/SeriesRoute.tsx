@@ -1,169 +1,307 @@
 /**
- * SeriesRoute — Series browse screen (Phase 6).
+ * SeriesRoute — /series list (Phase 4a rebuild).
  *
- * Layout:
- *  - LanguageRail at very top (global chip row, persists to sv_lang_pref).
- *  - SeriesCategoryStrip below (horizontal, D-pad ArrowLeft/Right).
- *    Each chip has focusKey: SERIES_CAT_<id>.
- *  - SeriesGrid below (poster cards, D-pad 2D nav).
- *    Each card has focusKey: SERIES_CARD_<id>.
- *  - Skeleton while loading.
- *  - ErrorShell (onRetry) on fetch error — retry preserves activeCategory.
- *  - Empty state when no items in a category.
- *  - Bottom padding clears the dock.
+ * Spec: docs/ux/02-series.md. Mirrors the Movies pattern:
+ *   Title row
+ *   ResumeHero (when a series history entry is partially watched)
+ *   LanguageRail (Telugu / Hindi / English / All — no Sports)
+ *   Sticky toolbar: sort segmented control + count
+ *   Series grid (poster cards)
  *
- * Language filtering uses the server-provided `inferredLang` field on each
- * series item (backend PR #45). The inline LANGUAGE_PATTERNS regex blocks
- * were removed as part of issue #52.
+ * Card Enter = navigate('/series/:id'), NEVER openPlayer. Play lives on the
+ * detail page. This is the critical contract — the "series buffers forever"
+ * bug was a misrouted series id being treated as an episode stream.
  *
- * MUST PRESERVE: CONTENT_AREA_SERIES FocusContext registration
- * (BottomDock Esc-key routing — Task 2.4 lesson).
+ * Language union uses inferLanguage patterns (mirrors backend service) so a
+ * Hindi filter picks up "Bollywood Classics", English picks up "Netflix
+ * Originals", etc. — broader than Movies' narrow word-boundary match.
  *
- * NOTE: Do NOT touch /series/:id (SeriesDetailRoute) — that is issue #49.
+ * MUST PRESERVE: CONTENT_AREA_SERIES focus key + FocusContext — load-bearing
+ * for BottomDock's setFocus("CONTENT_AREA_SERIES") on ArrowUp.
  */
 import type { RefObject } from "react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   useFocusable,
   FocusContext,
+  setFocus,
 } from "@noriginmedia/norigin-spatial-navigation";
+import { useNavigate } from "react-router-dom";
+import { SeriesGrid } from "../features/series/SeriesGrid";
+import { SeriesCard } from "../features/series/SeriesCard";
+import {
+  streamSeriesLanguageUnion,
+  invalidateSeriesLanguageUnionCache,
+} from "../features/series/seriesLanguageUnion";
+import {
+  getSortPref,
+  setSortPref,
+  sortSeriesItems,
+  type SeriesSortKey,
+} from "../features/series/sortSeries";
+import { LanguageRail } from "../components/LanguageRail";
+import { ResumeHero } from "../features/movies/ResumeHero";
 import { ErrorShell } from "../primitives/ErrorShell";
 import { Skeleton } from "../primitives/Skeleton";
-import { SeriesCategoryStrip } from "../features/series/SeriesCategoryStrip";
-import { SeriesGrid } from "../features/series/SeriesGrid";
-import { fetchSeriesCategories, fetchSeriesList } from "../api/series";
-import { useNavigate } from "react-router-dom";
-import type { SeriesCategory, SeriesItem } from "../api/schemas";
-import { LanguageRail } from "../components/LanguageRail";
-import { getLangPref, setLangPref } from "../lib/langPref";
+import { EmptyStateWithLanguageSwitch } from "../primitives/EmptyStateWithLanguageSwitch";
+import { useLangPref } from "../lib/useLangPref";
+import { fetchHistory } from "../api/history";
+import { usePlayerOpener } from "../player/usePlayerOpener";
+import type { HistoryItem, SeriesItem } from "../api/schemas";
 import type { LangId } from "../lib/langPref";
 
+const WATCHED_THRESHOLD = 0.9;
+const NEW_DAYS = 14;
+
+interface SortButtonProps {
+  id: SeriesSortKey;
+  label: string;
+  isActive: boolean;
+  onSelect: () => void;
+}
+
+function SortButton({ id, label, isActive, onSelect }: SortButtonProps) {
+  const { ref, focused } = useFocusable<HTMLButtonElement>({
+    focusKey: `SERIES_SORT_${id.toUpperCase()}`,
+    onEnterPress: onSelect,
+  });
+  const active = isActive || focused;
+  return (
+    <button
+      ref={ref as RefObject<HTMLButtonElement>}
+      type="button"
+      aria-pressed={isActive}
+      onClick={onSelect}
+      className="focus-ring"
+      style={{
+        padding: "var(--space-2) var(--space-4)",
+        borderRadius: "var(--radius-sm)",
+        border: "none",
+        background: active ? "var(--accent-copper)" : "var(--bg-surface)",
+        color: active ? "var(--bg-base)" : "var(--text-primary)",
+        fontSize: "var(--text-label-size)",
+        letterSpacing: "var(--text-label-tracking)",
+        textTransform: "uppercase",
+        cursor: "pointer",
+        transition:
+          "background var(--motion-focus), color var(--motion-focus)",
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+const SORT_OPTIONS: { id: SeriesSortKey; label: string }[] = [
+  { id: "added", label: "Newest" },
+  { id: "name", label: "Name" },
+];
+
+/**
+ * Parses a series-episode history content_name. The convention written by
+ * SeriesDetailRoute.playEpisode is "SeriesName · S{n}E{m} · Title"; legacy
+ * rows may be just "S{n}E{m} · Title" (no series prefix).
+ */
+function parseEpisodeName(name: string | null | undefined): {
+  series: string | null;
+  sEp: string | null;
+} {
+  if (!name) return { series: null, sEp: null };
+  const parts = name.split(" · ").map((s) => s.trim()).filter(Boolean);
+  const sEpRe = /^S\d+E\d+$/i;
+  if (parts.length >= 3 && sEpRe.test(parts[1]!)) {
+    return { series: parts[0]!, sEp: parts[1]! };
+  }
+  if (parts.length === 2 && sEpRe.test(parts[0]!)) {
+    return { series: null, sEp: parts[0]! };
+  }
+  return { series: null, sEp: null };
+}
+
+function isNewSeries(addedIso: string | null | undefined): boolean {
+  if (!addedIso) return false;
+  const t = Date.parse(addedIso);
+  if (!Number.isFinite(t)) return false;
+  return Date.now() - t < NEW_DAYS * 24 * 60 * 60 * 1000;
+}
+
+function langLabel(lang: LangId): string {
+  switch (lang) {
+    case "telugu":
+      return "Telugu";
+    case "hindi":
+      return "Hindi";
+    case "english":
+      return "English";
+    case "sports":
+      return "Sports";
+    case "all":
+      return "";
+  }
+}
+
 export function SeriesRoute() {
-  // MUST PRESERVE: norigin root registration for the content area.
-  // Dropping this breaks BottomDock's setFocus("CONTENT_AREA_SERIES") Esc flow.
   const { ref, focusKey } = useFocusable({
     focusKey: "CONTENT_AREA_SERIES",
     focusable: false,
     trackChildren: true,
   });
+
   const navigate = useNavigate();
-
-  const [categories, setCategories] = useState<SeriesCategory[]>([]);
-  const [activeCategoryId, setActiveCategoryId] = useState<string | null>(null);
+  const { openPlayer } = usePlayerOpener();
+  const [lang, setLang] = useLangPref({ excludeSports: true });
+  const [sort, setSort] = useState<SeriesSortKey>(() => getSortPref());
   const [items, setItems] = useState<SeriesItem[]>([]);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [itemsLoading, setItemsLoading] = useState(false);
   const [error, setError] = useState(false);
-  // Language filter — reads from unified sv_lang_pref. Falls back to "all"
-  // when stored pref is "sports" (Live-only concept).
-  const [languageFilter, setLanguageFilter] = useState<LangId>(() => {
-    const stored = getLangPref();
-    return stored === "sports" ? "all" : stored;
-  });
+  const [transitioning, setTransitioning] = useState(false);
+  const [fetchGeneration, setFetchGeneration] = useState(0);
 
-  const handleLanguageChange = useCallback((lang: LangId) => {
-    setLangPref(lang);
-    setLanguageFilter(lang);
-  }, []);
-
-  // Language filter — uses the server-provided `inferredLang` field (issue #52).
-  // Sports falls through to "all" on Series: no sports feed concept on Series.
-  // When `inferredLang` is absent or null (no pattern matched / older backend),
-  // items are hidden under any specific language filter (safe degradation).
-  const filteredItems: SeriesItem[] =
-    languageFilter === "all" || languageFilter === "sports"
-      ? items
-      : items.filter((item) => item.inferredLang === languageFilter);
-
-  // ─── Initial fetch — categories ──────────────────────────────────────────
+  // ─── Language union fetch ─────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
 
-    fetchSeriesCategories()
-      .then((cats) => {
-        if (cancelled) return;
-        setCategories(cats);
-        const firstId = cats[0]?.id ?? null;
-        setActiveCategoryId(firstId);
-        setLoading(false);
+    streamSeriesLanguageUnion(lang, ({ items: batch, isFinal }) => {
+      if (cancelled) return;
+      setItems(batch);
+      setLoading(false);
+      setError(false);
+      if (batch.length > 0 || isFinal) {
+        setTransitioning(false);
+      }
+    }).catch(() => {
+      if (cancelled) return;
+      setLoading(false);
+      setError(true);
+      setTransitioning(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [lang, fetchGeneration]);
+
+  // ─── History fetch (non-blocking) ─────────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    fetchHistory()
+      .then((h) => {
+        if (!cancelled) setHistory(h);
       })
       .catch(() => {
-        if (cancelled) return;
-        setError(true);
-        setLoading(false);
+        // history is optional
       });
-
     return () => {
       cancelled = true;
     };
   }, []);
 
-  // ─── Fetch items when active category changes ─────────────────────────────
+  // ─── Derived: sorted items ────────────────────────────────────────────────
+  const sortedItems = useMemo(
+    () => sortSeriesItems(items, sort),
+    [items, sort],
+  );
+
+  // ─── Resume candidate — most-recent in-progress SERIES episode ────────────
+  const resumeCandidate = useMemo<HistoryItem | null>(() => {
+    let best: HistoryItem | null = null;
+    let bestAt = 0;
+    for (const h of history) {
+      if (h.content_type !== "series") continue;
+      if (h.duration_seconds <= 0) continue;
+      const ratio = h.progress_seconds / h.duration_seconds;
+      if (ratio <= 0 || ratio >= WATCHED_THRESHOLD) continue;
+      const at = Date.parse(h.watched_at);
+      if (!Number.isFinite(at)) continue;
+      if (at > bestAt) {
+        bestAt = at;
+        best = h;
+      }
+    }
+    return best;
+  }, [history]);
+
+  const resumeLabel = useMemo<string>(() => {
+    if (!resumeCandidate) return "your episode";
+    const parsed = parseEpisodeName(resumeCandidate.content_name);
+    if (parsed.sEp && parsed.series) return `${parsed.sEp} of ${parsed.series}`;
+    if (parsed.sEp) return parsed.sEp;
+    return resumeCandidate.content_name ?? "your episode";
+  }, [resumeCandidate]);
+
+  const handleResume = useCallback(() => {
+    if (!resumeCandidate) return;
+    const title = resumeCandidate.content_name ?? `Resume ${resumeLabel}`;
+    void openPlayer({
+      kind: "series-episode",
+      id: String(resumeCandidate.content_id),
+      title,
+    });
+  }, [resumeCandidate, resumeLabel, openPlayer]);
+
+  // ─── Focus seeding (mirrors MoviesRoute) ──────────────────────────────────
+  const didInitialSeedRef = useRef<boolean>(false);
+  const lastSeededLangRef = useRef<LangId>(lang);
+  const [heroShouldAutoFocus, setHeroShouldAutoFocus] = useState(false);
+
   useEffect(() => {
-    if (!activeCategoryId) return;
+    if (!didInitialSeedRef.current) {
+      if (resumeCandidate) {
+        didInitialSeedRef.current = true;
+        lastSeededLangRef.current = lang;
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setHeroShouldAutoFocus(true);
+        return;
+      }
+      if (sortedItems.length > 0) {
+        didInitialSeedRef.current = true;
+        lastSeededLangRef.current = lang;
+        const firstId = sortedItems[0]!.id;
+        const t = setTimeout(() => setFocus(`SERIES_CARD_${firstId}`), 0);
+        return () => clearTimeout(t);
+      }
+      return;
+    }
 
-    let cancelled = false;
+    if (lastSeededLangRef.current !== lang && sortedItems.length > 0) {
+      lastSeededLangRef.current = lang;
+      const firstId = sortedItems[0]!.id;
+      const t = setTimeout(() => setFocus(`SERIES_CARD_${firstId}`), 0);
+      return () => clearTimeout(t);
+    }
+  }, [lang, sortedItems, resumeCandidate]);
 
-    // Kick off the fetch; update loading state in the async callback
-    // to satisfy react-hooks/set-state-in-effect (no synchronous setState
-    // inside the effect body).
-    Promise.resolve()
-      .then(() => {
-        if (cancelled) return;
-        setItemsLoading(true);
-        return fetchSeriesList(activeCategoryId);
-      })
-      .then((list) => {
-        if (cancelled || list === undefined) return;
-        setItems(list);
-        setItemsLoading(false);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        // Item fetch failure: show empty rather than crash. Categories still visible.
-        setItems([]);
-        setItemsLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeCategoryId]);
-
-  // ─── Retry — re-fetches categories WITHOUT resetting activeCategoryId ────
-  const handleRetry = useCallback(() => {
-    setError(false);
-    setLoading(true);
-
-    fetchSeriesCategories()
-      .then((cats) => {
-        setCategories(cats);
-        // If the previously-selected category still exists, keep it selected.
-        // Otherwise fall back to the first category.
-        setActiveCategoryId((prev) => {
-          const stillExists = cats.some((c) => c.id === prev);
-          return stillExists ? prev : (cats[0]?.id ?? null);
-        });
-        setLoading(false);
-      })
-      .catch(() => {
-        setError(true);
-        setLoading(false);
-      });
-  }, []);
-
-  const handleCategorySelect = useCallback((id: string) => {
-    setActiveCategoryId(id);
-  }, []);
-
+  // ─── Handlers ─────────────────────────────────────────────────────────────
   const handleCardClick = useCallback(
-    (seriesId: string) => {
-      navigate(`/series/${encodeURIComponent(seriesId)}`);
+    (id: string) => {
+      navigate(`/series/${encodeURIComponent(id)}`);
     },
     [navigate],
   );
 
-  // ─── Render ──────────────────────────────────────────────────────────────
+  const handleSortChange = useCallback((next: SeriesSortKey) => {
+    setSort(next);
+    setSortPref(next);
+  }, []);
+
+  const handleLangChange = useCallback(
+    (next: LangId) => {
+      setTransitioning(true);
+      setLang(next);
+    },
+    [setLang],
+  );
+
+  const handleRetry = useCallback(() => {
+    invalidateSeriesLanguageUnionCache();
+    setLoading(true);
+    setError(false);
+    setTransitioning(true);
+    setFetchGeneration((g) => g + 1);
+  }, []);
+
+  // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <FocusContext.Provider value={focusKey}>
       <main
@@ -173,7 +311,6 @@ export function SeriesRoute() {
         style={{
           paddingBottom:
             "calc(var(--dock-height) + var(--space-6) + var(--space-6))",
-          // Chromatic ambient fill behind hero region
           backgroundImage: "var(--hero-ambient)",
           backgroundRepeat: "no-repeat",
           backgroundSize: "100% 280px",
@@ -181,7 +318,6 @@ export function SeriesRoute() {
         }}
       >
         {loading ? (
-          /* Loading state — category strip + grid skeletons */
           <div
             style={{
               padding: "var(--space-6)",
@@ -190,8 +326,8 @@ export function SeriesRoute() {
               gap: "var(--space-4)",
             }}
           >
-            <Skeleton width="100%" height={52} />
-            <Skeleton width="100%" height={400} />
+            <Skeleton width="100%" height={48} />
+            <Skeleton width="100%" height={480} />
           </div>
         ) : error ? (
           <ErrorShell
@@ -202,35 +338,137 @@ export function SeriesRoute() {
           />
         ) : (
           <>
-            {/* Language rail — above category strip (layout option (a), issue #50).
-                Sports chip hidden: no sports feed concept on Series. */}
-            <LanguageRail
-              value={languageFilter}
-              onChange={handleLanguageChange}
-            />
+            {resumeCandidate ? (
+              <ResumeHero
+                title={resumeLabel}
+                remainingSeconds={
+                  resumeCandidate.duration_seconds -
+                  resumeCandidate.progress_seconds
+                }
+                onSelect={handleResume}
+                shouldAutoFocus={heroShouldAutoFocus}
+              />
+            ) : null}
 
-            {/* Category strip */}
-            <SeriesCategoryStrip
-              categories={categories}
-              activeId={activeCategoryId}
-              onSelect={handleCategorySelect}
-            />
+            <LanguageRail value={lang} onChange={handleLangChange} />
 
-            {/* Poster grid — skeleton while items are loading */}
-            {itemsLoading ? (
+            <div
+              role="toolbar"
+              aria-label="Series sort"
+              style={{
+                position: "sticky",
+                top: 0,
+                zIndex: 20,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "var(--space-4)",
+                padding: "var(--space-3) var(--space-6)",
+                background: "var(--bg-base, rgba(18, 16, 14, 0.9))",
+                borderBottom: "1px solid var(--bg-surface)",
+                backdropFilter: "blur(12px)",
+              }}
+            >
               <div
+                role="group"
+                aria-label="Sort series"
                 style={{
-                  padding: "var(--space-6)",
                   display: "flex",
-                  flexDirection: "column",
-                  gap: "var(--space-4)",
+                  alignItems: "center",
+                  gap: "var(--space-2)",
                 }}
               >
-                <Skeleton width="100%" height={360} />
+                <span
+                  style={{
+                    fontSize: "var(--text-label-size)",
+                    letterSpacing: "var(--text-label-tracking)",
+                    textTransform: "uppercase",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  Sort
+                </span>
+                {SORT_OPTIONS.map((opt) => (
+                  <SortButton
+                    key={opt.id}
+                    id={opt.id}
+                    label={opt.label}
+                    isActive={sort === opt.id}
+                    onSelect={() => handleSortChange(opt.id)}
+                  />
+                ))}
               </div>
-            ) : (
-              <SeriesGrid items={filteredItems} onCardClick={handleCardClick} />
-            )}
+
+              <span
+                aria-live="polite"
+                style={{
+                  color: "var(--text-secondary)",
+                  fontSize: "var(--text-label-size)",
+                  fontVariantNumeric: "tabular-nums",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "var(--space-2)",
+                }}
+              >
+                {transitioning ? (
+                  <span
+                    aria-hidden="true"
+                    data-testid="series-transitioning-dot"
+                    style={{
+                      width: 10,
+                      height: 10,
+                      borderRadius: 9999,
+                      background: "var(--accent-copper)",
+                      animation: "series-pulse 900ms ease-in-out infinite",
+                    }}
+                  />
+                ) : null}
+                {transitioning
+                  ? `Loading ${langLabel(lang) || "all"} series…`
+                  : `${sortedItems.length.toLocaleString()} series`}
+              </span>
+            </div>
+            <style>{`
+              @keyframes series-pulse {
+                0%, 100% { opacity: 0.35; transform: scale(0.85); }
+                50%      { opacity: 1;    transform: scale(1.1);  }
+              }
+              @media (prefers-reduced-motion: reduce) {
+                [data-testid="series-transitioning-dot"] { animation: none !important; }
+              }
+            `}</style>
+
+            <div
+              style={{
+                position: "relative",
+                opacity: transitioning ? 0.4 : 1,
+                pointerEvents: transitioning ? "none" : "auto",
+                transition: "opacity 180ms ease-out",
+              }}
+              aria-busy={transitioning || undefined}
+            >
+              {sortedItems.length === 0 && !transitioning ? (
+                <EmptyStateWithLanguageSwitch
+                  currentLang={lang}
+                  onSwitch={setLang}
+                  headline={`No ${langLabel(lang)} series in this catalog.`}
+                  message="The provider hasn't categorised any series this way. Try another language."
+                />
+              ) : (
+                <SeriesGrid
+                  items={sortedItems}
+                  onCardClick={handleCardClick}
+                  renderCard={(item) => (
+                    <SeriesCard
+                      key={item.id}
+                      item={item}
+                      onClick={handleCardClick}
+                      isNew={isNewSeries(item.added)}
+                    />
+                  )}
+                />
+              )}
+            </div>
           </>
         )}
       </main>

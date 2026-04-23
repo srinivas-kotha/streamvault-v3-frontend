@@ -1,22 +1,17 @@
 /**
- * SeriesRoute unit tests (Phase 6).
+ * SeriesRoute tests — Phase 4a rebuild.
  *
- * Scope:
- *  - Renders Skeleton while initial fetch is pending.
- *  - Renders ErrorShell on fetch failure; Retry re-fetches.
- *  - Renders category strip after successful fetch.
- *  - Renders poster grid cards after successful fetch.
- *  - Card click navigates to /series/:seriesId.
- *  - useFocusable registered with CONTENT_AREA_SERIES + SERIES_CAT_* + SERIES_CARD_*.
- *  - Retry preserves activeCategoryId (no reset on re-fetch).
+ * The rebuilt route has no CategoryStrip. Items come from
+ * streamSeriesLanguageUnion (cached categories + bounded-parallel per-category
+ * fetches + dedupe). Tests mock the union module directly.
  */
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import React from "react";
-import type { SeriesCategory, SeriesItem } from "../api/schemas";
+import type { SeriesItem } from "../api/schemas";
 
-// ─── Mocks ─────────────────────────────────────────────────────────────────
+// ─── Mocks ──────────────────────────────────────────────────────────────────
 
 const useFocusableSpy = vi.hoisted(() => vi.fn());
 vi.mock("@noriginmedia/norigin-spatial-navigation", () => ({
@@ -44,33 +39,54 @@ vi.mock("react-router-dom", () => ({
   useNavigate: () => mockNavigate,
 }));
 
-const fetchSeriesCategoriesMock = vi.hoisted(() => vi.fn());
-const fetchSeriesListMock = vi.hoisted(() => vi.fn());
+const streamSeriesLanguageUnionMock = vi.hoisted(() => vi.fn());
+const invalidateSeriesLanguageUnionCacheMock = vi.hoisted(() => vi.fn());
+vi.mock("../features/series/seriesLanguageUnion", () => ({
+  streamSeriesLanguageUnion: streamSeriesLanguageUnionMock,
+  invalidateSeriesLanguageUnionCache: invalidateSeriesLanguageUnionCacheMock,
+  lookupCachedSeries: vi.fn(() => undefined),
+}));
+
+const fetchHistoryMock = vi.hoisted(() => vi.fn());
+vi.mock("../api/history", () => ({
+  fetchHistory: fetchHistoryMock,
+  recordHistory: vi.fn(),
+  removeHistoryItem: vi.fn(),
+}));
+
+vi.mock("../api/favorites", () => ({
+  addFavorite: vi.fn(),
+  removeFavorite: vi.fn(),
+  isFavorited: () => false,
+}));
+
 vi.mock("../api/series", () => ({
-  fetchSeriesCategories: fetchSeriesCategoriesMock,
-  fetchSeriesList: fetchSeriesListMock,
+  fetchSeriesInfo: vi.fn(),
+  fetchSeriesCategories: vi.fn(),
+  fetchSeriesList: vi.fn(),
 }));
 
 const openPlayerMock = vi.hoisted(() => vi.fn());
-vi.mock("../player", () => ({
+vi.mock("../player/usePlayerOpener", () => ({
   usePlayerOpener: () => ({ openPlayer: openPlayerMock }),
 }));
 
-// Mock langPref: return "all" so language filter passes all mock items
-// (mock category names like "Drama"/"Comedy" don't match language patterns).
-vi.mock("../lib/langPref", () => ({
-  getLangPref: () => "all",
-  setLangPref: vi.fn(),
+// Force "all" language so mock items pass the filter.
+const langRef = { current: "all" as "all" | "telugu" | "hindi" | "english" };
+vi.mock("../lib/useLangPref", () => ({
+  useLangPref: () => {
+    const [value, setValue] = React.useState(langRef.current);
+    const set = (next: typeof langRef.current) => {
+      langRef.current = next;
+      setValue(next);
+    };
+    return [value, set] as const;
+  },
 }));
 
 import { SeriesRoute } from "./SeriesRoute";
 
-// ─── Fixtures ────────────────────────────────────────────────────────────────
-
-const mockCategories: SeriesCategory[] = [
-  { id: "cat1", name: "Drama", type: "series", count: 10 },
-  { id: "cat2", name: "Comedy", type: "series", count: 5 },
-];
+// ─── Fixtures ───────────────────────────────────────────────────────────────
 
 const mockItems: SeriesItem[] = [
   {
@@ -81,6 +97,7 @@ const mockItems: SeriesItem[] = [
     isAdult: false,
     rating: "9.5",
     year: "2008",
+    added: "2024-01-01T00:00:00Z",
   },
   {
     id: "s2",
@@ -88,173 +105,62 @@ const mockItems: SeriesItem[] = [
     categoryId: "cat1",
     icon: "https://example.com/wire.jpg",
     isAdult: false,
+    added: "2026-04-20T00:00:00Z",
   },
 ];
 
-// ─── Tests ───────────────────────────────────────────────────────────────────
+function emitBatch(items: SeriesItem[]) {
+  return (
+    _lang: string,
+    onBatch: (b: {
+      items: SeriesItem[];
+      isFinal: boolean;
+      matchedCategories: number;
+      completedCategories: number;
+    }) => void,
+  ) => {
+    onBatch({
+      items,
+      isFinal: true,
+      matchedCategories: 1,
+      completedCategories: 1,
+    });
+    return Promise.resolve();
+  };
+}
+
+// ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe("SeriesRoute", () => {
   beforeEach(() => {
     useFocusableSpy.mockClear();
     mockNavigate.mockClear();
-    fetchSeriesCategoriesMock.mockReset();
-    fetchSeriesListMock.mockReset();
+    openPlayerMock.mockClear();
+    streamSeriesLanguageUnionMock.mockReset();
+    invalidateSeriesLanguageUnionCacheMock.mockReset();
+    fetchHistoryMock.mockReset();
+    fetchHistoryMock.mockResolvedValue([]);
+    langRef.current = "all";
+    localStorage.clear();
   });
 
-  it("renders skeleton while initial fetch is pending", () => {
-    fetchSeriesCategoriesMock.mockReturnValue(new Promise(() => {})); // never resolves
-
+  it("shows skeleton while the language union is pending", () => {
+    streamSeriesLanguageUnionMock.mockReturnValue(new Promise(() => {}));
     const { container } = render(<SeriesRoute />);
     expect(container.querySelectorAll(".skeleton").length).toBeGreaterThan(0);
   });
 
-  it("renders ErrorShell when fetchSeriesCategories rejects", async () => {
-    fetchSeriesCategoriesMock.mockRejectedValue(new Error("network"));
-
+  it("renders ErrorShell when the union fetch rejects", async () => {
+    streamSeriesLanguageUnionMock.mockRejectedValue(new Error("network down"));
     render(<SeriesRoute />);
     expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.getByText(/can't load series/i)).toBeInTheDocument();
   });
 
-  it("renders category strip after successful fetch", async () => {
-    fetchSeriesCategoriesMock.mockResolvedValue(mockCategories);
-    fetchSeriesListMock.mockResolvedValue(mockItems);
-
+  it("Retry re-runs the union fetch — does not call window.location.reload", async () => {
+    streamSeriesLanguageUnionMock.mockRejectedValueOnce(new Error("oops"));
     render(<SeriesRoute />);
-    await waitFor(() => {
-      expect(
-        screen.getByRole("toolbar", { name: /series categories/i }),
-      ).toBeInTheDocument();
-    });
-    expect(screen.getByRole("button", { name: /drama/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /comedy/i })).toBeInTheDocument();
-  });
-
-  it("renders series cards in the grid after successful fetch", async () => {
-    fetchSeriesCategoriesMock.mockResolvedValue(mockCategories);
-    fetchSeriesListMock.mockResolvedValue(mockItems);
-
-    render(<SeriesRoute />);
-    await waitFor(() => {
-      expect(
-        screen.getByRole("list", { name: /series grid/i }),
-      ).toBeInTheDocument();
-    });
-    expect(
-      screen.getByRole("button", { name: /breaking bad/i }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /the wire/i }),
-    ).toBeInTheDocument();
-  });
-
-  it("clicking a card navigates to /series/:id (not open player)", async () => {
-    fetchSeriesCategoriesMock.mockResolvedValue(mockCategories);
-    fetchSeriesListMock.mockResolvedValue(mockItems);
-    mockNavigate.mockClear();
-
-    render(<SeriesRoute />);
-    const card = await screen.findByRole("button", { name: /breaking bad/i });
-    await userEvent.click(card);
-
-    expect(mockNavigate).toHaveBeenCalledWith("/series/s1");
-    expect(openPlayerMock).not.toHaveBeenCalled();
-  });
-
-  it("registers useFocusable with CONTENT_AREA_SERIES", async () => {
-    fetchSeriesCategoriesMock.mockResolvedValue(mockCategories);
-    fetchSeriesListMock.mockResolvedValue(mockItems);
-
-    render(<SeriesRoute />);
-    await waitFor(() =>
-      expect(
-        screen.getByRole("toolbar", { name: /series categories/i }),
-      ).toBeInTheDocument(),
-    );
-
-    const keys = useFocusableSpy.mock.calls
-      .map((call) => call[0]?.focusKey)
-      .filter(Boolean);
-
-    expect(keys).toContain("CONTENT_AREA_SERIES");
-  });
-
-  it("registers SERIES_CAT_* focus keys for each category", async () => {
-    fetchSeriesCategoriesMock.mockResolvedValue(mockCategories);
-    fetchSeriesListMock.mockResolvedValue(mockItems);
-
-    render(<SeriesRoute />);
-    await waitFor(() =>
-      expect(
-        screen.getByRole("toolbar", { name: /series categories/i }),
-      ).toBeInTheDocument(),
-    );
-
-    const keys = useFocusableSpy.mock.calls
-      .map((call) => call[0]?.focusKey)
-      .filter(Boolean);
-
-    expect(keys).toContain("SERIES_CAT_cat1");
-    expect(keys).toContain("SERIES_CAT_cat2");
-  });
-
-  it("registers SERIES_CARD_* focus keys for each item", async () => {
-    fetchSeriesCategoriesMock.mockResolvedValue(mockCategories);
-    fetchSeriesListMock.mockResolvedValue(mockItems);
-
-    render(<SeriesRoute />);
-    await waitFor(() =>
-      expect(
-        screen.getByRole("list", { name: /series grid/i }),
-      ).toBeInTheDocument(),
-    );
-
-    const keys = useFocusableSpy.mock.calls
-      .map((call) => call[0]?.focusKey)
-      .filter(Boolean);
-
-    expect(keys).toContain("SERIES_CARD_s1");
-    expect(keys).toContain("SERIES_CARD_s2");
-  });
-
-  it("shows empty state when no items in category", async () => {
-    fetchSeriesCategoriesMock.mockResolvedValue(mockCategories);
-    fetchSeriesListMock.mockResolvedValue([]);
-
-    render(<SeriesRoute />);
-    await waitFor(() => {
-      expect(
-        screen.getByText(/no series in this category/i),
-      ).toBeInTheDocument();
-    });
-  });
-
-  it("Retry button calls fetchSeriesCategories again", async () => {
-    fetchSeriesCategoriesMock.mockRejectedValueOnce(new Error("fail"));
-    fetchSeriesCategoriesMock.mockResolvedValue(mockCategories);
-    fetchSeriesListMock.mockResolvedValue(mockItems);
-
-    render(<SeriesRoute />);
-    // Wait for error state
     await screen.findByRole("alert");
-
-    // Click retry
-    const retryBtn = screen.getByRole("button", { name: /retry/i });
-    await userEvent.click(retryBtn);
-
-    // Categories should now appear
-    await waitFor(() => {
-      expect(
-        screen.getByRole("toolbar", { name: /series categories/i }),
-      ).toBeInTheDocument();
-    });
-
-    expect(fetchSeriesCategoriesMock).toHaveBeenCalledTimes(2);
-  });
-
-  it("does NOT call window.location.reload on retry", async () => {
-    fetchSeriesCategoriesMock.mockRejectedValueOnce(new Error("fail"));
-    fetchSeriesCategoriesMock.mockResolvedValue(mockCategories);
-    fetchSeriesListMock.mockResolvedValue(mockItems);
 
     const reloadSpy = vi.fn();
     Object.defineProperty(window, "location", {
@@ -262,11 +168,95 @@ describe("SeriesRoute", () => {
       value: { ...window.location, reload: reloadSpy },
     });
 
-    render(<SeriesRoute />);
-    await screen.findByRole("alert");
-    const retryBtn = screen.getByRole("button", { name: /retry/i });
-    await userEvent.click(retryBtn);
+    streamSeriesLanguageUnionMock.mockImplementationOnce(emitBatch(mockItems));
+    await userEvent.click(screen.getByRole("button", { name: /retry/i }));
 
+    await waitFor(() => {
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
     expect(reloadSpy).not.toHaveBeenCalled();
+    expect(invalidateSeriesLanguageUnionCacheMock).toHaveBeenCalled();
+    expect(streamSeriesLanguageUnionMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("renders series cards once the union resolves", async () => {
+    streamSeriesLanguageUnionMock.mockImplementation(emitBatch(mockItems));
+    render(<SeriesRoute />);
+    expect(
+      await screen.findByRole("button", { name: /breaking bad/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /the wire/i })).toBeInTheDocument();
+  });
+
+  it("clicking a series card navigates to /series/:id (never openPlayer)", async () => {
+    streamSeriesLanguageUnionMock.mockImplementation(emitBatch(mockItems));
+    render(<SeriesRoute />);
+    const card = await screen.findByRole("button", { name: /breaking bad/i });
+    await userEvent.click(card);
+    expect(mockNavigate).toHaveBeenCalledWith("/series/s1");
+    expect(openPlayerMock).not.toHaveBeenCalled();
+  });
+
+  it("renders the language-switch empty state when the union is empty", async () => {
+    langRef.current = "telugu";
+    streamSeriesLanguageUnionMock.mockImplementation(emitBatch([]));
+    render(<SeriesRoute />);
+    expect(
+      await screen.findByText(/no telugu series in this catalog/i),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /try hindi/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /show all/i })).toBeInTheDocument();
+  });
+
+  it("renders the sort toolbar with Newest default + series count", async () => {
+    streamSeriesLanguageUnionMock.mockImplementation(emitBatch(mockItems));
+    render(<SeriesRoute />);
+    await screen.findByRole("button", { name: /breaking bad/i });
+    const newestBtn = screen.getByRole("button", { name: /^newest$/i });
+    expect(newestBtn).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText(/2 series/i)).toBeInTheDocument();
+  });
+
+  it("flipping sort to Name reorders cards alphabetically", async () => {
+    streamSeriesLanguageUnionMock.mockImplementation(emitBatch(mockItems));
+    render(<SeriesRoute />);
+    await screen.findByRole("button", { name: /breaking bad/i });
+    await userEvent.click(screen.getByRole("button", { name: /^name$/i }));
+    const cards = screen
+      .getAllByRole("button")
+      .filter((b) => /breaking bad|the wire/i.test(b.getAttribute("aria-label") ?? ""));
+    expect(cards[0]?.getAttribute("aria-label")).toMatch(/breaking bad/i);
+  });
+
+  it("registers CONTENT_AREA_SERIES + per-card SERIES_CARD_* focus keys", async () => {
+    streamSeriesLanguageUnionMock.mockImplementation(emitBatch(mockItems));
+    render(<SeriesRoute />);
+    await screen.findByRole("button", { name: /breaking bad/i });
+    const keys = useFocusableSpy.mock.calls
+      .map((call) => call[0]?.focusKey)
+      .filter(Boolean);
+    expect(keys).toContain("CONTENT_AREA_SERIES");
+    expect(keys).toContain("SERIES_CARD_s1");
+    expect(keys).toContain("SERIES_CARD_s2");
+  });
+
+  it("renders a Resume hero when history has a partially-watched series episode", async () => {
+    streamSeriesLanguageUnionMock.mockImplementation(emitBatch(mockItems));
+    fetchHistoryMock.mockResolvedValue([
+      {
+        id: 1,
+        content_type: "series",
+        content_id: 42,
+        content_name: "Panchayat · S2E4 · Title",
+        content_icon: null,
+        progress_seconds: 600,
+        duration_seconds: 1800,
+        watched_at: "2026-04-23T10:00:00Z",
+      },
+    ]);
+    render(<SeriesRoute />);
+    expect(
+      await screen.findByRole("button", { name: /resume s2e4 of panchayat/i }),
+    ).toBeInTheDocument();
   });
 });
