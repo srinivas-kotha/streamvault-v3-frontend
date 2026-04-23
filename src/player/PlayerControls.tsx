@@ -184,12 +184,20 @@ interface ControlButtonProps {
   ariaExpanded?: boolean;
   ariaHasPopup?: boolean;
   extraStyle?: CSSProperties;
-  /**
-   * When set, the first press fires onPress AND starts a hold-repeat.
-   * onHoldTick is called every HOLD_SEEK_TICK_MS until onEnterRelease.
-   * Used by the ±10s seek buttons (spec §3.2 — 30s jumps every 500ms).
-   */
   onHoldTick?: () => void;
+  /**
+   * Per-direction arrow overrides. When set, the override runs and norigin
+   * nav is blocked. Used by transport buttons (Play/Pause + ±10s) for
+   * arrow-seek + ArrowDown-to-settings-row (6d prod feedback).
+   */
+  arrowOverrides?: Partial<Record<"left" | "right" | "up" | "down", () => void>>;
+  /**
+   * Where ArrowUp lands. Defaults to FK.BACK per spec §4.2. Right-side
+   * settings (Volume/Audio/Subs/Quality) override this to FK.PLAY_PAUSE
+   * so Down→settings→Up returns to the transport instead of bouncing to
+   * Back.
+   */
+  upTarget?: string;
 }
 
 function ControlButton({
@@ -204,6 +212,8 @@ function ControlButton({
   ariaHasPopup,
   extraStyle,
   onHoldTick,
+  arrowOverrides,
+  upTarget = FK.BACK,
 }: ControlButtonProps) {
   const holdIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -218,9 +228,6 @@ function ControlButton({
     focusKey,
     focusable,
     onEnterPress: (_: unknown, details: KeyPressDetails) => {
-      // pressedKeys.enter counts how many keydown events fired since the
-      // most recent keyup. `1` = initial press; `>1` = OS auto-repeat. We
-      // only want to run side effects on the initial press.
       if ((details.pressedKeys?.enter ?? 0) > 1) return;
       onPress();
       if (onHoldTick) {
@@ -230,16 +237,19 @@ function ControlButton({
     },
     onEnterRelease: clearHold,
     onArrowPress: (direction) => {
-      // Up from any control bar button → Back (spec §4.2).
-      // Edge Left/Right blocks default nav so focus doesn't wander (no wrap).
-      // Down is a no-op — nothing below the control bar.
-      if (direction === "up") {
-        setFocus(FK.BACK);
+      const dir = direction as "left" | "right" | "up" | "down";
+      const override = arrowOverrides?.[dir];
+      if (override) {
+        override();
         return false;
       }
-      if (direction === "down") return false;
-      if (direction === "left" && isEdgeLeft) return false;
-      if (direction === "right" && isEdgeRight) return false;
+      if (dir === "up") {
+        setFocus(upTarget);
+        return false;
+      }
+      if (dir === "down") return false;
+      if (dir === "left" && isEdgeLeft) return false;
+      if (dir === "right" && isEdgeRight) return false;
       return true;
     },
   });
@@ -625,6 +635,32 @@ export function PlayerControls({
   const leftEdgeKey = orderedKeys[0];
   const rightEdgeKey = orderedKeys[orderedKeys.length - 1];
 
+  // "Right-side" = Volume/Audio/Subs/Quality. ArrowDown from the transport
+  // buttons jumps here so settings are reachable without walking through
+  // every seek button.
+  const RIGHT_SIDE_KEYS: readonly string[] = [
+    FK.VOLUME,
+    FK.AUDIO,
+    FK.SUBTITLES,
+    FK.QUALITY,
+  ];
+  const firstRightSideKey = orderedKeys.find((k) => RIGHT_SIDE_KEYS.includes(k));
+
+  // 6d — prod feedback: users expect ArrowLeft/Right to seek (Netflix
+  // convention), not walk the bar. Applied to Play/Pause + ±10s buttons
+  // on VOD/series-episode. Live has no seekable window so arrows fall
+  // through to default nav.
+  const transportArrowOverrides: Partial<
+    Record<"left" | "right" | "up" | "down", () => void>
+  > = {};
+  if (!isLive) {
+    transportArrowOverrides.left = () => onSeek(currentTimeRef.current - 10);
+    transportArrowOverrides.right = () => onSeek(currentTimeRef.current + 10);
+  }
+  if (firstRightSideKey) {
+    transportArrowOverrides.down = () => setFocus(firstRightSideKey);
+  }
+
   // Given a popover anchor control key, return the sibling control to jump
   // to when the user presses Left/Right inside the popover (spec §5 —
   // "Left/Right on any item closes popover + advances to the next sibling").
@@ -875,6 +911,7 @@ export function PlayerControls({
               onPress={togglePlayPause}
               isEdgeLeft={leftEdgeKey === FK.PLAY_PAUSE}
               isEdgeRight={rightEdgeKey === FK.PLAY_PAUSE}
+              arrowOverrides={transportArrowOverrides}
             />
 
             {hasNext && onNext && (
@@ -897,6 +934,7 @@ export function PlayerControls({
               onHoldTick={holdSeekBack}
               isEdgeLeft={leftEdgeKey === FK.SEEK_BACK}
               isEdgeRight={rightEdgeKey === FK.SEEK_BACK}
+              arrowOverrides={transportArrowOverrides}
             />
             <ControlButton
               focusKey={FK.SEEK_FORWARD}
@@ -907,6 +945,7 @@ export function PlayerControls({
               onHoldTick={holdSeekForward}
               isEdgeLeft={leftEdgeKey === FK.SEEK_FORWARD}
               isEdgeRight={rightEdgeKey === FK.SEEK_FORWARD}
+              arrowOverrides={transportArrowOverrides}
             />
 
             <div style={{ flex: 1 }} />
@@ -921,6 +960,7 @@ export function PlayerControls({
                 ariaHasPopup
                 isEdgeLeft={leftEdgeKey === FK.VOLUME}
                 isEdgeRight={rightEdgeKey === FK.VOLUME}
+                upTarget={FK.PLAY_PAUSE}
               />
               {openMenu === "volume" && (
                 <VolumeSlider
@@ -947,6 +987,7 @@ export function PlayerControls({
                   ariaHasPopup
                   isEdgeLeft={leftEdgeKey === FK.AUDIO}
                   isEdgeRight={rightEdgeKey === FK.AUDIO}
+                  upTarget={FK.PLAY_PAUSE}
                 />
                 {openMenu === "audio" && (
                   <ul style={menuStyle} role="listbox" aria-label="Audio tracks">
@@ -983,6 +1024,7 @@ export function PlayerControls({
                   ariaHasPopup
                   isEdgeLeft={leftEdgeKey === FK.SUBTITLES}
                   isEdgeRight={rightEdgeKey === FK.SUBTITLES}
+                  upTarget={FK.PLAY_PAUSE}
                 />
                 {openMenu === "subtitles" && (
                   <ul style={menuStyle} role="listbox" aria-label="Subtitles">
@@ -1029,6 +1071,7 @@ export function PlayerControls({
                   ariaHasPopup
                   isEdgeLeft={leftEdgeKey === FK.QUALITY}
                   isEdgeRight={rightEdgeKey === FK.QUALITY}
+                  upTarget={FK.PLAY_PAUSE}
                 />
                 {openMenu === "quality" && (
                   <ul style={menuStyle} role="listbox" aria-label="Quality">
