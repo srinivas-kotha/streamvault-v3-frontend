@@ -249,6 +249,11 @@ export function SettingsRoute() {
     focusKey: "CONTENT_AREA_SETTINGS",
     focusable: false,
     trackChildren: true,
+    // Absorb dead-direction bubble-ups at the route's outer edges; Down
+    // stays open so rows can still reach BottomDock. See
+    // streamvault-v3-focus-vanish-bug.md.
+    isFocusBoundary: true,
+    focusBoundaryDirections: ["left", "right", "up"],
   });
 
   // onLoggedOut is a no-op here — the redirect in AccountSection handles navigation.

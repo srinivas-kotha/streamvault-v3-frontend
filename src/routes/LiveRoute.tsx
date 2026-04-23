@@ -104,6 +104,11 @@ export function LiveRoute() {
     focusKey: "CONTENT_AREA_LIVE",
     focusable: false,
     trackChildren: true,
+    // Absorb dead-direction bubble-ups at the route's outer edges; Down
+    // stays open so the bottom row can still reach BottomDock. See
+    // streamvault-v3-focus-vanish-bug.md.
+    isFocusBoundary: true,
+    focusBoundaryDirections: ["left", "right", "up"],
   });
   const { openPlayer } = usePlayerOpener();
 

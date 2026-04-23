@@ -112,6 +112,12 @@ export function MoviesRoute() {
     focusKey: "CONTENT_AREA_MOVIES",
     focusable: false,
     trackChildren: true,
+    // Absorb dead-direction bubble-ups at the route's outer edges (Left on
+    // first poster / Telugu chip, Right on last poster / English chip, Up
+    // on hero). Down is not a boundary so the grid's bottom row can still
+    // navigate into BottomDock. See streamvault-v3-focus-vanish-bug.md.
+    isFocusBoundary: true,
+    focusBoundaryDirections: ["left", "right", "up"],
   });
 
   const { openPlayer } = usePlayerOpener();

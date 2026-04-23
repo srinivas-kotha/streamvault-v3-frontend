@@ -28,7 +28,18 @@ export function BottomDock({
 }: BottomDockProps) {
   // FIX: M1 — useFocusable returns { ref, focusKey, focused, focusSelf, ... };
   // pass focusKey (a string) to FocusContext.Provider value.
-  const { ref, focusKey } = useFocusable({ focusKey: "DOCK" });
+  // isFocusBoundary absorbs dead-direction bubble-ups at the dock's edges —
+  // Left on the leftmost tab, Right on the rightmost, Down (nothing below).
+  // Without this, norigin's smartNavigate recurses up to SN:ROOT and in some
+  // layouts lands on setFocus(undefined), blurring the current tab and
+  // leaving currentFocusKey null (see streamvault-v3-focus-vanish-bug.md).
+  // Up is not a boundary: DockTab's onArrowPress handles Up explicitly via
+  // setFocus(CONTENT_AREA_*) and returns false to block default navigation.
+  const { ref, focusKey } = useFocusable({
+    focusKey: "DOCK",
+    isFocusBoundary: true,
+    focusBoundaryDirections: ["left", "right", "down"],
+  });
 
   return (
     <FocusContext.Provider value={focusKey}>
