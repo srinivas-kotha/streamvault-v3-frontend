@@ -14,9 +14,11 @@ import { seedFakeAuth } from "./helpers";
 test.describe("SettingsRoute D-pad navigation", () => {
   test.beforeEach(async ({ page }) => {
     await seedFakeAuth(page);
-    // Seed a known username for the account section
+    // Seed a known username for the account section. seedFakeAuth already
+    // seeds localStorage["sv_access_token"] with a generic value; overwrite
+    // with a display-friendly name here.
     await page.addInitScript(() => {
-      sessionStorage.setItem("sv_access_token", "e2e-user");
+      localStorage.setItem("sv_access_token", "e2e-user");
     });
     await page.goto("/settings");
     await page.waitForTimeout(500);

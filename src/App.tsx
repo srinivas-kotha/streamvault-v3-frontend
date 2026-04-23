@@ -30,7 +30,7 @@ import { SeriesDetailRoute } from "./routes/SeriesDetailRoute";
 import { TestPrimitivesRoute } from "./routes";
 import { SilkProbe } from "./nav/SilkProbe";
 import { LoginPage } from "./features/auth/LoginPage";
-import { hasStoredToken } from "./api/auth";
+import { apiClient } from "./api/client";
 import { PlayerProvider, PlayerShell } from "./player";
 
 const DOCK_IDS: readonly DockItem[] = [
@@ -148,11 +148,48 @@ function AppShell() {
   );
 }
 
-export default function App() {
-  const [authed, setAuthed] = useState<boolean>(hasStoredToken());
+/**
+ * Auth gate — async boot with silent refresh.
+ *
+ * On mount we ALWAYS hit /auth/refresh once (regardless of sentinel presence).
+ * This is the "60-day sliding session" behavior spec'd in
+ * docs/ux/00-ia-navigation.md §7.3:
+ *   - Users who closed the tab with a valid refresh cookie stay logged in.
+ *   - Users whose local sentinel was wiped but still have a valid cookie
+ *     recover gracefully (no forced re-login).
+ *   - Users with no cookie (or an expired one) see LoginPage.
+ *
+ * While `checking`, render nothing — boot refresh is fast (<100ms typical),
+ * and a splash would FOUC/flicker on a warm session.
+ */
+type AuthGate = "checking" | "authed" | "unauthed";
 
-  if (!authed) {
-    return <LoginPage onLoginSuccess={() => setAuthed(true)} />;
+export default function App() {
+  const [gate, setGate] = useState<AuthGate>("checking");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const ok = await apiClient.tryBootRefresh();
+      if (cancelled) return;
+      if (ok) {
+        setGate("authed");
+      } else {
+        apiClient.clearSession();
+        setGate("unauthed");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (gate === "checking") {
+    return null;
+  }
+
+  if (gate === "unauthed") {
+    return <LoginPage onLoginSuccess={() => setGate("authed")} />;
   }
 
   // Opt-in to v7 behavior early to silence Future Flag warnings and smooth the

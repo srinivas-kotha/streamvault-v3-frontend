@@ -5,14 +5,17 @@
  * Each chip registers with norigin via useFocusable.
  *
  * Props:
- *   value      — currently active language id (controlled)
- *   onChange   — called when user selects a chip
- *   showSports — render the Sports chip (Live only; default false)
- *   className  — optional extra CSS class on the wrapper div
+ *   value            — currently active language id (controlled)
+ *   onChange         — called when user selects a chip
+ *   showSports       — render the Sports chip (Live only; default false)
+ *   continueWatching — when truthy, renders a leading ContinueWatchingChip
+ *                      (conditional per spec §6.1 — only show when history ≥ 1)
+ *   className        — optional extra CSS class on the wrapper div
  */
 import type { RefObject } from "react";
 import { useFocusable } from "@noriginmedia/norigin-spatial-navigation";
 import type { LangId } from "../lib/langPref";
+import { ContinueWatchingChip } from "./ContinueWatchingChip";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -79,11 +82,24 @@ function LanguageChip({ option, isActive, onSelect }: ChipProps) {
 
 // ─── LanguageRail ─────────────────────────────────────────────────────────────
 
+interface ContinueWatchingConfig {
+  /** Fires when the user activates the Continue-watching chip. */
+  onSelect: () => void;
+  /** Accessible label + button text. Default: "Continue watching". */
+  label?: string;
+}
+
 interface LanguageRailProps {
   value: LangId;
   onChange: (lang: LangId) => void;
   /** Show the Sports chip (Live TV only). Default: false */
   showSports?: boolean;
+  /**
+   * When provided, renders a Continue-watching chip as the leading slot.
+   * Callers must gate on history ≥ 1 (pass `null`/`undefined` otherwise) —
+   * the rail itself does not inspect history.
+   */
+  continueWatching?: ContinueWatchingConfig | null;
   className?: string;
 }
 
@@ -91,6 +107,7 @@ export function LanguageRail({
   value,
   onChange,
   showSports = false,
+  continueWatching,
   className,
 }: LanguageRailProps) {
   // Build the ordered option list; insert Sports after English when shown.
@@ -116,6 +133,16 @@ export function LanguageRail({
         padding: "var(--space-4) var(--space-6) var(--space-2)",
       }}
     >
+      {continueWatching ? (
+        continueWatching.label !== undefined ? (
+          <ContinueWatchingChip
+            onSelect={continueWatching.onSelect}
+            label={continueWatching.label}
+          />
+        ) : (
+          <ContinueWatchingChip onSelect={continueWatching.onSelect} />
+        )
+      ) : null}
       {options.map((opt) => (
         <LanguageChip
           key={opt.id}
