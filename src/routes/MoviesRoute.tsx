@@ -287,28 +287,54 @@ export function MoviesRoute() {
   }, [resumeCandidate, resumeTitle, openPlayer]);
 
   // ─── Focus seeding ────────────────────────────────────────────────────────
-  // Cold mount seeds to the hero when a resume candidate exists (2-input
-  // resume path), else to the first poster (2-input play path). Language
-  // change always seeds to the first poster — the user is actively browsing,
-  // so resume should not pull focus back.
-  const lastSeededLangRef = useRef<LangId | null>(null);
+  // Two distinct paths:
+  //   * Initial seed — fire once per route mount. Prefers the hero (via
+  //     ResumeHero's `autoFocus` prop and its own focusSelf, which avoids
+  //     the "target not registered yet" race we hit with setFocus from
+  //     this effect). Falls back to the first poster when there is no
+  //     resume candidate.
+  //   * Language-change seed — always seed the first poster. The user is
+  //     actively browsing, so a background resume-arrival must not pull
+  //     focus back to the hero mid-browse.
+  //
+  // `heroShouldAutoFocus` is computed from refs so it stays stable across
+  // re-renders once the hero mount grabs focus. It flips to `true` only on
+  // the render where we decide the hero is the initial seed target.
   const didInitialSeedRef = useRef<boolean>(false);
+  const lastSeededLangRef = useRef<LangId>(lang);
+  const [heroShouldAutoFocus, setHeroShouldAutoFocus] = useState(false);
+
   useEffect(() => {
-    if (sortedStreams.length === 0) return;
-    const langChanged = lastSeededLangRef.current !== lang;
-    const isInitialSeed = !didInitialSeedRef.current;
-    if (!langChanged && !isInitialSeed) return;
+    // Initial seed path
+    if (!didInitialSeedRef.current) {
+      if (resumeCandidate) {
+        didInitialSeedRef.current = true;
+        lastSeededLangRef.current = lang;
+        // Hero's own focusSelf handles registration timing. This setState
+        // is a one-shot guarded by a ref so it cannot loop — the rule
+        // can't tell the difference between cascading updates and one-time
+        // imperatives.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setHeroShouldAutoFocus(true);
+        return;
+      }
+      if (sortedStreams.length > 0) {
+        didInitialSeedRef.current = true;
+        lastSeededLangRef.current = lang;
+        const firstId = sortedStreams[0]!.id;
+        const t = setTimeout(() => setFocus(`VOD_CARD_${firstId}`), 0);
+        return () => clearTimeout(t);
+      }
+      return;
+    }
 
-    lastSeededLangRef.current = lang;
-    didInitialSeedRef.current = true;
-
-    // Initial mount + resume available → seed hero. Otherwise seed first card.
-    const target =
-      isInitialSeed && resumeCandidate
-        ? "RESUME_HERO"
-        : `VOD_CARD_${sortedStreams[0]!.id}`;
-    const t = setTimeout(() => setFocus(target), 0);
-    return () => clearTimeout(t);
+    // Language-change seed path
+    if (lastSeededLangRef.current !== lang && sortedStreams.length > 0) {
+      lastSeededLangRef.current = lang;
+      const firstId = sortedStreams[0]!.id;
+      const t = setTimeout(() => setFocus(`VOD_CARD_${firstId}`), 0);
+      return () => clearTimeout(t);
+    }
   }, [lang, sortedStreams, resumeCandidate]);
 
   // ─── Handlers ─────────────────────────────────────────────────────────────
@@ -396,6 +422,7 @@ export function MoviesRoute() {
                   resumeCandidate.progress_seconds
                 }
                 onSelect={handleResume}
+                shouldAutoFocus={heroShouldAutoFocus}
               />
             ) : null}
 
