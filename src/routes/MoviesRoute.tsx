@@ -5,9 +5,10 @@
  *
  * Layout:
  *   Title "MOVIES"
- *   LanguageRail (4 chips — no Sports)  ← optional Continue-watching chip leftmost
+ *   ResumeHero (conditional — only when /api/history has a partial VOD)
+ *   LanguageRail (4 chips — no Sports; no Continue chip on Movies)
  *   Toolbar: sort segmented control + count (sticky)
- *   MovieGrid (VirtuosoGrid) / EmptyStateWithLanguageSwitch
+ *   MovieGrid / EmptyStateWithLanguageSwitch
  *   MovieDetailSheet overlay (opens via ⋯ → More info)
  *
  * Category fetch strategy: we no longer show a CategoryStrip. Instead we
@@ -15,6 +16,11 @@
  * "client-side language union"). Each language swap re-runs the union and
  * focus seeds to row 0 col 0. Sort flips re-order in place and never pull
  * focus.
+ *
+ * Focus seeding rules:
+ *   - Cold mount + resume candidate → focus lands on ResumeHero
+ *   - Cold mount + no resume → focus lands on first poster
+ *   - Language change → focus lands on first poster (resume doesn't grab)
  *
  * MUST PRESERVE: CONTENT_AREA_MOVIES focus key + FocusContext — load-bearing
  * for BottomDock's setFocus("CONTENT_AREA_MOVIES") on ArrowUp (Task 2.4).
@@ -28,6 +34,7 @@ import {
 } from "@noriginmedia/norigin-spatial-navigation";
 import { MovieGrid } from "../features/movies/MovieGrid";
 import { MovieDetailSheet } from "../features/movies/MovieDetailSheet";
+import { ResumeHero } from "../features/movies/ResumeHero";
 import {
   fetchLanguageUnion,
   invalidateLanguageUnionCache,
@@ -197,9 +204,11 @@ export function MoviesRoute() {
     [],
   );
 
-  // ─── Continue-watching chip data ──────────────────────────────────────────
-  // Show the chip when at least one VOD history item has partial progress.
-  // Selecting the chip resumes the most recent partial-watch movie.
+  // ─── Resume candidate — drives the ResumeHero above the LanguageRail ─────
+  // Most recent VOD history entry whose progress sits between 0 and the
+  // watched threshold. Cross-language by design: a user who paused Bhediya
+  // (Hindi) should still see "Resume Bhediya" when they land on /movies,
+  // regardless of the current language filter.
   const resumeCandidate = useMemo<HistoryItem | null>(() => {
     for (const h of history) {
       if (h.content_type !== "vod") continue;
@@ -219,18 +228,30 @@ export function MoviesRoute() {
     });
   }, [resumeCandidate, openPlayer]);
 
-  // ─── Focus seeding — first card on lang change / initial mount ───────────
-  // Only fires when the language actually changes, so sort flips don't steal
-  // focus. A timeout lets VirtuosoGrid render the first card before setFocus.
+  // ─── Focus seeding ────────────────────────────────────────────────────────
+  // Cold mount seeds to the hero when a resume candidate exists (2-input
+  // resume path), else to the first poster (2-input play path). Language
+  // change always seeds to the first poster — the user is actively browsing,
+  // so resume should not pull focus back.
   const lastSeededLangRef = useRef<LangId | null>(null);
+  const didInitialSeedRef = useRef<boolean>(false);
   useEffect(() => {
     if (sortedStreams.length === 0) return;
-    if (lastSeededLangRef.current === lang) return;
+    const langChanged = lastSeededLangRef.current !== lang;
+    const isInitialSeed = !didInitialSeedRef.current;
+    if (!langChanged && !isInitialSeed) return;
+
     lastSeededLangRef.current = lang;
-    const firstId = sortedStreams[0]!.id;
-    const t = setTimeout(() => setFocus(`VOD_CARD_${firstId}`), 0);
+    didInitialSeedRef.current = true;
+
+    // Initial mount + resume available → seed hero. Otherwise seed first card.
+    const target =
+      isInitialSeed && resumeCandidate
+        ? "RESUME_HERO"
+        : `VOD_CARD_${sortedStreams[0]!.id}`;
+    const t = setTimeout(() => setFocus(target), 0);
     return () => clearTimeout(t);
-  }, [lang, sortedStreams]);
+  }, [lang, sortedStreams, resumeCandidate]);
 
   // ─── Handlers ─────────────────────────────────────────────────────────────
   const handleSelect = useCallback(
@@ -297,13 +318,18 @@ export function MoviesRoute() {
           />
         ) : (
           <>
-            <LanguageRail
-              value={lang}
-              onChange={setLang}
-              {...(resumeCandidate
-                ? { continueWatching: { onSelect: handleResume } }
-                : {})}
-            />
+            {resumeCandidate ? (
+              <ResumeHero
+                title={resumeCandidate.content_name ?? "your movie"}
+                remainingSeconds={
+                  resumeCandidate.duration_seconds -
+                  resumeCandidate.progress_seconds
+                }
+                onSelect={handleResume}
+              />
+            ) : null}
+
+            <LanguageRail value={lang} onChange={setLang} />
 
             <div
               role="toolbar"
