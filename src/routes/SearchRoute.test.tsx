@@ -198,11 +198,16 @@ describe("SearchRoute", () => {
     const input = screen.getByRole("searchbox");
     await user.type(input, "cn");
 
+    // After UX spec update there's a kind chip radio group with the same
+    // labels — assert the section region is what we expect, not just the
+    // text (which now matches multiple nodes).
     await waitFor(() => {
-      expect(screen.getByText("Live")).toBeInTheDocument();
+      expect(
+        screen.getByRole("region", { name: /^live$/i }),
+      ).toBeInTheDocument();
     });
-    expect(screen.getByText("Movies")).toBeInTheDocument();
-    expect(screen.getByText("Series")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: /^movies$/i })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: /^series$/i })).toBeInTheDocument();
   });
 
   it("shows empty state when results are all empty for 2+ char query", async () => {

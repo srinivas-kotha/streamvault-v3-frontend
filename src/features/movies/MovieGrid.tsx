@@ -32,15 +32,15 @@ export interface MovieGridProps {
 }
 
 function columnsForWidth(width: number): number {
-  // Sized for TV viewports: Fire TV Silk reports ~1280 CSS px at 1080p (DPR=2)
-  // and ~1600-1920 at 4K; posters were too large on TV at prior column counts
-  // (reported 2026-04-23 from a real Fire TV). Bump each tier by one so cards
-  // settle at ~200-220 px wide on TV, matching Netflix/Prime density.
-  if (width >= 1600) return 7;
-  if (width >= 1280) return 6;
-  if (width >= 960) return 5;
-  if (width >= 640) return 4;
-  return 3;
+  // Card-density tuned for 10-foot readability. On a real Fire TV (reported
+  // 2026-04-24) 6 cols at 1280 CSS px felt oversized relative to the TV
+  // type scale; dropping one column per tier lands cards at ~250-280 px wide,
+  // which matches Netflix / Prime grid density on 1080p TVs.
+  if (width >= 1600) return 6;
+  if (width >= 1280) return 5;
+  if (width >= 960) return 4;
+  if (width >= 640) return 3;
+  return 2;
 }
 
 function useResponsiveColumns(): number {

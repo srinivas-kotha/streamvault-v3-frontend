@@ -40,6 +40,7 @@ import {
   type SeriesSortKey,
 } from "../features/series/sortSeries";
 import { LanguageRail } from "../components/LanguageRail";
+import { FindInput, FindTrigger, filterByQuery } from "../components/FindInput";
 import { ResumeHero } from "../features/movies/ResumeHero";
 import { ErrorShell } from "../primitives/ErrorShell";
 import { Skeleton } from "../primitives/Skeleton";
@@ -164,6 +165,7 @@ export function SeriesRoute() {
   const [error, setError] = useState(false);
   const [transitioning, setTransitioning] = useState(false);
   const [fetchGeneration, setFetchGeneration] = useState(0);
+  const [findQuery, setFindQuery] = useState("");
 
   // ─── Language union fetch ─────────────────────────────────────────────────
   useEffect(() => {
@@ -204,10 +206,14 @@ export function SeriesRoute() {
     };
   }, []);
 
-  // ─── Derived: sorted items ────────────────────────────────────────────────
+  // ─── Derived: filter → sorted items ───────────────────────────────────────
+  const filteredItems = useMemo(
+    () => filterByQuery(items, findQuery, (s) => s.name),
+    [items, findQuery],
+  );
   const sortedItems = useMemo(
-    () => sortSeriesItems(items, sort),
-    [items, sort],
+    () => sortSeriesItems(filteredItems, sort),
+    [filteredItems, sort],
   );
 
   // ─── Resume candidate — most-recent in-progress SERIES episode ────────────
@@ -303,9 +309,23 @@ export function SeriesRoute() {
     (next: LangId) => {
       setTransitioning(true);
       setLang(next);
+      setFindQuery("");
     },
     [setLang],
   );
+
+  const handleFindTrigger = useCallback(() => {
+    setFocus("SERIES_FIND_INPUT");
+  }, []);
+
+  const handleClearFilter = useCallback(() => {
+    setFindQuery("");
+    setFocus("SERIES_FIND_TRIGGER");
+  }, []);
+
+  const handleSearchEverywhere = useCallback(() => {
+    navigate(`/search?q=${encodeURIComponent(findQuery)}`);
+  }, [navigate, findQuery]);
 
   const handleRetry = useCallback(() => {
     invalidateSeriesLanguageUnionCache();
@@ -366,6 +386,13 @@ export function SeriesRoute() {
 
             <LanguageRail value={lang} onChange={handleLangChange} />
 
+            <FindInput
+              value={findQuery}
+              onChange={setFindQuery}
+              surface="SERIES"
+              placeholder="Find in Series…"
+            />
+
             <div
               role="toolbar"
               aria-label="Series sort"
@@ -411,6 +438,11 @@ export function SeriesRoute() {
                     onSelect={() => handleSortChange(opt.id)}
                   />
                 ))}
+                <FindTrigger
+                  surface="SERIES"
+                  onSelect={handleFindTrigger}
+                  isActive={findQuery.length > 0}
+                />
               </div>
 
               <span
@@ -439,7 +471,9 @@ export function SeriesRoute() {
                 ) : null}
                 {transitioning
                   ? `Loading ${langLabel(lang) || "all"} series…`
-                  : `${sortedItems.length.toLocaleString()} series`}
+                  : findQuery.trim().length > 0
+                    ? `${sortedItems.length.toLocaleString()} of ${items.length.toLocaleString()} series`
+                    : `${sortedItems.length.toLocaleString()} series`}
               </span>
             </div>
             <style>{`
@@ -462,12 +496,20 @@ export function SeriesRoute() {
               aria-busy={transitioning || undefined}
             >
               {sortedItems.length === 0 && !transitioning ? (
-                <EmptyStateWithLanguageSwitch
-                  currentLang={lang}
-                  onSwitch={setLang}
-                  headline={`No ${langLabel(lang)} series in this catalog.`}
-                  message="The provider hasn't categorised any series this way. Try another language."
-                />
+                findQuery.trim().length > 0 ? (
+                  <SeriesFindEmptyState
+                    query={findQuery}
+                    onClear={handleClearFilter}
+                    onSearchEverywhere={handleSearchEverywhere}
+                  />
+                ) : (
+                  <EmptyStateWithLanguageSwitch
+                    currentLang={lang}
+                    onSwitch={setLang}
+                    headline={`No ${langLabel(lang)} series in this catalog.`}
+                    message="The provider hasn't categorised any series this way. Try another language."
+                  />
+                )
               ) : (
                 <SeriesGrid
                   items={sortedItems}
@@ -487,5 +529,75 @@ export function SeriesRoute() {
         )}
       </main>
     </FocusContext.Provider>
+  );
+}
+
+function SeriesFindEmptyState({
+  query,
+  onClear,
+  onSearchEverywhere,
+}: {
+  query: string;
+  onClear: () => void;
+  onSearchEverywhere: () => void;
+}) {
+  const { ref: clearRef, focused: clearFocused } = useFocusable<HTMLButtonElement>({
+    focusKey: "SERIES_FIND_EMPTY_CLEAR",
+    onEnterPress: onClear,
+  });
+  const { ref: goRef, focused: goFocused } = useFocusable<HTMLButtonElement>({
+    focusKey: "SERIES_FIND_EMPTY_GO",
+    onEnterPress: onSearchEverywhere,
+  });
+
+  const btnStyle = (focused: boolean) => ({
+    padding: "var(--space-3) var(--space-5)",
+    borderRadius: "var(--radius-sm)",
+    border: focused
+      ? "2px solid var(--accent-copper)"
+      : "2px solid var(--bg-elevated)",
+    background: focused ? "var(--accent-copper)" : "var(--bg-surface)",
+    color: focused ? "var(--bg-base)" : "var(--text-primary)",
+    fontSize: "var(--text-label-size)",
+    letterSpacing: "var(--text-label-tracking)",
+    textTransform: "uppercase" as const,
+    cursor: "pointer" as const,
+  });
+
+  return (
+    <div
+      role="status"
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        gap: "var(--space-4)",
+        padding: "var(--space-12) var(--space-6)",
+        color: "var(--text-secondary)",
+        textAlign: "center",
+      }}
+    >
+      <p style={{ margin: 0, fontSize: "var(--text-title-size)", color: "var(--text-primary)" }}>
+        No matches for &ldquo;{query}&rdquo; in Series.
+      </p>
+      <div style={{ display: "flex", gap: "var(--space-3)" }}>
+        <button
+          ref={clearRef as RefObject<HTMLButtonElement>}
+          type="button"
+          onClick={onClear}
+          style={btnStyle(clearFocused)}
+        >
+          Clear filter
+        </button>
+        <button
+          ref={goRef as RefObject<HTMLButtonElement>}
+          type="button"
+          onClick={onSearchEverywhere}
+          style={btnStyle(goFocused)}
+        >
+          Search everywhere →
+        </button>
+      </div>
+    </div>
   );
 }

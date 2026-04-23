@@ -1,133 +1,80 @@
 /**
- * FavoritesRoute — /favorites screen (Phase 8).
+ * FavoritesRoute — /favorites screen.
  *
- * Shows all favorited items grouped by type:
- *   1. Live Channels
- *   2. Movies (VOD)
- *   3. Series
+ * Rebuilt 2026-04-24 per UX-lead spec (search-favorites session):
+ *   - Three horizontal rails: Live Channels · Movies · Series
+ *   - Cards are 2:3 FavoritePosterCard (visual parity with MovieCard/SeriesCard)
+ *   - Per-card activation: Live → player, VOD → player, Series → /series/:id
+ *   - Per-card OverflowMenu (Play / More info for VOD / Remove from favorites)
+ *   - Sort toolbar (Recently added · Alphabetical), persisted
+ *   - Per-section empty states (only a whole-page empty if ALL sections empty)
  *
- * Each section is a horizontal row of focusable cards. D-pad Left/Right
- * navigates within a row; Up/Down moves between rows. Enter on a card
- * navigates to the content (stub: navigate(-1) back to the source route
- * in Phase 8; deep-link in Phase 9).
+ * Layout note: no LanguageRail. Favorites are cross-language by design.
  *
- * Dock: accessed via Settings → Favorites. The BottomDock keeps its
- * 5-item shape unchanged. See PR body for rationale.
+ * MUST PRESERVE: CONTENT_AREA_FAVORITES focus key + FocusContext — load-bearing
+ * for BottomDock's setFocus("CONTENT_AREA_FAVORITES") on Esc routing.
  */
 import type { RefObject } from "react";
-import { useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useCallback, useMemo, useState } from "react";
 import {
   useFocusable,
   FocusContext,
 } from "@noriginmedia/norigin-spatial-navigation";
 import { useFavorites } from "../features/favorites/useFavorites";
-import { FavoriteToggle } from "../features/favorites/FavoriteToggle";
+import { FavoritePosterCard } from "../features/favorites/FavoritePosterCard";
+import { MovieDetailSheet } from "../features/movies/MovieDetailSheet";
+import { usePlayerOpener } from "../player";
+import {
+  getFavoriteSortPref,
+  setFavoriteSortPref,
+  sortFavorites,
+  type FavoriteSortKey,
+} from "../features/favorites/sortFavorites";
 import { Skeleton } from "../primitives/Skeleton";
 import { ErrorShell } from "../primitives/ErrorShell";
-import type { FavoriteItem, ContentType } from "../api/schemas";
+import type { FavoriteItem, ContentType, VodStream } from "../api/schemas";
 
-// ─── Section row ─────────────────────────────────────────────────────────────
+const SORT_OPTIONS: { id: FavoriteSortKey; label: string }[] = [
+  { id: "added", label: "Recently added" },
+  { id: "name", label: "A–Z" },
+];
 
-function FavoriteCard({
-  item,
-  onUnfav,
-}: {
-  item: FavoriteItem;
-  onUnfav: (id: number, type: ContentType) => void;
-}) {
-  const focusKey = `FAV_CARD_${item.content_type.toUpperCase()}_${item.content_id}`;
-  const { ref, focused } = useFocusable({
-    focusKey,
-    onEnterPress: () => {
-      // Phase 8 stub: actual deep-link in Phase 9.
-    },
+interface SortButtonProps {
+  id: FavoriteSortKey;
+  label: string;
+  isActive: boolean;
+  onSelect: () => void;
+}
+
+function SortButton({ id, label, isActive, onSelect }: SortButtonProps) {
+  const { ref, focused } = useFocusable<HTMLButtonElement>({
+    focusKey: `FAV_SORT_${id.toUpperCase()}`,
+    onEnterPress: onSelect,
   });
-
+  const active = isActive || focused;
   return (
-    <li
+    <button
+      ref={ref as RefObject<HTMLButtonElement>}
+      type="button"
+      aria-pressed={isActive}
+      onClick={onSelect}
+      className="focus-ring"
       style={{
-        listStyle: "none",
-        flexShrink: 0,
-        width: 160,
-        display: "flex",
-        flexDirection: "column",
-        gap: "var(--space-2)",
+        padding: "var(--space-2) var(--space-4)",
+        borderRadius: "var(--radius-sm)",
+        border: "none",
+        background: active ? "var(--accent-copper)" : "var(--bg-surface)",
+        color: active ? "var(--bg-base)" : "var(--text-primary)",
+        fontSize: "var(--text-label-size)",
+        letterSpacing: "var(--text-label-tracking)",
+        textTransform: "uppercase",
+        cursor: "pointer",
+        transition:
+          "background var(--motion-focus), color var(--motion-focus)",
       }}
     >
-      <div
-        ref={ref as RefObject<HTMLDivElement>}
-        tabIndex={-1}
-        aria-label={item.content_name ?? "Favorite item"}
-        style={{
-          background: focused ? "var(--accent-copper)" : "var(--bg-surface)",
-          borderRadius: "var(--radius-md)",
-          padding: "var(--space-4)",
-          display: "flex",
-          flexDirection: "column",
-          gap: "var(--space-2)",
-          minHeight: 100,
-          position: "relative",
-          transition:
-            "background var(--motion-focus), color var(--motion-focus)",
-        }}
-      >
-        {/* Star toggle — focusable sibling inside the card */}
-        <div style={{ position: "absolute", top: 6, right: 6 }}>
-          <FavoriteToggle
-            contentId={item.content_id}
-            contentType={item.content_type}
-            isFavorited={true}
-            onToggle={() => onUnfav(item.content_id, item.content_type)}
-            compact
-          />
-        </div>
-
-        {/* Poster / icon placeholder */}
-        <div
-          aria-hidden="true"
-          style={{
-            fontSize: 32,
-            lineHeight: 1,
-            color: focused
-              ? "var(--bg-base)"
-              : "var(--text-secondary)",
-          }}
-        >
-          {item.content_type === "channel"
-            ? "●"
-            : item.content_type === "vod"
-              ? "▶"
-              : "⊞"}
-        </div>
-
-        <p
-          style={{
-            margin: 0,
-            fontSize: "var(--text-label-size)",
-            letterSpacing: "var(--text-label-tracking)",
-            color: focused ? "var(--bg-base)" : "var(--text-primary)",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {item.content_name ?? `Item ${item.content_id}`}
-        </p>
-        {item.category_name && (
-          <p
-            style={{
-              margin: 0,
-              fontSize: "var(--text-label-size)",
-              color: focused ? "var(--bg-base)" : "var(--text-secondary)",
-              opacity: 0.8,
-            }}
-          >
-            {item.category_name}
-          </p>
-        )}
-      </div>
-    </li>
+      {label}
+    </button>
   );
 }
 
@@ -135,84 +82,148 @@ function FavoriteSection({
   title,
   items,
   focusKeyPrefix,
-  onUnfav,
+  emptyLabel,
+  onRemove,
+  onMoreInfo,
 }: {
   title: string;
   items: FavoriteItem[];
   focusKeyPrefix: string;
-  onUnfav: (id: number, type: ContentType) => void;
+  emptyLabel: string;
+  onRemove: (id: number, type: ContentType) => void;
+  onMoreInfo?: (item: FavoriteItem) => void;
 }) {
   const { ref, focusKey } = useFocusable({
     focusKey: `FAV_ROW_${focusKeyPrefix}`,
   });
 
-  if (items.length === 0) return null;
-
   return (
     <FocusContext.Provider value={focusKey}>
-      <section aria-label={title} ref={ref as RefObject<HTMLElement>}>
+      <section
+        aria-label={title}
+        ref={ref as RefObject<HTMLElement>}
+        style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}
+      >
         <h2
           style={{
             fontSize: "var(--text-title-size)",
             color: "var(--text-primary)",
-            margin: "0 0 var(--space-3) 0",
+            margin: 0,
             fontWeight: 600,
           }}
         >
           {title}
+          <span
+            style={{
+              marginLeft: "var(--space-3)",
+              color: "var(--text-secondary)",
+              fontSize: "var(--text-label-size)",
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            {items.length}
+          </span>
         </h2>
-        <ul
-          aria-label={`${title} favorites`}
-          style={{
-            display: "flex",
-            gap: "var(--space-4)",
-            overflowX: "auto",
-            padding: "var(--space-2) 0",
-            margin: 0,
-            listStyle: "none",
-            // No scroll-snap or backdrop-filter per constraints.
-          }}
-        >
-          {items.map((item) => (
-            <FavoriteCard
-              key={`${item.content_type}-${item.content_id}`}
-              item={item}
-              onUnfav={onUnfav}
-            />
-          ))}
-        </ul>
+        {items.length === 0 ? (
+          <p
+            role="status"
+            style={{
+              margin: 0,
+              padding: "var(--space-4)",
+              background: "var(--bg-surface)",
+              borderRadius: "var(--radius-sm)",
+              color: "var(--text-secondary)",
+              fontSize: "var(--text-body-size)",
+            }}
+          >
+            {emptyLabel}
+          </p>
+        ) : (
+          <ul
+            aria-label={`${title} favorites`}
+            style={{
+              display: "flex",
+              gap: "var(--space-4)",
+              overflowX: "auto",
+              padding: "var(--space-2) 0",
+              margin: 0,
+              listStyle: "none",
+            }}
+          >
+            {items.map((item) => (
+              <li
+                key={`${item.content_type}-${item.content_id}`}
+                style={{ listStyle: "none", flexShrink: 0, width: 160 }}
+              >
+                <FavoritePosterCard
+                  item={item}
+                  onRemove={onRemove}
+                  {...(onMoreInfo ? { onMoreInfo } : {})}
+                />
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
     </FocusContext.Provider>
   );
 }
-
-// ─── Route ────────────────────────────────────────────────────────────────────
 
 export function FavoritesRoute() {
   const { ref, focusKey } = useFocusable({
     focusKey: "CONTENT_AREA_FAVORITES",
     focusable: false,
     trackChildren: true,
-    // Absorb dead-direction bubble-ups at the route's outer edges; Down
-    // stays open so rows can still reach BottomDock. See
-    // streamvault-v3-focus-vanish-bug.md.
     isFocusBoundary: true,
     focusBoundaryDirections: ["left", "right", "up"],
   });
-  const navigate = useNavigate();
-  const { favorites, loading, error, toggle, reload } = useFavorites();
 
-  const handleUnfav = useCallback(
+  const { favorites, loading, error, toggle, reload } = useFavorites();
+  const { openPlayer } = usePlayerOpener();
+  const [sort, setSort] = useState<FavoriteSortKey>(() => getFavoriteSortPref());
+  const [sheetItem, setSheetItem] = useState<FavoriteItem | null>(null);
+
+  const handleRemove = useCallback(
     async (id: number, type: ContentType) => {
       await toggle(id, type, {});
     },
     [toggle],
   );
 
-  const channels = favorites.filter((f) => f.content_type === "channel");
-  const movies = favorites.filter((f) => f.content_type === "vod");
-  const series = favorites.filter((f) => f.content_type === "series");
-  const isEmpty = channels.length === 0 && movies.length === 0 && series.length === 0;
+  const handleSortChange = useCallback((next: FavoriteSortKey) => {
+    setSort(next);
+    setFavoriteSortPref(next);
+  }, []);
+
+  const handleMoreInfo = useCallback((item: FavoriteItem) => {
+    if (item.content_type !== "vod") return;
+    setSheetItem(item);
+  }, []);
+
+  const { channels, movies, series } = useMemo(() => {
+    const sorted = sortFavorites(favorites, sort);
+    return {
+      channels: sorted.filter((f) => f.content_type === "channel"),
+      movies: sorted.filter((f) => f.content_type === "vod"),
+      series: sorted.filter((f) => f.content_type === "series"),
+    };
+  }, [favorites, sort]);
+
+  const isEmpty =
+    channels.length === 0 && movies.length === 0 && series.length === 0;
+
+  // Adapt a favorite VOD into the VodStream shape MovieDetailSheet expects.
+  // We only need id + name + icon; everything else is optional on VodStream.
+  const sheetStream: VodStream | null = useMemo(() => {
+    if (!sheetItem) return null;
+    return {
+      id: String(sheetItem.content_id),
+      name: sheetItem.content_name ?? `Item ${sheetItem.content_id}`,
+      type: "vod",
+      categoryId: "",
+      ...(sheetItem.content_icon ? { icon: sheetItem.content_icon } : {}),
+    } as VodStream;
+  }, [sheetItem]);
 
   return (
     <FocusContext.Provider value={focusKey}>
@@ -226,19 +237,50 @@ export function FavoritesRoute() {
           padding: "var(--space-6)",
         }}
       >
-        {/* Back button */}
-        <BackButton onBack={() => navigate(-1)} />
-
         <h1
           style={{
             fontSize: "var(--text-title-size)",
             color: "var(--text-primary)",
-            margin: "0 0 var(--space-6) 0",
+            margin: "0 0 var(--space-4) 0",
             fontWeight: 700,
           }}
         >
           My Favorites
         </h1>
+
+        {!loading && !error && !isEmpty && (
+          <div
+            role="toolbar"
+            aria-label="Favorites sort"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "var(--space-2)",
+              padding: "var(--space-2) 0 var(--space-4)",
+            }}
+          >
+            <span
+              style={{
+                fontSize: "var(--text-label-size)",
+                letterSpacing: "var(--text-label-tracking)",
+                textTransform: "uppercase",
+                color: "var(--text-secondary)",
+                marginRight: "var(--space-2)",
+              }}
+            >
+              Sort
+            </span>
+            {SORT_OPTIONS.map((opt) => (
+              <SortButton
+                key={opt.id}
+                id={opt.id}
+                label={opt.label}
+                isActive={sort === opt.id}
+                onSelect={() => handleSortChange(opt.id)}
+              />
+            ))}
+          </div>
+        )}
 
         {loading && (
           <div
@@ -247,7 +289,7 @@ export function FavoritesRoute() {
             style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}
           >
             {[1, 2, 3].map((i) => (
-              <Skeleton key={i} width="100%" height="140px" />
+              <Skeleton key={i} width="100%" height="220px" />
             ))}
           </div>
         )}
@@ -261,71 +303,58 @@ export function FavoritesRoute() {
           />
         )}
 
-        {!loading && !error && isEmpty && (
-          <EmptyState />
-        )}
+        {!loading && !error && isEmpty && <WholePageEmpty />}
 
         {!loading && !error && !isEmpty && (
           <div
-            style={{ display: "flex", flexDirection: "column", gap: "var(--space-8)" }}
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "var(--space-8)",
+            }}
           >
             <FavoriteSection
               title="Live Channels"
               items={channels}
               focusKeyPrefix="CHANNELS"
-              onUnfav={handleUnfav}
+              emptyLabel="No favorite channels yet. Press ⋯ → Add to favorites on any channel."
+              onRemove={handleRemove}
             />
             <FavoriteSection
               title="Movies"
               items={movies}
               focusKeyPrefix="MOVIES"
-              onUnfav={handleUnfav}
+              emptyLabel="No favorite movies yet. Press ⋯ → Add to favorites on any movie."
+              onRemove={handleRemove}
+              onMoreInfo={handleMoreInfo}
             />
             <FavoriteSection
               title="Series"
               items={series}
               focusKeyPrefix="SERIES"
-              onUnfav={handleUnfav}
+              emptyLabel="No favorite series yet. Press ⋯ → Add to favorites on any series."
+              onRemove={handleRemove}
             />
           </div>
         )}
+
+        {sheetStream ? (
+          <MovieDetailSheet
+            key={sheetStream.id}
+            stream={sheetStream}
+            onClose={() => setSheetItem(null)}
+            onPlay={(s) => {
+              void openPlayer({ kind: "vod", id: s.id, title: s.name });
+              setSheetItem(null);
+            }}
+          />
+        ) : null}
       </main>
     </FocusContext.Provider>
   );
 }
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
-
-function BackButton({ onBack }: { onBack: () => void }) {
-  const { ref, focused } = useFocusable({
-    focusKey: "FAV_BACK_BTN",
-    onEnterPress: onBack,
-  });
-  return (
-    <button
-      ref={ref as RefObject<HTMLButtonElement>}
-      type="button"
-      onClick={onBack}
-      className="focus-ring"
-      aria-label="Go back"
-      style={{
-        background: focused ? "var(--accent-copper)" : "var(--bg-surface)",
-        color: focused ? "var(--bg-base)" : "var(--text-secondary)",
-        border: "none",
-        borderRadius: "var(--radius-sm)",
-        padding: "var(--space-2) var(--space-4)",
-        cursor: "pointer",
-        fontSize: "var(--text-label-size)",
-        marginBottom: "var(--space-4)",
-        transition: "background var(--motion-focus), color var(--motion-focus)",
-      }}
-    >
-      ← Back
-    </button>
-  );
-}
-
-function EmptyState() {
+function WholePageEmpty() {
   return (
     <div
       role="status"
@@ -347,7 +376,7 @@ function EmptyState() {
           opacity: 0.7,
         }}
       >
-        Press the ★ on any channel, movie, or series to save it here.
+        Focus any card and press ⋯ → Add to favorites.
       </p>
     </div>
   );

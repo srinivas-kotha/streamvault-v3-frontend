@@ -48,9 +48,11 @@ import {
 } from "../features/movies/sortMovies";
 import { isTierLocked } from "../features/movies/tierLockCache";
 import { LanguageRail } from "../components/LanguageRail";
+import { FindInput, FindTrigger, filterByQuery } from "../components/FindInput";
 import { ErrorShell } from "../primitives/ErrorShell";
 import { Skeleton } from "../primitives/Skeleton";
 import { EmptyStateWithLanguageSwitch } from "../primitives/EmptyStateWithLanguageSwitch";
+import { useNavigate } from "react-router-dom";
 import { useLangPref } from "../lib/useLangPref";
 import { fetchHistory } from "../api/history";
 import { fetchVodInfo } from "../api/vod";
@@ -121,8 +123,10 @@ export function MoviesRoute() {
   });
 
   const { openPlayer } = usePlayerOpener();
+  const navigate = useNavigate();
   const [lang, setLang] = useLangPref({ excludeSports: true });
   const [sort, setSort] = useState<MovieSortKey>(() => getSortPref());
+  const [findQuery, setFindQuery] = useState("");
   const [streams, setStreams] = useState<VodStream[]>([]);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -183,8 +187,17 @@ export function MoviesRoute() {
     };
   }, []);
 
-  // ─── Derived: sorted streams + history lookup map ────────────────────────
-  const sortedStreams = useMemo(() => sortStreams(streams, sort), [streams, sort]);
+  // ─── Derived: filter → sort → history lookup map ────────────────────────
+  // Filter applies first so the count reflects the visible set. Substring
+  // match on name only (list endpoint doesn't carry genre).
+  const filteredStreams = useMemo(
+    () => filterByQuery(streams, findQuery, (s) => s.name),
+    [streams, findQuery],
+  );
+  const sortedStreams = useMemo(
+    () => sortStreams(filteredStreams, sort),
+    [filteredStreams, sort],
+  );
 
   const historyByVodId = useMemo(() => {
     const map = new Map<string, HistoryItem>();
@@ -371,9 +384,23 @@ export function MoviesRoute() {
     (next: LangId) => {
       setTransitioning(true);
       setLang(next);
+      setFindQuery("");
     },
     [setLang],
   );
+
+  const handleFindTrigger = useCallback(() => {
+    setFocus("MOVIES_FIND_INPUT");
+  }, []);
+
+  const handleClearFilter = useCallback(() => {
+    setFindQuery("");
+    setFocus("MOVIES_FIND_TRIGGER");
+  }, []);
+
+  const handleSearchEverywhere = useCallback(() => {
+    navigate(`/search?q=${encodeURIComponent(findQuery)}`);
+  }, [navigate, findQuery]);
 
   const handleRetry = useCallback(() => {
     invalidateLanguageUnionCache();
@@ -434,6 +461,13 @@ export function MoviesRoute() {
 
             <LanguageRail value={lang} onChange={handleLangChange} />
 
+            <FindInput
+              value={findQuery}
+              onChange={setFindQuery}
+              surface="MOVIES"
+              placeholder="Find in Movies…"
+            />
+
             <div
               role="toolbar"
               aria-label="Movies sort"
@@ -479,6 +513,11 @@ export function MoviesRoute() {
                     onSelect={() => handleSortChange(opt.id)}
                   />
                 ))}
+                <FindTrigger
+                  surface="MOVIES"
+                  onSelect={handleFindTrigger}
+                  isActive={findQuery.length > 0}
+                />
               </div>
 
               <span
@@ -507,7 +546,9 @@ export function MoviesRoute() {
                 ) : null}
                 {transitioning
                   ? `Loading ${langLabel(lang) || "all"} movies…`
-                  : `${sortedStreams.length.toLocaleString()} movies`}
+                  : findQuery.trim().length > 0
+                    ? `${sortedStreams.length.toLocaleString()} of ${streams.length.toLocaleString()} movies`
+                    : `${sortedStreams.length.toLocaleString()} movies`}
               </span>
             </div>
             <style>{`
@@ -530,12 +571,20 @@ export function MoviesRoute() {
               aria-busy={transitioning || undefined}
             >
               {sortedStreams.length === 0 && !transitioning ? (
-                <EmptyStateWithLanguageSwitch
-                  currentLang={lang}
-                  onSwitch={setLang}
-                  headline={`No ${langLabel(lang)} movies in this catalog.`}
-                  message="The provider hasn't categorised any movies this way. Try another language."
-                />
+                findQuery.trim().length > 0 ? (
+                  <FindEmptyState
+                    query={findQuery}
+                    onClear={handleClearFilter}
+                    onSearchEverywhere={handleSearchEverywhere}
+                  />
+                ) : (
+                  <EmptyStateWithLanguageSwitch
+                    currentLang={lang}
+                    onSwitch={setLang}
+                    headline={`No ${langLabel(lang)} movies in this catalog.`}
+                    message="The provider hasn't categorised any movies this way. Try another language."
+                  />
+                )
               ) : (
                 <MovieGrid
                   streams={sortedStreams}
@@ -560,6 +609,76 @@ export function MoviesRoute() {
         ) : null}
       </main>
     </FocusContext.Provider>
+  );
+}
+
+function FindEmptyState({
+  query,
+  onClear,
+  onSearchEverywhere,
+}: {
+  query: string;
+  onClear: () => void;
+  onSearchEverywhere: () => void;
+}) {
+  const { ref: clearRef, focused: clearFocused } = useFocusable<HTMLButtonElement>({
+    focusKey: "MOVIES_FIND_EMPTY_CLEAR",
+    onEnterPress: onClear,
+  });
+  const { ref: goRef, focused: goFocused } = useFocusable<HTMLButtonElement>({
+    focusKey: "MOVIES_FIND_EMPTY_GO",
+    onEnterPress: onSearchEverywhere,
+  });
+
+  const btnStyle = (focused: boolean) => ({
+    padding: "var(--space-3) var(--space-5)",
+    borderRadius: "var(--radius-sm)",
+    border: focused
+      ? "2px solid var(--accent-copper)"
+      : "2px solid var(--bg-elevated)",
+    background: focused ? "var(--accent-copper)" : "var(--bg-surface)",
+    color: focused ? "var(--bg-base)" : "var(--text-primary)",
+    fontSize: "var(--text-label-size)",
+    letterSpacing: "var(--text-label-tracking)",
+    textTransform: "uppercase" as const,
+    cursor: "pointer" as const,
+  });
+
+  return (
+    <div
+      role="status"
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        gap: "var(--space-4)",
+        padding: "var(--space-12) var(--space-6)",
+        color: "var(--text-secondary)",
+        textAlign: "center",
+      }}
+    >
+      <p style={{ margin: 0, fontSize: "var(--text-title-size)", color: "var(--text-primary)" }}>
+        No matches for &ldquo;{query}&rdquo; in Movies.
+      </p>
+      <div style={{ display: "flex", gap: "var(--space-3)" }}>
+        <button
+          ref={clearRef as RefObject<HTMLButtonElement>}
+          type="button"
+          onClick={onClear}
+          style={btnStyle(clearFocused)}
+        >
+          Clear filter
+        </button>
+        <button
+          ref={goRef as RefObject<HTMLButtonElement>}
+          type="button"
+          onClick={onSearchEverywhere}
+          style={btnStyle(goFocused)}
+        >
+          Search everywhere →
+        </button>
+      </div>
+    </div>
   );
 }
 

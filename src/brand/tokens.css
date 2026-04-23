@@ -245,4 +245,17 @@
   body {
     font-family: var(--font-ui);
   }
+
+  /* TV-class readability override. Fire TV Silk / 10-foot viewing needs ~24px
+     floor on primary label type. Gated on [data-tv="true"] which is set in
+     main.tsx by sniffing the UA (Silk/AFT). Desktop browsers on big monitors
+     stay on the ordinary desktop scale. */
+  :root[data-tv="true"] {
+    --text-label-size: 22px;
+    --text-label-tracking: 0.6px;
+    --text-caption-size: 20px;
+    --text-body-size: 24px;
+    --text-body-lg-size: 28px;
+    --text-title-size: 36px;
+  }
 }
