@@ -43,7 +43,11 @@ Catalog size: **~61k VOD rows.** Virtualization is mandatory.
 │  MOVIES                                                          │  ← route title, 32px
 │                                                                  │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │ [⏮ Continue]  [Telugu*]  [Hindi]  [English]  [All]       │   │  ← LanguageRail (§00-ia §4)
+│  │ ▶  Resume Bhediya                           43m left      │   │  ← ResumeHero (§00-ia §6.1, conditional)
+│  └──────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │ [Telugu*]  [Hindi]  [English]  [All]                     │   │  ← LanguageRail (§00-ia §4)
 │  └──────────────────────────────────────────────────────────┘   │
 │                                                                  │
 │  ┌──────────────────────────────────────────────────────────┐   │
@@ -67,9 +71,10 @@ Catalog size: **~61k VOD rows.** Virtualization is mandatory.
 ### Zones top-to-bottom
 
 1. **Route title** "MOVIES" (32px, `--type-title-lg`). Scrolls away with content.
-2. **LanguageRail** (sticky? **no** — scrolls with content; re-entering from dock ArrowUp walks back to it). Chips + optional "⏮ Continue" chip (leftmost, conditional on history non-empty).
-3. **Toolbar** (sticky **yes** — thin band). Sort segmented control + result count.
-4. **Poster grid** (6 cols @ 1080p, 5 @ 1600w, 4 @ 1280w, fully virtualized). Card ratio 2:3.
+2. **ResumeHero** (conditional — only when `/api/history` has a partial-watch VOD). Full-width "▶ Resume <Title> — <N>m left" card. See `00-ia §6.1`.
+3. **LanguageRail** (not sticky — scrolls with content). Four chips: Telugu · Hindi · English · All. **No Continue chip on Movies** (moved to the hero above).
+4. **Toolbar** (sticky **yes** — thin band). Sort segmented control + result count.
+5. **Poster grid** (6 cols @ 1920w, 5 @ 1600w, 4 @ 1280w, 3 @ 960w, 2 below; row-chunk virtualized). Card ratio 2:3.
 
 ---
 
@@ -116,7 +121,7 @@ If 0 categories match the language pattern OR all matching categories return emp
 Full spec in `00-ia §4` and `04-search-and-language-rail §A`. On Movies:
 
 - 4 chips: Telugu · Hindi · English · All. **No Sports chip.**
-- Continue-watching chip leftmost when history is non-empty, per `00-ia §6.1`.
+- **No Continue chip on Movies** — replaced by the ResumeHero above the rail (`00-ia §6.1`, updated 2026-04-23).
 - Default on cold mount: `sv_lang_pref` (Telugu out of the box).
 - Change → writes `sv_lang_pref`, re-runs §3 fetch plan, focus returns to grid row 1 col 1.
 

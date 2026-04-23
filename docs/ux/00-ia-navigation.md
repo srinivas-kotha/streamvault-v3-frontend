@@ -245,21 +245,29 @@ Every press counts. **Target: hero tasks ≤ 3 inputs from a focused dock.**
 | Cold login → resume mid-watch Telugu series | **4** | ArrowRight×2 · Enter (series card) · Enter (Continue CTA auto-focused) |
 | Browse Hindi movies → play one | **5** | ArrowRight · Enter (Movies) · ArrowUp · ArrowRight (Hindi) · Enter on poster · Enter (one per step — accepted overshoot for non-pref language) |
 | Search "vikram" → play top result | **9** | Dock nav (4) · type 6 letters · Enter (debounce fires, focus top result, Enter) |
-| Resume last watched from anywhere | **3** | Continue-watching chip (leftmost in LanguageRail) · Enter |
+| Resume last watched movie | **2** | ResumeHero on `/movies` auto-focused on cold mount · Enter |
 
 Budgets depend on:
 - Route mount focuses grid row 1, col 1 (§2.2 rule 1)
 - LanguageRail respects `sv_lang_pref` on mount (§4)
 - Series detail auto-focuses Continue/Play CTA (covered in 02-series)
-- A "Continue watching" chip, leftmost in the LanguageRail, appears when `/api/history` is non-empty (see §6.1)
+- On `/movies`, a ResumeHero card above the LanguageRail renders when `/api/history` has a partial-watch VOD; cold mount seeds focus there (see §6.1)
 
 ---
 
 ## 6. Cross-cutting primitives (shared across sibling specs)
 
-### 6.1 Continue-watching chip
+### 6.1 Resume entry point
 
-Leftmost slot in the LanguageRail on `/live`, `/movies`, `/series`. Different visual treatment from language chips (⟲ icon, neutral background). Conditional: only renders when `/api/history` returns ≥1 item. Enter → plays the most recent resume point (respects its kind — Live channel / VOD / series-episode).
+**Updated 2026-04-23 (Phase 2 UX review).** The original design placed a "Continue watching" chip leftmost in the LanguageRail on every surface. User testing in prod revealed a mental-model clash — the chip sat with filter controls but fired a playback action. It has been replaced on `/movies` with a **full-width ResumeHero** above the LanguageRail (`src/features/movies/ResumeHero.tsx`).
+
+ResumeHero:
+- Renders only when `/api/history` has a VOD item with `0 < progress/duration < 0.9`.
+- Label: `▶ Resume <Title> — <N>m left` (title + remaining time, no language label — history endpoint does not carry `inferredLang`).
+- Focus key `RESUME_HERO`. On cold mount with a resume candidate, the route seeds focus here → Enter plays = **2 inputs**. Language change seeds focus to the first poster, not the hero, so browsing does not get hijacked.
+- Cross-language by design: a paused Hindi movie shows on the hero regardless of the current language filter. The title disambiguates what will play.
+
+**Ripple to `/live` and `/series` is pending.** For `/live` the plan is to drop the chip entirely (no resume semantics on live TV) when Phase 3 touches that surface. For `/series` a ResumeHero variant with episode context ("Resume S2E4 of Panchayat — 12m left") is a Phase 4 follow-up. Until those phases land, their specs should not introduce new Continue chips.
 
 ### 6.2 Tier-locked badge
 
