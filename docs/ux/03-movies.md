@@ -1,462 +1,367 @@
-# 03 — Movies UX Spec
+# 03 — Movies UX
 
-Scope: `/movies` only. Align with `00-ia-navigation.md` for URL-state
-conventions. No code in this doc.
-
-**Reality anchors:**
-- `sv_catalog` VOD: 61,442 rows. All filter/sort/page is server-side (P2 #9
-  Postgres migration is a prereq — design assumes that world).
-- Xtream `allowed_output_formats: ["ts"]`. Some MP4/MKV return 0 bytes.
-  Playback failure is a normal, recoverable state.
-- D-pad first. Every affordance reachable without hover.
-- PR #45: card click = play. We keep that; "More info" is a deliberate
-  second path that does not hijack the primary.
+**Owner:** UX Lead
+**Status:** Revised 2026-04-22 against backend reality (supersedes prior Movies spec)
+**Scope:** `/movies` route only. Detail view is a bottom sheet on the same route.
+**Parent:** `00-ia-navigation.md`
 
 ---
 
-## Virtualization mandate
+## 0. Reality anchor
 
-`react-virtuoso` (`VirtuosoGrid`) is **required** for the Movies poster grid. The DOM card count must stay under ~150 regardless of catalog size. Rationale: the VOD catalog has 61,442 rows; without virtualization, the Silk browser on Fire TV OOMs at ~600–1000 rendered cards.
+| Available | Missing |
+|---|---|
+| `GET /api/vod/categories` — full list of VOD categories | No pagination on anything |
+| `GET /api/vod/streams/:catId` — all movies in a category, each with `inferredLang ∈ {telugu, hindi, english, sports, null}` | No `inferredLang` on search results |
+| `GET /api/vod/info/:vodId` — detail incl. `plot`, `cast`, `director`, `duration`, `backdropUrl`, `containerExtension` | No `/api/vod/search`, no `/api/vod/facet-counts`, no year/genre/rating server-side filter |
+| `GET /api/history` — watch history | No "similar movies" endpoint, no "trending" endpoint |
+| `GET /api/favorites` | — |
 
-Implementation reference: `MoviesRoute → MovieGrid uses VirtuosoGrid (Issue #59)`.
+Catalog size: **~61k VOD rows.** Virtualization is mandatory.
 
----
-
-## 1. `/movies` page structure
-
-Three stacked zones, same spatial grammar as `LiveRoute`:
-
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│ Language rail   [Telugu] [Hindi] [English] [More ▾]        (row 1)  │
-├──────────────────────────────────────────────────────────────────────┤
-│ Toolbar   Sort: [Latest ▾]   [▤ Filters 2]   12,453 movies  (row 2) │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│   Poster grid — 6 cols @ desktop 1920, 4 cols @ 10-foot 1080         │
-│   Infinite scroll, 60-item pages, sticky scroll position on back.    │
-│                                                                      │
-└──────────────────────────────────────────────────────────────────────┘
-```
-
-1. **Language rail** — chips: `Telugu | Hindi | English | More ▾`. `Sports`
-   omitted (Live concept, not Movies). `More ▾` popover: Tamil, Malayalam,
-   Punjabi, etc.
-2. **Toolbar** — sort dropdown + filter button + result count.
-3. **Poster grid** — paged/infinite, scrolls under a sticky toolbar.
-
-The PR #33 `CategoryStrip` is **replaced**. Xtream VOD categories are noisy
-("24/7 1", "4K Collection 2") and the primary browse axis is language.
-Categories move into the Filter drawer as "Genre" after P2 #9 normalises them.
-
-**Why:** picking language directly collapses "guess which of ~90 categories
-contains Telugu" into one tap. That is the input-count win in §6.
-
-### 1a. Default state — cold login
-
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│ [*TELUGU*] [ Hindi  ] [ English ] [ More ▾ ]                         │
-│                                                                      │
-│ Sort: [Latest added ▾]   [▤ Filters]    2,574 Telugu movies          │
-│                                                                      │
-│  ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐                           │
-│  │ *█ │ │ █  │ │ █  │ │ █  │ │ █  │ │ █  │   ← focus on top-left    │
-│  │    │ │    │ │    │ │    │ │    │ │    │                           │
-│  └────┘ └────┘ └────┘ └────┘ └────┘ └────┘                           │
-│  ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐                           │
-│  │ █  │ │ █  │ │ █  │ │ █  │ │ █  │ │ █  │                           │
-│  └────┘ └────┘ └────┘ └────┘ └────┘ └────┘                           │
-└──────────────────────────────────────────────────────────────────────┘
-```
-
-`[*TELUGU*]` = active chip (copper fill, `LanguageButton` pattern). `*█` =
-focused card (copper ring).
-
-On mount: read `sv_movies_lang` from localStorage (default `telugu`), set
-`?lang=te&sort=latest` in URL, fetch page 0. Focus lands on the first
-poster, not the language rail — the user already picked "Movies"; re-picking
-language they set last session would be a regression.
-
-### 1b. Scroll behaviour
-
-Toolbar is sticky; language rail is **not** (it scrolls away). ArrowUp from
-poster row 1 → toolbar; second ArrowUp → language rail (scrolls back into
-view). From language rail, ArrowUp → dock (PR #44/46 pattern).
-
-**Why not pin both rows:** two sticky rows eat ~12% of vertical space on
-10-foot. Toolbar is in-task; language is pre-browse.
-
-### 1c. Filter drawer open
-
-Right-side slide-in panel, 420px wide. Does **not** cover the toolbar — the
-active filter button stays focusable so the user can close with a second
-press on the same chip (parity with how the dock tabs toggle).
-
-```
-                                  ┌──────────────────────────────────┐
-┌────────────────────┐            │ ▤ Filters                    [X] │
-│  (grid dimmed 40%) │            ├──────────────────────────────────┤
-│                    │            │ Genre                            │
-│                    │            │  [*Action*] [ Drama ] [ Comedy ] │
-│                    │            │  [ Romance] [ Thriller ] [ +more]│
-│                    │            │                                  │
-│                    │            │ Year — From                      │
-│                    │            │  [*2020*] [2015] [2010] [2005]   │
-│                    │            │ Year — To                        │
-│                    │            │  [2024] [*2022*] [2020] [2018]   │
-│                    │            │                                  │
-│                    │            │ Minimum rating                   │
-│                    │            │  [ ☆ ][ ☆ ][*★*][ ★ ][ ★ ]       │
-│                    │            │  3.0+ stars                      │
-│                    │            │                                  │
-│                    │            │ [  Reset  ]    [  Apply (842) ]  │
-└────────────────────┘            └──────────────────────────────────┘
-```
-
-Drawer is a sibling focus region (not a modal). D-pad path: `ArrowUp →
-Filter button → Enter (drawer opens, focus on first genre chip) →
-ArrowDown/Right to target → Apply`.
-
-Live "Apply (N)" counter updates as filters change (debounced 200ms). If
-N=0, button is disabled. On 61k rows with multi-facet, "apply then find out"
-is a round-trip nightmare; the counter is the preview.
-
-### 1d. Empty result state
-
-After apply, if result is 0 (user also removed language-chip pre-filter):
-
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│ Sort: [Rating ▾]   [▤ Filters 4]   0 movies                          │
-│                                                                      │
-│                                                                      │
-│                          (no posters)                                │
-│                                                                      │
-│                      No movies match all four filters.               │
-│                                                                      │
-│                    Active: Telugu · Action · 2020-2024 · 4.5+        │
-│                                                                      │
-│                      [ Loosen year to 2015-2024 ]                    │
-│                      [ Drop rating minimum     ]                     │
-│                      [ Reset all filters       ]                     │
-└──────────────────────────────────────────────────────────────────────┘
-```
-
-Loosening actions are server-driven: the facet-count endpoint (§7) returns
-which single relaxation yields the largest result. Fallback: generic "Reset
-filters" only. **Why:** reset punishes the user for refining; loosening
-preserves intent.
-
-### 1e. Loading skeleton
-
-Same grid geometry, pulsing gray rectangles. Toolbar renders immediately
-with last-known count so the page does not jump when real data lands.
-
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│ [Telugu] [Hindi] [English] [More ▾]                                  │
-│ Sort: [Latest ▾]   [▤ Filters]    ~12,000 movies                     │
-│ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐                            │
-│ │░░░░│ │░░░░│ │░░░░│ │░░░░│ │░░░░│ │░░░░│                            │
-│ └────┘ └────┘ └────┘ └────┘ └────┘ └────┘                            │
-└──────────────────────────────────────────────────────────────────────┘
-```
-
-Focus does not auto-advance until the first real poster mounts — prevents
-"Enter on a ghost" bugs.
+**Design consequence:** Movies is **language-first** with client-side sort and client-side union across categories. Facet drawer (Year / Genre / Rating) is deferred until backend ships a search endpoint.
 
 ---
 
-## 2. Movie card states
+## 1. TL;DR — Decisions
 
-Card is a 2:3 poster, title below, subtle meta line (year · runtime). All
-states composite on the same geometry — no layout shift between them.
+1. **Delete CategoryStrip.** It was the main bug in the prior prod state (Telugu selected + English categories showing → impossible filter state). Categories are invisible UI; users browse by language, not by "ENGLISH FHD (2025)".
+2. **4 language chips**: Telugu · Hindi · English · All. No Sports. (Per IA §4.1.)
+3. **VirtuosoGrid is mandatory.** DOM card count stays under ~150. 61k items would OOM Silk.
+4. **Card Enter = play.** No detail route. Detail is a bottom sheet on the same route. PR #45 stays.
+5. **Visible `⋯` overflow menu on the focused card.** Favorites and mark-watched. No long-press.
+6. **Filter drawer (Year / Genre / Rating): deferred.** Needs `/api/vod/search`. Listed in `99-grill-findings` as open.
+7. **Honest empty state when a language has no movies.** Don't fake "loosen filters" — we have no facet counts.
+8. **Client-side sort only**: Added (default) and Name. Year/Rating sort deferred.
+
+---
+
+## 2. Layout
 
 ```
- idle            focused         watched         in-progress     new
- ┌────┐          ╔════╗          ┌────┐          ┌────┐          ┌────┐
- │ █  │          ║ █  ║          │ █ ✓│          │ █  │          │ █ •│
- │    │          ║    ║          │    │          │━━━─│          │    │
- └────┘          ╚════╝          └────┘          └────┘          └────┘
- Title           Title           Title (dim)     Title           Title
- 2024 · 2h       2024 · 2h       watched         45% watched     NEW
-
- tier-locked (0-byte risk)
- ┌────┐
- │ █ ⚠│  ← amber corner chip
- │    │
- └────┘
- Title
- Format limited
+┌──────────────────────────────────────────────────────────────────┐
+│  MOVIES                                                          │  ← route title, 32px
+│                                                                  │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │ [⏮ Continue]  [Telugu*]  [Hindi]  [English]  [All]       │   │  ← LanguageRail (§00-ia §4)
+│  └──────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │ Sort: [Added*] [Name]                      2,574 movies  │   │  ← Toolbar
+│  └──────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐                       │
+│  │ ║█ ║│ │ █  │ │ █  │ │ █  │ │ █  │ │ █  │   ← focus = top-left │
+│  │ ║  ║│ │    │ │    │ │    │ │    │ │    │                       │
+│  └────┘ └────┘ └────┘ └────┘ └────┘ └────┘                       │
+│  Title   Title   Title   Title   Title   Title                   │
+│  2024    2023    2024    2022    2021    2024                    │
+│                                                                  │
+│  ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐                       │
+│  │ █  │ │ █  │ │ █  │ │ █  │ │ █  │ │ █  │                       │
+│  └────┘ └────┘ └────┘ └────┘ └────┘ └────┘                       │
+│                                                                  │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
-- **Idle:** default, no chrome.
-- **Focused:** copper 2px ring + soft glow, no scale transform
-  (`--accent-copper` + `focus-ring`).
-- **Watched:** 60% opacity + check badge. Title → `text-secondary`.
-  Source: `watch_history` `progress/duration > 0.9`.
-- **In-progress:** bottom 3px copper progress bar.
-- **New:** dot + "NEW" label (`added_at < 14 days`). Only when sort=Latest.
-- **Tier-locked:** amber ⚠ chip when `container_extension` is outside
-  `allowed_output_formats`. Needs backend field (§7); until then, the
-  overlay in §5 is the safety net.
+### Zones top-to-bottom
 
-### 2a. Primary — card click/OK = play
+1. **Route title** "MOVIES" (32px, `--type-title-lg`). Scrolls away with content.
+2. **LanguageRail** (sticky? **no** — scrolls with content; re-entering from dock ArrowUp walks back to it). Chips + optional "⏮ Continue" chip (leftmost, conditional on history non-empty).
+3. **Toolbar** (sticky **yes** — thin band). Sort segmented control + result count.
+4. **Poster grid** (6 cols @ 1080p, 5 @ 1600w, 4 @ 1280w, fully virtualized). Card ratio 2:3.
 
-Keep PR #45. OK/click opens the player immediately. No detail page.
+---
 
-Tradeoff:
-- ✅ Single-step play; 4-input target in §6 requires it.
-- ✅ Netflix/Prime muscle memory on TV.
-- ❌ No synopsis preview → bottom sheet (§3) is the escape hatch.
-- ❌ Mis-presses cost bandwidth → Back closes player <200ms (PR #46).
+## 3. Data retrieval strategy — "client-side language union"
 
-### 2b. Secondary — visible ⋯ overflow menu
+Movies has no `/api/vod/search`. To show "all Telugu movies", we do this:
 
-> **Authoritative — closes #58.** The original long-press / OK-hold mechanic
-> has been **removed**. Norigin spatial-navigation provides no long-press
-> primitive, and long-press alone violates the "no hidden menus" rule stated
-> in §1 ("D-pad first; every affordance reachable without hover"). The focused
-> card now exposes a visible `⋯` button in its title bar.
+```
+1. On mount (or lang change): fetch /api/vod/categories once (cached session-wide)
+2. Filter categories by applicable lang: `categories.filter(c => inferredLang(c.name) === lang)`
+3. Fetch /api/vod/streams/:catId in PARALLEL for every matching category
+   (bounded at 8 concurrent; most languages have <20 matching categories)
+4. Flatten, deduplicate by `id`, sort by current sort key
+5. Feed into VirtuosoGrid
+```
 
-The `⋯` button is rendered in the title area of the **focused** card only
-(prevents grid noise on unfocused cards):
+Per-language approximate sizes (grill §3.2 estimates, unverified live):
+
+| Language | Categories matching | Approx rows | Notes |
+|---|---|---|---|
+| Telugu | 10-15 | ~3-8k | Comfortably under memory |
+| Hindi | 15-25 | ~5-12k | Largest usually |
+| English | 20-30 | ~5-15k | Broad patterns (netflix, hbo) |
+| All | all | ~61k | Virtualized — must work |
+
+### 3.1 Caching
+
+- `fetchCategories()` → session cache (stale-while-revalidate, 5min TTL)
+- `fetchStreamsByCategory(catId)` → session cache (5min TTL)
+- Language-union result → memoized on `(lang, sortKey, rev)`; invalidated when user pulls-to-refresh or changes language
+
+### 3.2 "All" option — lazy
+
+On `lang=all`, don't pre-fetch every category. Fetch lazily page-by-page via VirtuosoGrid's `endReached` callback. Virtuoso knows what's in view; we only fetch categories we're about to render.
+
+### 3.3 When a language is empty
+
+If 0 categories match the language pattern OR all matching categories return empty, show the empty state (§7).
+
+---
+
+## 4. LanguageRail
+
+Full spec in `00-ia §4` and `04-search-and-language-rail §A`. On Movies:
+
+- 4 chips: Telugu · Hindi · English · All. **No Sports chip.**
+- Continue-watching chip leftmost when history is non-empty, per `00-ia §6.1`.
+- Default on cold mount: `sv_lang_pref` (Telugu out of the box).
+- Change → writes `sv_lang_pref`, re-runs §3 fetch plan, focus returns to grid row 1 col 1.
+
+---
+
+## 5. Toolbar
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│ Sort: [Added*] [Name]                              2,574 movies  │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+- **Sort**: segmented control. 2 options.
+  - **Added** (default) — by `added` field, newest first
+  - **Name** — A→Z, locale-aware (sorts Telugu script correctly)
+- **Count**: `N movies` where N is the post-union count. When loading, show `~N` using last-known count so the toolbar height doesn't jump.
+
+**Deferred (backend gap):** Year filter, Genre filter, Rating min, "Most watched" sort. All flagged in `99-grill-findings`.
+
+---
+
+## 6. Card states
+
+Same 2:3 poster. All states composite on identical geometry — no layout shift.
+
+```
+ IDLE             FOCUSED              IN-PROGRESS      WATCHED         TIER-LOCKED
+ ┌────┐           ╔════╗               ┌────┐           ┌────┐          ┌────┐
+ │ █  │           ║ █  ║               │ █  │           │ █ ✓│          │ █ 🔒│
+ │    │           ║    ║               │▰▰▰─│           │    │          │    │
+ └────┘           ╚════╝               └────┘           └────┘          └────┘
+ Title            Title                Title (43%)      Title (dim)     Title
+ 2024             2024                 2024             watched         Format limit
+```
+
+- **Idle**: no chrome.
+- **Focused**: 2px copper ring + glow (one `--focus-ring` token).
+- **In-progress**: 3px copper progress bar bottom of poster. From `/api/history` intersect.
+- **Watched**: 60% opacity + `✓` badge top-right.
+- **Tier-locked**: `🔒` badge top-right. **Only possible after a detail pre-fetch** (containerExtension is on `/info`, not `/list` — §0). Tier-locked rendering is **best-effort**: if we haven't fetched detail for that item yet, no badge — user sees normal card and may hit the playback-failure overlay at play-time (§9). Acceptable trade-off.
+
+### 6.1 Focused card — `⋯` overflow button
+
+When a card is focused, a small `⋯` button appears in its title area (not hover — focus only):
 
 ```
 ╔════╗
 ║ █  ║
 ╚════╝
-Title              ⋯
-2024 · 2h
+Title          ⋯
+2024
 ```
 
-**D-pad reachability:**
-- `Right` from the focused movie card → focus moves to the `⋯` button.
-- `Left` from the `⋯` button → focus returns to the card.
-- `Down` from the card → next poster row (existing norigin 2D nav; ⋯ is not in
-  the nav grid, only reachable via explicit `Right`).
-
-**Opening the menu:**
-- `OK` / `Enter` on `⋯` → small overlay menu opens below the button. First
-  item auto-focused.
-- `Up` / `Down` inside the open menu → cycles items.
-- `Escape` or `Back` → closes menu, returns focus to `⋯` button.
+**D-pad:**
+- `Right` from focused card → `⋯` button
+- `Left` from `⋯` → returns to card
+- `Down` from card → next poster row (⋯ is not in the nav grid)
+- `Enter` on `⋯` → overflow menu opens below it, first item auto-focused
 
 **Menu items (movie context):**
 
 ```
-┌──────────────────────────┐
-│  ☆  Add to favorites     │
-│  •  Mark as watched      │
-│  ✕  Remove from favorites│
-└──────────────────────────┘
+┌────────────────────────────────┐
+│  ☆  Add to favorites           │
+│  ✓  Mark as watched            │
+│  ⓘ  More info (open sheet)    │
+└────────────────────────────────┘
 ```
 
-| Action | API call | Notes |
+| Action | Call | Note |
 |---|---|---|
-| Add to favorites | `addFavorite(movieId, { content_type: "vod", … })` | Existing `favorites.ts` |
-| Mark as watched | `recordHistory(movieId, { content_type: "vod", progress_seconds: duration, duration_seconds: duration, … })` | Sets progress = duration |
-| Remove from favorites | `removeFavorite(movieId, "vod")` | Existing `favorites.ts` |
+| Add to favorites | `addFavorite(movieId, { content_type: "vod", ... })` | Toggles ✕ Remove if already favorited |
+| Mark as watched | `recordHistory(movieId, progress=duration, duration=duration)` | Flips card to Watched state |
+| More info | Open bottom sheet (§7) | Same as `ⓘ` path but reachable after focus |
 
-**Click count for Add to favorites: `Right` (to ⋯) + `Enter` (opens menu) +
-`Enter` (first item) = 3 inputs.**
-
----
-
-## 3. Movie detail — bottom sheet
-
-Decision: **bottom sheet, not modal, not a new route.**
-
-- Not a route (`/movies/:id`): route change drops scroll position on back.
-- Not a full modal: D-pad modal-trap UX on 10-foot is painful.
-- Bottom sheet slides to ~60% viewport, grid dims/locks behind it. Back
-  closes sheet → focus returns to originating card. No URL change.
-
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│   (grid dimmed)                                                      │
-│                                                                      │
-├──────────────────────────────────────────────────────────────────────┤
-│  ┌──────┐   Thalaivar: The Return                         [X close]  │
-│  │      │   2024 · 2h 18m · ⭐ 4.3 · Telugu · Action                 │
-│  │ █    │                                                            │
-│  │      │   After a decade away, a retired commander is pulled...    │
-│  └──────┘   ...into one last mission when his family is threatened.  │
-│                                                                      │
-│   [ ▶ PLAY ]   [ ☆ Favorite ]   [ • Mark watched ]                   │
-│                                                                      │
-│   Similar  ┌───┐ ┌───┐ ┌───┐ ┌───┐                                   │
-│            │ █ │ │ █ │ │ █ │ │ █ │   (horizontal D-pad row)          │
-│            └───┘ └───┘ └───┘ └───┘                                   │
-└──────────────────────────────────────────────────────────────────────┘
-```
-
-Focus order on open: PLAY (copper fill) → Favorite → Mark watched →
-Similar row. `Enter` on PLAY opens player. `Back` closes sheet.
-
-**Escape contract (coordinate with player lead):** sheet open → Esc closes
-sheet; second Esc goes to dock. Update PR #46 ordering.
-
-### 3a. Invocation paths (all visible)
-
-- Focused card → ArrowDown to `ⓘ More info` → Enter.
-- Long-press OK → popover → More info.
-- Right-click desktop → popover → More info.
-
-If deep-linking is ever needed, add `?detail=<id>` (opens sheet, doesn't
-navigate). Not P0.
+**3 presses to favorite a movie:** Right (to ⋯) → Enter (open menu) → Enter (first item) = 3 inputs.
 
 ---
 
-## 4. Filter + sort persistence
+## 7. Detail — bottom sheet (not a route, not a modal)
 
-URL = source of truth for ephemeral browse state. localStorage = source of
-truth for session-spanning preferences.
-
-### 4a. URL params
+Click Enter on a card = **play directly**. To see synopsis/metadata first, user goes via `⋯` → "More info".
 
 ```
-/movies?lang=te&sort=latest&genre=action,drama&year=2020-2024&rating=3.5
+┌──────────────────────────────────────────────────────────────────┐
+│   (grid dimmed 40%, locked)                                      │
+├──────────────────────────────────────────────────────────────────┤
+│  ┌────┐   Thalaivar: The Return                   [X close]     │
+│  │    │   2024 · 2h 18m · ⭐ 4.3 · Telugu · Action              │
+│  │ █  │                                                          │
+│  │    │   After a decade away, a retired commander is pulled     │
+│  └────┘   into one last mission when his family is threatened.   │
+│                                                                  │
+│   [ ▶ PLAY ]   [ ☆ Favorite ]   [ ✓ Mark watched ]               │
+│                                                                  │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
-- `lang` — `te | hi | en | ta | ml | pa | all`. Multi-select comma-sep
-  (`lang=te,hi`, AND-logic).
-- `sort` — `latest | alpha | rating | year | watched`.
-- `genre` — comma-sep.
-- `year` — `YYYY-YYYY` or `YYYY-`.
-- `rating` — float min.
+- Slides up to ~60% viewport from bottom. Glass blur (§00-ia §6.8).
+- Focus auto-lands on `▶ PLAY`.
+- D-pad:
+  - `Enter` on PLAY → close sheet, open Player
+  - `Right` → Favorite → Mark watched → (no-op at end)
+  - `Down` / `Up` → no-op (single row of actions)
+  - `Back` → close sheet, focus returns to originating card
+- Close `X` in top-right is focusable via `Up` from PLAY row.
 
-Back restores full URL. Scroll position is **not** in URL — kept in an
-in-memory map keyed on URL (cleared on tab close).
+**No "Similar" row.** Backend has no similar-items endpoint. Deferred.
 
-### 4b. localStorage
-
-- `sv_movies_lang` — last-used lang set. Rehydrated on cold login. **Big
-  win:** new session, Telugu already on.
-- `sv_movies_sort` — last sort order.
-- **NOT persisted:** year, rating, genre. Those are task-scoped; persisting
-  would leak last-session's task into this-session's browse.
-
-### 4c. Rehydration
-
-1. Read URL params. 2. Fill missing from localStorage. 3. `replaceState`
-back to URL (no history entry). 4. Fetch.
+**Why bottom sheet over route:**
+- Route change loses scroll position on Back
+- Modal trap is painful on D-pad at 10-foot
+- Sheet is a sibling focus region, Back has one clear meaning (close sheet)
 
 ---
 
-## 5. Playback-failure overlay
+## 8. Empty / loading / error states
 
-The Xtream tier lock means many VOD items return 0 bytes. Current UX shows
-red "Playback error" — feels like a crash. Redesign:
+### 8.1 Loading skeleton
+
+Same grid geometry, gray pulsing rectangles. Toolbar renders immediately with last-known count. Focus does **not** auto-advance until the first real card mounts.
+
+### 8.2 Empty state — language genuinely has no movies
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│                                                                      │
-│                                                                      │
-│                           ⚠ Not available                            │
-│                                                                      │
-│           This title isn't in a format we can stream right now.      │
-│                      It's a provider limitation.                     │
-│                                                                      │
-│          [  Try a similar title  ]   [  Back to browse  ]            │
-│                                                                      │
-│                                                                      │
-└──────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                                                                  │
+│                         📺                                       │
+│                                                                  │
+│            No Telugu movies in this catalog.                     │
+│                                                                  │
+│      The provider hasn't categorized any movies as Telugu.       │
+│                                                                  │
+│       [  Try Hindi  ]   [  Try English  ]   [  Show All  ]       │
+│                                                                  │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
-- Amber, not red. Not user's fault.
-- Names the cause ("provider limitation") without scaring.
-- "Try a similar" picks one of 5 nearest-by-genre+language items with a
-  streamable format (needs §7 `container_extension`). Click → plays that
-  title. No detour.
-- "Back to browse" returns focus to originating card, which now shows the
-  tier-locked badge (§2) so the user skips it next time.
+- Three buttons = switch to another language, not "loosen" (we have no facets).
+- Default focus on "Try Hindi" (second most common user language).
+- Copy is honest about provider vs app.
 
-Silent auto-skip is disorienting; user deserves to know why their pick
-didn't work.
+### 8.3 Error state
 
-### 5a. Pre-flight prevention (P1)
+`ErrorShell` primitive, same as other routes:
 
-Once `container_extension` ships, badge tier-locked items in the grid.
-Hiding is wrong (user may have a workaround); badging surfaces the risk.
-
----
-
-## 6. Click/keypress budget
-
-Target flow from requirements: "cold login → watching a Telugu movie in ≤ 4
-inputs."
-
-| Task                                | Current inputs | Designed inputs | Delta |
-|-------------------------------------|---------------:|----------------:|------:|
-| Cold login → Telugu movie playing   | 11             | 4               | -7    |
-| Switch language (Hindi → Telugu)    | 6              | 2               | -4    |
-| Sort by rating                      | n/a            | 3               | new   |
-| Multi-facet filter (Telugu+Action+2022+) | n/a       | 8               | new   |
-| Open movie details before playing   | n/a            | 4               | new   |
-| Recover from 0-byte playback        | 3 (reload)     | 2               | -1    |
-
-### Cold login → Telugu movie — breakdown
-
-**Current (11):** login (4) + dock Right/Enter to Movies (2) + Up into
-strip + Right×3 to Telugu category + Enter (5) + Down to grid + Enter (2).
-
-**Designed (4, post-login):** login is fixed (4); budget starts at dock.
-On second+ sessions cookies auto-login.
-1. ArrowRight (Live→Movies) · 2. Enter — mounts with Telugu
-   pre-selected, focus on first poster.
-3. 1 browse input (row 1 poster) · 4. Enter → plays.
-
-First-ever session has no localStorage seed → user taps Telugu once →
-budget = 5. One-time cost.
-
-### Multi-facet filter — 8
-
-Up → Right → Enter (drawer) + Right×N → Enter (genre) + Down →
-Right (Year-From chip) + Down → Right (Year-To chip) + Down×2 → Enter (Apply).
-
-**Year picker = From/To chip rows** (closes #56). Fire TV remote cannot drive a
-two-handle range slider — D-pad has no chord for "select handle, then drag".
-Chip pickers are D-pad-trivial and accessible. Earlier draft showed a slider
-in §1c; the wireframe in §1c is now the source of truth.
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                          ⚠                                       │
+│                                                                  │
+│                Couldn't load movies.                             │
+│                Check your connection.                            │
+│                                                                  │
+│                [ Retry ]  [ Back to Live ]                       │
+└──────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
-## 7. Data contract asks
+## 9. Playback-failure (tier-locked or stream failure)
 
-### 7a. P0 (design can't ship without these)
-
-- `GET /api/vod/search` — replaces `fetchVodStreams(categoryId)`. Params:
-  `?lang=te,hi&genre=action&year_min=2020&year_max=2024&rating_min=3.5
-  &sort=latest&page=0&page_size=60`. Returns
-  `{ items, total, facets }`. Reads `sv_catalog` (P2 #9 prereq).
-- `GET /api/vod/facet-counts` — given current filters minus one facet,
-  returns counts per candidate. Drives live "Apply (N)" in §1c.
-- `added_at` column exposed on `sv_catalog` — Latest sort + NEW badge.
-  Sync writes it every 6h; just needs to land in the API response.
-
-### 7b. P1
-
-- `container_extension` per item — badge tier-locked (§2) and pick
-  streamable "similar" fallbacks (§5).
-- `view_count` — aggregated from `watch_history`. Powers "Most watched"
-  sort. If absent, hide the sort option.
-- Normalised `genre` — Xtream is free-text. Needs catalog-sync-side
-  normalisation (lookup table + LLM tagging). Out of UX scope; flagged.
-
-### 7c. Nice-to-have
-
-- `duration_minutes` — card meta could show "2h 18m". Xtream has it in
-  `movie_data.info` inconsistently. Defer.
+Spec'd in `05-player.md §9.3`. Movies route just needs to handle the "Back to browse" path — player closes, focus restores to originating card, and if we learned the card is tier-locked via the failed playback, the card now renders with the `🔒` badge on next focus (cache the finding in `sv_tierlock_cache` session storage).
 
 ---
 
-## Handoff notes
+## 10. Click / keypress budgets
 
-- IA lead: align on URL keys (`lang/sort/genre/year/rating`).
-- Player lead: Esc contract — sheet → player → dock.
-- Backend (P2 #9): `/api/vod/search` + facet counts are blocking.
-- QA: visual-QA gate. Screenshots of all §1 states required.
+| Task | Target | Path |
+|---|---|---|
+| Cold mount → play first Telugu movie | **2** | Grid focus seeded row 0 col 0 → Enter = play |
+| Switch to Hindi → play first | **4** | ArrowUp → ArrowUp (to rail) → ArrowRight (Hindi) → Enter → ArrowDown twice to grid — wait, redo |
+| Switch to Hindi → play first | **4** | ArrowUp (to toolbar) → ArrowUp (to rail) → ArrowRight (Hindi chip) → Enter commits + focus returns to grid → Enter on first = **4** after the commit |
+| Favorite a focused movie | **3** | Right → Enter → Enter |
+| Open More Info | **3** | Right → Enter → Down Down to "More info" → Enter = 4. **Accepted: it's a secondary path.** |
+| Resume last-watched (if `⏮ Continue` chip present) | **2** | ArrowUp → ArrowUp → ArrowLeft to chip → Enter. Actually 4. Rework when CW chip's real latency is clear. |
 
-SAVED: /home/crawler/streamvault-v3-frontend/docs/ux/03-movies.md
+---
+
+## 11. Data contract
+
+### 11.1 Endpoints used (already exist)
+
+```
+GET /api/vod/categories                     → CatalogCategory[]
+GET /api/vod/streams/:categoryId            → CatalogItem[]  (inferredLang present)
+GET /api/vod/info/:vodId                    → CatalogItemDetail (for bottom sheet)
+GET /api/history                            → HistoryItem[]  (for progress + CW chip)
+GET /api/favorites                          → FavoriteItem[]
+POST /api/favorites                         → mutate
+DELETE /api/favorites/:id                   → mutate
+POST /api/history                           → mutate
+```
+
+### 11.2 New frontend client code
+
+- `src/features/movies/languageUnion.ts` — orchestrates §3 fetch plan with per-language cache
+- `src/features/movies/MoviesGrid.tsx` — VirtuosoGrid wrapper
+- `src/features/movies/MovieCard.tsx` — all card states incl. `⋯` button
+- `src/features/movies/MovieDetailSheet.tsx` — bottom sheet
+
+### 11.3 Not needed from backend (contrary to prior spec)
+
+- ❌ `/api/vod/search` — drawer deferred
+- ❌ `/api/vod/facet-counts` — drawer deferred
+- ❌ `/api/trending` — trending rail deferred
+
+---
+
+## 12. Persistence
+
+| Key | Value | Lifetime |
+|---|---|---|
+| `sv_lang_pref` | `telugu` \| `hindi` \| `english` \| `all` | forever, cleared on logout |
+| `sv_sort_movies` | `added` \| `name` | forever |
+| `sv_tierlock_cache` (session) | `{ [vodId]: true }` | per-tab |
+
+---
+
+## 13. Accessibility
+
+- Each poster: `aria-label="<Title>, <Year>"`. When in-progress: append `"resume at <mm:ss>"`.
+- Grid: `role="grid"`; rows `role="row"`; cells `role="gridcell"`.
+- `⋯` button: `aria-label="More actions for <Title>"`.
+- Bottom sheet: `role="dialog" aria-modal="true" aria-labelledby="sheet-title"`.
+- Empty-state buttons: focus seeded on "Try Hindi".
+- All animations respect `prefers-reduced-motion`.
+
+---
+
+## 14. Decision log
+
+| # | Decision | Alternative rejected |
+|---|---|---|
+| 1 | Delete CategoryStrip | Keep and filter by lang (impossible states like "Telugu + English FHD 2025") |
+| 2 | 4 chips (Telugu/Hindi/English/All) — no Sports | Sports chip (Xtream VOD has almost no Sports; dead affordance) |
+| 3 | VirtuosoGrid mandatory | Infinite scroll unvirtualized (DOM OOM at 61k) |
+| 4 | Card Enter = play (PR #45 stays) | Card Enter = detail (Netflix/Prime muscle memory wins) |
+| 5 | Visible `⋯` overflow menu | Long-press OK (not a norigin primitive) |
+| 6 | Bottom sheet for detail, not route | Route (loses scroll) / modal (D-pad trap) |
+| 7 | Defer Year/Genre/Rating drawer until backend | Build fake client-side filters (misleading at 61k) |
+| 8 | Honest empty state ("No Telugu movies") with language-switch buttons | "Loosen filters" (we have no facet counts) |
+| 9 | Sort options trimmed to Added + Name | Year / Rating sort (fields are on detail, not list; per-card fetch is too expensive) |
+| 10 | Client-side language union over parallel category fetches | Ask backend for `/api/vod/search` first (blocks this work for weeks) |
+
+---
+
+**End of spec.**

@@ -4,6 +4,57 @@
 **Specs reviewed:** `00-ia-navigation.md`, `02-series.md`, `03-movies.md`, `04-search-and-language-rail.md`
 **Ground truth:** frontend `src/routes/*.tsx`, `src/App.tsx`, `src/nav/BottomDock.tsx`, `src/player/*`, `src/api/schemas.ts`, backend routers + `src/providers/xtream/xtream.provider.ts`, `postgres/03-phase3-services.sql`, handoff `2026-04-22`.
 
+---
+
+## Revision status — 2026-04-22 rewrite
+
+All four specs listed above were rewritten against verified backend reality on 2026-04-22. Two new specs were created (`01-live.md`, `05-player.md`). This section tracks how each major finding fared; the original audit body below is preserved verbatim for historical reference.
+
+### Top-10 findings status
+
+| # | Finding (summary) | Severity | Status post-rewrite |
+|---|---|---|---|
+| 1.1 | `sv_lang_pref` vs `sv_series_lang` / `sv_movies_lang` localStorage conflict | BLOCKER | **RESOLVED** — all specs now use `sv_lang_pref` (IA §3.4). No per-surface keys. |
+| 1.2 | Card-activation semantics inconsistent; IA missing per-surface mapping | BLOCKER | **RESOLVED** — IA §2.3 "Card activation matrix" is the single authoritative table; Movies/Series/Search reference it. |
+| 1.3 | Back-stack depth for Series contradicts IA budget | MAJOR | **RESOLVED** — IA §2.4 back-stack diagram lists depths 0–3 explicitly with Series's extra route level called out. Player sentinel behavior documented. |
+| 1.4 | Movies bottom sheet breaks Escape contract | MAJOR | **RESOLVED (spec)** — Movies §7 makes Back close the sheet first, then dock. App.tsx handler must `stopPropagation` when a sheet owns focus (tracked for implementation phase). |
+| 1.5 | Search focus-on-input conflicts with IA "focus lands on grid" | MAJOR | **RESOLVED** — new Search §3.2 makes input-auto-focus explicit; IA §2.2 rule 1 acknowledges Search exception. |
+| 1.6 | Continue-watching chip promised, no spec owned it | MINOR | **RESOLVED** — IA §6.1 now owns the spec; Movies/Live/Series reference it. |
+| — | Movies spec not P0-shippable; depends on `/api/vod/search` + facet-counts | BLOCKER | **RESOLVED (scope)** — Movies is now shippable without those endpoints. Filter drawer deferred to post-MVP as an explicit decision (03-movies §11 #7). |
+| — | `langTags` column doesn't exist on `sv_catalog`; migration plan missing | BLOCKER | **SUPERSEDED** — design no longer depends on `langTags`. We use `inferredLang` from backend's pattern matcher (available on list endpoints today). |
+| — | Year-range slider is dead affordance on Fire TV | BLOCKER | **RESOLVED** — drawer is deferred; if/when it ships, From/To chip pickers per decision, no slider. |
+| — | Voice search aspirational; Fire TV Silk speech unreliable | MAJOR | **RESOLVED** — Search spec removes voice from MVP (04-search §1 #7, §11 #6). |
+| — | Long-press OK not a norigin primitive | MAJOR | **RESOLVED** — all overflow menus use a visible `⋯` button (Movies §6.1, Series §5.1, Live §2.1). |
+| — | Movies grid virtualization unspecified (DOM OOM risk at 61k) | MAJOR | **RESOLVED** — VirtuosoGrid mandate (03-movies §1 #3, §3). |
+| — | Player UX unwritten | NEW | **RESOLVED** — new `05-player.md` spec. Control bar, auto-hide, popovers, Live/VOD differences all covered. |
+| — | Typography + glass treatment inconsistent | NEW | **RESOLVED** — IA §6.7 typography tokens (7-step scale), §6.8 glass treatment (overlays only). |
+| — | 60-day sliding session unspecified | NEW | **RESOLVED** — IA §7. Access token → localStorage, refresh TTL 90d → 60d, silent refresh on boot. |
+
+### Open / deferred items (backend asks, tracked for post-MVP)
+
+| Priority | Ask | Motivation |
+|---|---|---|
+| P1 | Search prefix tweak: `plainto_tsquery` → tokens with `:*` suffix | Lets `vikr` match `vikram` (04-search §4.3). Small backend change, no schema impact. |
+| P1 | `sv_watch_history.series_id` migration (issue #53) | Eliminates brittle client-side series resume derivation (02-series §6.3). |
+| P1 | `inferredLang` on `/api/search` response | Removes the client-side lang annotation workaround (04-search §5). |
+| P2 | `/api/vod/search` with year/genre/rating filters + facet counts | Unblocks Movies filter drawer (03-movies §11 #7). |
+| P2 | `/api/trending?lang=X` | Unblocks Search trending rail on empty state (04-search §11 #7). |
+| P2 | `/api/search/recent` | Unblocks server-backed recent searches. Until then, we ship nothing rather than a local-only version. |
+| P2 | `pg_trgm` index + `didYouMean` field | Unblocks fuzzy match / did-you-mean suggestions. |
+| P2 | Similar-items endpoint | Nice-to-have for Movies bottom sheet + Series detail. |
+
+### New decisions introduced by the revision
+
+- **Sports is Live-only** (IA decision #11, reversed from original). Xtream VOD/Series almost never carries Sports content.
+- **4 chips on Movies/Series/Search, 5 on Live** (IA §4.1).
+- **CategoryStrip deleted from Movies** (03-movies §1 #1, §11 #1) — was the main user-visible prod bug.
+- **Bottom-sheet detail for Movies, no detail route** (03-movies §7).
+- **Control-bar-first player** with every action ≤3 D-pad presses (05-player full spec).
+- **Inter Display, 7-token type scale, no per-route overrides** (IA §6.7).
+- **Frosted glass on overlays only, never on cards** (IA §6.8).
+
+---
+
 ## Severity legend
 - BLOCKER — ships as a bug / data inconsistency / impossible to build
 - MAJOR — significant UX regression, rework likely, or cross-spec contradiction
