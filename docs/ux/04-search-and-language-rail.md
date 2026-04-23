@@ -1,338 +1,341 @@
-# 04 — Search and Language Rail UX Spec
+# 04 — Search (and shared Language Rail component)
 
-**Status:** Design-only — no code.
-**Surfaces affected:** Live, Movies, Series, Search (global rail); Search route (redesign).
-**Related:** handoff 2026-04-22 P0 #2 (persist language), P1 #6 (series opens player bug).
+**Owner:** UX Lead
+**Status:** Revised 2026-04-22 against backend reality (supersedes prior spec)
+**Scope:** Search route redesign + the `<LanguageRail>` primitive shared across Live/Movies/Series/Search.
+**Parent:** `00-ia-navigation.md`
 
 ---
 
-## Part A — Global Language Rail
+## 0. Reality anchor
 
-The rail currently lives only in `LiveRoute.tsx`. Promote it to a cross-surface primitive: `<LanguageRail />`, rendered as the top row of the toolbar on every browse surface (Live, Movies, Series, Search).
+| Available | Missing |
+|---|---|
+| `GET /api/search?q=&type=live\|vod\|series&hideAdult=bool` — Postgres FTS, LIMIT 150 per response, bucketed `{live, vod, series}` | `inferredLang` NOT present on search hits |
+| `plainto_tsquery` style tokenization (word-based, stems, AND across words) | No fuzzy / did-you-mean (no `pg_trgm` index shipped) |
+| `sv_catalog` indexed via `search_vector` (name weighted A, genre weighted B) | No prefix match by default (search for `vikr` does NOT match `vikram`) |
+| `/api/history` and `/api/favorites` exist for empty state (trending/recent would need new endpoints) | No `/api/trending`, no `/api/search/recent` |
 
-### A.1 Component API
+**Design consequence:** Search must be honest about what it is — a **multi-word, whole-word, across Live+Movies+Series search**. One small backend tweak is needed to add prefix matching (`vikr` → `vikram`). Language filtering on results is **client-side on the enriched response** (we do one extra lookup to annotate hits with lang).
+
+---
+
+## 1. TL;DR — Decisions
+
+1. **Scope: Live + Movies + Series — all three content types.** Backend already supports it via `type` param.
+2. **Behavior**: user types any text; we treat it as space-separated tokens; **all tokens must match as whole words** (order-independent). Case-insensitive. Example: `"vikram 2022"` matches a movie with both tokens anywhere in its metadata. `"vikra"` requires the prefix-match tweak (§5.2) to match `"vikram"`.
+3. **Min query length: 2 chars**; debounce **250ms** (down from 300ms); Enter bypasses debounce.
+4. **4 language chips on the rail** post-query: Telugu · Hindi · English · All. No Sports chip (per IA §4.1).
+5. **Kind chips**: `All · Live · Movies · Series` — purely presentational section filter.
+6. **Result routing**: Live hit → play, Movies hit → play, Series hit → navigate to `/series/:id`. Match card-activation matrix (IA §2.3).
+7. **Deferred from prior spec**: voice search, did-you-mean, trending rail, recent-searches persistence, year range filter, facet counts. None have backend support. Spec notes what each needs.
+
+---
+
+## 2. Part A — `<LanguageRail />` shared primitive
+
+The rail is already used on Live. This spec formalizes its component API for reuse.
+
+### 2.1 API
 
 ```tsx
 <LanguageRail
   surface="live" | "movies" | "series" | "search"
-  value={lang}                 // controlled
-  onChange={setLang}
-  counts?={Record<LangId, number>}   // optional, disables chips with 0
-  overflow?={LangId[]}         // Tamil, Malayalam, Kannada, ...
+  value={lang}                            // controlled; the current selection
+  onChange={(lang) => void}               // commits + triggers rebuild
+  showContinueWatching?: boolean          // conditional leftmost chip
+  onContinueWatchingClick?: () => void
 />
 ```
 
-Chips, left-to-right:
+### 2.2 Chip set per surface
 
-| Chip      | Live | Movies | Series | Search |
-|-----------|:----:|:------:|:------:|:------:|
-| Telugu    |  Y   |   Y    |   Y    |   Y    |
-| Hindi     |  Y   |   Y    |   Y    |   Y    |
-| English   |  Y   |   Y    |   Y    |   Y    |
-| Sports    |  Y   |   —    |   —    |   Y*   |
-| All       |  Y   |   Y    |   Y    |   Y    |
-| `More ▾`  |  Y   |   Y    |   Y    |   Y    |
+| Surface | Chips |
+|---|---|
+| Live | Telugu · Hindi · English · Sports · All |
+| Movies | Telugu · Hindi · English · All |
+| Series | Telugu · Hindi · English · All |
+| Search | Telugu · Hindi · English · All |
 
-\* On Search "Sports" is shown only if the query matches a sports term (e.g. "cricket") OR the kind filter is set to Live.
+Optional leftmost `⏮ Continue` chip when history is non-empty (per IA §6.1).
 
-**Why:** Movies/Series have no concept of a sports feed; hiding the chip reduces cognitive load and prevents 0-result dead ends on those surfaces.
+### 2.3 Behavior
 
-### A.2 State model — one global key
+- **Default selection** on mount: read from `sv_lang_pref` (global, via `useLangPref()` hook).
+- **Change**: write `sv_lang_pref` and emit `onChange`.
+- **Focus**: `focusable: false, trackChildren: true` — norigin forwards ArrowUp-from-toolbar to the first chip.
+- **D-pad**: Left/Right walks chips. No wrap. ArrowDown exits to toolbar / grid.
+- **Visual state**: active chip = copper fill + bg-base text; idle chip = neutral surface + soft border.
 
-Unify `sv_live_lang` (handoff P0 #2) and any future per-surface keys into a **single** localStorage key:
+### 2.4 What the rail is NOT
 
-```
-sv_lang_pref = "telugu" | "hindi" | "english" | "sports" | "all" | <overflow id>
-```
+- NOT a server-side filter — the rail's change triggers a re-build of the route's current data (categories union, or annotating search hits).
+- NOT a place for "More…" overflow popovers in MVP. Phase 2 brings Tamil / Malayalam / etc. back as an overflow.
 
-- **Default** on first launch: `telugu` (user's primary per requirements).
-- **Scope:** global. Set on any surface → respected everywhere on next mount.
-- **Per-surface "All" override:** non-destructive. If user picks "All" on Movies, we set a session-only `sessionStorage.sv_lang_session_override = "all"` scoped to that surface; `sv_lang_pref` is **not** overwritten. Leaving the surface and returning restores the pinned pref.
-- **"Sports" on Live:** writing "sports" to the global pref is allowed; on Movies/Series mount we fall back to the user's prior non-sports choice (tracked as `sv_lang_pref_fallback`), defaulting to `telugu` if absent.
+---
 
-_Why one key:_ the user wants Telugu-first results everywhere with a single setting. Per-surface keys force them to re-pin on every page. The `sv_lang_pref_fallback` shim solves the Sports-is-Live-only edge case without losing the user's true preference.
+## 3. Part B — `/search` route
 
-### A.3 Focus behavior on mount
-
-- **Does not steal focus.** `focusable: false, trackChildren: true` wrapper (same pattern as `CONTENT_AREA_LIVE`).
-- From the dock (`ArrowUp`), norigin forwards focus to the **first** registered child — the first language chip. User feels "up goes to filters."
-- From the chip row, `ArrowDown` exits to the next toolbar row (sort/EPG on Live, sort on Movies/Series, results on Search).
-- On Search the rail renders **only after** `lastSearchedQuery.length >= 2`; before that the input keeps focus.
-
-_Why:_ Mount-time focus-steal is disorienting when the user is mid-scroll. Letting norigin route via `trackChildren` keeps dock→content→rail→grid linear.
-
-### A.4 Wraparound
-
-- `ArrowRight` on the last visible chip (before `More ▾`) → opens `More ▾`.
-- `ArrowRight` on `More ▾` (closed) → wraps to first chip.
-- `ArrowLeft` on first chip → stays (no wrap — prevents accidental overflow open).
-- `ArrowDown` from any chip → first element of the next toolbar row.
-- `ArrowUp` from any chip → dock (by norigin's natural fall-through).
-
-_Why no left-wrap:_ On Fire TV, left-wrap to overflow menus is a known source of unintentional menu opens during scroll-back gestures.
-
-### A.5 Wireframes — 5 states
-
-**A.5.1 Default (Telugu active, Movies surface)**
+### 3.1 Layout
 
 ```
-+--------------------------------------------------------------+
-|  [ Telugu ]  Hindi   English   All   More v                  |
-+--------------------------------------------------------------+
-|  SORT: Name | Year | Rating                                   |
-+--------------------------------------------------------------+
-|  [poster] [poster] [poster] [poster] [poster]                 |
+┌────────────────────────────────────────────────────────────────────┐
+│  SEARCH                                                            │
+│                                                                    │
+│  ┌──────────────────────────────────────────────────────────────┐  │
+│  │  🔍  Search channels, movies, series…                        │  │  ← Input
+│  └──────────────────────────────────────────────────────────────┘  │
+│                                                                    │
+│  [Telugu*] [Hindi] [English] [All]                                 │  ← LanguageRail (post-query only)
+│  Kind: [All*] [Live] [Movies] [Series]                             │  ← Kind chips (post-query only)
+│                                                                    │
+│  MOVIES (12)                              See all in Movies →      │
+│  [Vikram 2022 TE] [Vikram Vedha TE] [Vikramarkudu TE] [...]        │
+│                                                                    │
+│  SERIES (3)                               See all in Series →      │
+│  [Vikrant Rona TE]  [Vikram HI]  [...]                             │
+│                                                                    │
+│  LIVE (1)                                                          │
+│  [Vikram News 24x7]                                                │
+└────────────────────────────────────────────────────────────────────┘
 ```
 
-**A.5.2 Telugu active, with counts (Search surface)**
+### 3.2 Initial state (no query)
+
+Input is focused on mount. Below the input: nothing. No trending rail, no recent searches — those require backend endpoints that don't exist. Explicit and honest:
 
 ```
-+--------------------------------------------------------------+
-|  [ Telugu 142 ]  Hindi 88  English 53  (Sports 0)  All 317    |
-+--------------------------------------------------------------+
-                                     ^ dimmed — 0 results in this facet
+┌────────────────────────────────────────────────────────────────────┐
+│  🔍  Search channels, movies, series…                              │
+│                                                                    │
+│  Type to search across Live, Movies, and Series.                   │
+│  Try "vikram", "ipl", or "breaking bad".                           │
+└────────────────────────────────────────────────────────────────────┘
 ```
 
-**A.5.3 Overflow open**
+Placeholder hint rotates through 3 examples every 4s.
+
+### 3.3 Typing state (<2 chars)
 
 ```
-+--------------------------------------------------------------+
-|  Telugu  Hindi  English  All  [ More v ]                      |
-|                                +--------------------+          |
-|                                | Tamil       3,459  |          |
-|                                | Malayalam   1,187  |          |
-|                                | Kannada       612  |          |
-|                                | Marathi       298  |          |
-|                                | Punjabi       177  |          |
-|                                +--------------------+          |
-+--------------------------------------------------------------+
+┌────────────────────────────────────────────────────────────────────┐
+│  🔍  v                                                             │
+│                                                                    │
+│  Keep typing… (2 characters minimum)                               │
+└────────────────────────────────────────────────────────────────────┘
 ```
 
-D-pad: `ArrowDown` inside overflow walks the list; `Enter` pins that language and closes the menu; `Back` closes without changing state.
+### 3.4 Results state
 
-**A.5.4 Disabled chip (Sports has 0 matches in current query)**
+Fires on debounce (250ms) or immediate on Enter. Shows rail + kind chips + bucketed sections (see §3.1).
 
-```
-+--------------------------------------------------------------+
-|  Telugu   Hindi   English   Sports   All                      |
-|                              ^^^^^^                           |
-|                              dimmed 40% opacity               |
-|                              aria-disabled="true"             |
-|                              D-pad skips it (norigin focusable:false)
-+--------------------------------------------------------------+
-```
+Order of sections (authoritative):
+1. Movies
+2. Series
+3. Live
 
-**A.5.5 Live surface (has Sports)**
+Rationale: when a user searches a title, they usually want the movie/show; Live last because channel-name hits are rare (and if you wanted a channel, you'd go to Live).
 
-```
-+--------------------------------------------------------------+
-|  Telugu   Hindi   English   [ Sports ]   All   More v         |
-+--------------------------------------------------------------+
-|  SORT: Number | Name | Category      EPG: All | Now | 2h      |
-+--------------------------------------------------------------+
-|  split guide  |                       EPG programme card      |
-```
+**Sort within each section:**
+- If we've annotated hits with `inferredLang` (§4), sort pinned-language first: `[langMatches ? 0 : 1, originalOrder]`
+- Otherwise backend order (relevance per FTS ranking)
 
-### A.6 D-pad path (authoritative)
+**Section collapse:** if a section has 0 hits and the Kind chip is "All", show section header dimmed with "0 results".
+
+### 3.5 No-results state
 
 ```
-Dock(Live)  --ArrowUp-->  LanguageRail[first chip]
-                                |  ArrowRight --> next chip ... --> More v
-                                |  ArrowLeft  --> prev chip (stop at first)
-                                |  ArrowDown  --> SortRow[first button]
-SortRow     --ArrowDown-->  ContentGrid[first card]
-ContentGrid --Back-->       Dock[active tab]
+┌────────────────────────────────────────────────────────────────────┐
+│  🔍  zxcvq                                                         │
+│                                                                    │
+│  No results for "zxcvq".                                           │
+│  Try a shorter query or different words.                           │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+### 3.6 Error state
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│  🔍  vikram                                                        │
+│                                                                    │
+│  ⚠  Search failed. Check your connection.          [ Retry ]       │
+└────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Part B — Search UX Redesign
+## 4. Search behavior — exact rules
 
-Evolves `SearchRoute.tsx` (PR #35) to address: 2-char floor, remote typing pain, language-pinned ordering, series-result routing bug (P1 #6), and recovery from no-results.
+Based on user direction ("3 random words, whole-word, `%text%`"):
 
-### B.1 Search input + debounce
+### 4.1 Tokenization
 
-- **Minimum query length:** 2 chars (backend `searchSchema` — confirmed in `search.router.ts`).
-- **Debounce:** **250ms** on input change (tighten from current 300ms — shaves a frame off every keystroke on Fire TV where typing already feels laggy).
-- **Enter bypass:** immediate fire on `Enter` / `OK` (already implemented — keep).
-- **Voice:** `webkitSpeechRecognition` detection on mount. If present, render a mic chip right of the input; long-press `OK` on the input also triggers voice. Fall back gracefully when unavailable (Fire TV Silk supports it intermittently — feature-detect, never assume).
-- **Placeholder rotates trending term for the user's pinned language every 4s** (e.g. "Search... try 'vikram'"). Gives the user a typable example.
+- User input is split on whitespace into tokens.
+- Empty tokens discarded.
+- Example: `"vikram action 2022"` → `["vikram", "action", "2022"]`.
 
-_Why 250ms, not 150ms:_ sv_catalog FTS on 88k rows is fast but not free; 250ms still feels instant and halves the request count vs 100ms while the user types a 5-letter query (5 → 2–3 requests instead of 5).
+### 4.2 Matching rules
 
-### B.2 Wireframes — 6 states
+- **Whole-word match**: each token must match a full word in the item's name OR genre (case-insensitive).
+  - `"cat"` matches `"Cat Woman"` (word match) but NOT `"Catalog"` (substring in middle of a word). This is Postgres FTS default behavior with `plainto_tsquery`.
+- **Multi-word AND**: all tokens must match. Order-independent.
+  - `"vikram 2022"` matches an item where the name contains "Vikram" AND the genre or year field contains "2022".
+- **Case-insensitive** throughout.
+- **Prefix match per token** (the one backend tweak): append `:*` to each token so `"vikr"` matches `"vikram"`, `"vikramarkudu"`, etc.
 
-**B.2.1 Empty state (no query)**
+### 4.3 Backend query shape (after tweak)
 
-```
-+------------------------------------------------------------------+
-|  [ ?  Search... try "vikram"                    ][ mic ]         |
-+------------------------------------------------------------------+
-|  RECENT                                                          |
-|  vikram    |  rrr     |  money heist  |  ipl   |  breaking bad   |
-|                                                                  |
-|  TRENDING IN TELUGU                                              |
-|  [poster] [poster] [poster] [poster] [poster] [poster]           |
-|                                                                  |
-|  CONTINUE WATCHING                                               |
-|  [poster 43%] [poster 12%] [poster 89%]                          |
-+------------------------------------------------------------------+
+Today's backend uses `plainto_tsquery('english', $1)` or similar. To add prefix matching:
+
+```sql
+-- Convert plainto_tsquery to tsquery with :* suffix per token
+SELECT * FROM sv_catalog
+  WHERE search_vector @@ to_tsquery('english', string_agg(token || ':*', ' & '))
+  ORDER BY ts_rank(search_vector, query) DESC
+  LIMIT 150;
 ```
 
-_Why:_ Fire TV users dread typing. Three zero-keystroke paths (recent, trending, continue) mean most sessions finish with **zero** typed characters.
+Small backend change — flagged as a P1 in `99-grill-findings`. Without it, the frontend spec still works but users type a full word or nothing.
 
-**B.2.2 Typing, <2 chars**
+### 4.4 Live hits — name-only match
 
-```
-+------------------------------------------------------------------+
-|  [ v                                           ][ mic ]          |
-+------------------------------------------------------------------+
-|  Keep typing... (2 characters minimum)                           |
-|                                                                  |
-|  TRENDING IN TELUGU                      < still visible >       |
-|  [poster] [poster] [poster] [poster]                             |
-+------------------------------------------------------------------+
-```
-
-Trending stays visible so the user has an out without erasing.
-
-**B.2.3 Typing, >=2 chars — results (pinned lang first)**
-
-```
-+------------------------------------------------------------------+
-|  [ vikra                                       ][ mic ]          |
-+------------------------------------------------------------------+
-|  [ Telugu 4 ]  Hindi 2   English 1   All 7                       |
-|  KIND: All | Live | Movies | Series      YEAR: any v             |
-+------------------------------------------------------------------+
-|  MOVIES (4)                              See all in Movies ->    |
-|  [Vikram 2022 TE] [Vikram Vedha TE] [Vikramarkudu TE] [...]     |
-|                                                                  |
-|  SERIES (2)                              See all in Series ->    |
-|  [Vikrant Rona TE]  [Vikram HI]                                  |
-|                                                                  |
-|  LIVE (1)                                                        |
-|  [Vikram News 24x7]                                              |
-+------------------------------------------------------------------+
-```
-
-Within each section: the 4 Telugu hits sort **before** the 2 Hindi hits, before the 1 English hit. Sort key: `(langMatchesPinned ? 0 : 1, -rating, name)`.
-
-**B.2.4 No results**
-
-```
-+------------------------------------------------------------------+
-|  [ zxcvq                                       ][ mic ]          |
-+------------------------------------------------------------------+
-|  No results for "zxcvq".                                         |
-|  Try a shorter query or a different language.                    |
-|                                                                  |
-|  TRENDING IN TELUGU                                              |
-|  [poster] [poster] [poster] [poster]                             |
-+------------------------------------------------------------------+
-```
-
-**B.2.5 "Did you mean"**
-
-```
-+------------------------------------------------------------------+
-|  [ vikrem                                      ][ mic ]          |
-+------------------------------------------------------------------+
-|  Did you mean [ vikram ] ?   ( Enter to search )                 |
-|                                                                  |
-|  MOVIES (0)  — no results for "vikrem"                           |
-+------------------------------------------------------------------+
-```
-
-Trigger: Postgres `pg_trgm` similarity from backend (`SELECT name FROM sv_catalog WHERE similarity(name, $1) > 0.4 ORDER BY similarity DESC LIMIT 1`). Frontend reads `results.didYouMean` (new optional field).
-
-**B.2.6 Error state**
-
-```
-+------------------------------------------------------------------+
-|  [ vikram                                      ][ mic ]          |
-+------------------------------------------------------------------+
-|  ! Search failed. Check your connection.        [ Retry ]        |
-+------------------------------------------------------------------+
-```
-
-### B.3 Result card routing (fixes P1 #6)
-
-Current bug: `SearchResultsSection` sends `kind: "series-episode"` with just the series id → player buffers forever.
-
-**Spec:**
-
-| Result `type` | Action                                                  |
-|---------------|---------------------------------------------------------|
-| `live`        | `openPlayer({ kind: "live", id, title })`               |
-| `vod`         | `openPlayer({ kind: "movie", id, title })`              |
-| `series`      | `navigate('/series/' + id)` — **NEVER openPlayer here** |
-
-**Rationale:** A series id is not a streamable stream_id. Clicking a series must land on the season/episode picker (`/series/:id`, landing in Phase 4 per handoff TODO P0 #1). This change is a prerequisite for the episode picker but can ship **independently**: even without the picker, `/series/:id` can render a `"Episode picker coming soon"` placeholder — better than a buffering player.
-
-### B.4 Filter facets
-
-Facet row renders below the input once `hasResults`. Three controls:
-
-1. **Language chips** — the same `<LanguageRail surface="search" />` from Part A. Pinned-lang chip active by default. Selecting a chip narrows results client-side (no refetch; results arrive pre-enriched with language tag per item) and re-sorts.
-2. **Kind toggle** — `All | Live | Movies | Series`. Purely presentational; hides sections.
-3. **Year range** — dropdown, VOD-only. Options: `Any | 2020+ | 2010–2019 | 2000–2009 | pre-2000`. Hidden when Kind = Live.
-
-D-pad: facets are a horizontal row; `ArrowDown` from any facet enters the first section header → first card.
-
-### B.5 Click / keypress budget
-
-Assumes Fire TV remote; on-screen keyboard is D-pad-navigated, average **3 D-pad moves + 1 OK** per letter.
-
-| Task                                          | Inputs (typed)   | Inputs (recent) |
-|-----------------------------------------------|------------------|-----------------|
-| "Play Telugu movie 'Vikram'" (5 letters)      | 5 letters × 4 + 1 OK on top result = **21** | 1 `ArrowDown` + **1 OK** = 2 |
-| "Play live channel 'TV9 Telugu'"              | 3 letters ("tv9") × 4 + 1 = **13**      | 2 (if recent)   |
-| "Resume series 'Money Heist' S2E4"            | 5 letters × 4 + `ArrowDown` to series + **1 OK** → lands on `/series/:id` → `ArrowDown` to S2 + `ArrowRight` × 3 + **1 OK** = **~27** | 2 (recent) + 5 (season/ep nav) = **~7** |
-| Ambiguous query "ipl"                         | 3 letters × 4 + `ArrowRight` through lang chips to pin + **1 OK** + `ArrowDown` to live result + **1 OK** = **~16** | ~2              |
-
-**Target hit:** "Play Vikram" in recent-search path = **2 inputs**, well under the 6-input (5 letters + 1 OK) target.
-
-**Voice search — DEFERRED, OUT OF MVP** (closes #57): `webkitSpeechRecognition` is unreliable on Fire TV Silk and adds an audio-permission gauntlet that breaks the cold-path budget. Re-evaluate post-MVP only if a stable, on-device recognizer ships for Silk; tracked separately, NOT a launch blocker.
-
-### B.6 Empty state rails (detail)
-
-- **Recent searches** — last 5 queries, newest first. Tapping re-runs the query (bypasses debounce). Backend-persisted (see B.7). Swipe/long-press → delete. On first launch (no history), the whole section is omitted, not rendered empty.
-- **Trending in <pinned lang>** — 8 posters horizontally scrollable. Backend endpoint `/api/trending?lang=telugu&limit=8` returning `CatalogItem[]`. Refreshed server-side daily.
-- **Continue watching** — reuses `/api/history` with `progress_seconds < duration_seconds * 0.95`, limit 6. Already available client-side.
-
-### B.7 Data contract asks (backend)
-
-| # | Endpoint                                | Purpose                                                                                 | Priority |
-|---|-----------------------------------------|-----------------------------------------------------------------------------------------|----------|
-| 1 | `GET /api/search/recent` → `string[]`   | Per-user last 10 queries (writes on every successful search from frontend)              | P1       |
-| 2 | `POST /api/search/recent` `{q}`         | Idempotent upsert                                                                       | P1       |
-| 3 | `DELETE /api/search/recent/:q`          | User-initiated removal                                                                  | P2       |
-| 4 | `GET /api/trending?lang=telugu&limit=8` | Editorial + play-count weighted top items; per-language                                 | P1       |
-| 5 | `GET /api/search?q=…&facets=1`          | Response extended with `facetCounts: {lang: {telugu:42, hindi:19, …}, kind: {...}}`     | P1       |
-| 6 | `GET /api/search?q=…&didYouMean=1`      | Response extended with optional `didYouMean: string`                                     | P2       |
-| 7 | `CatalogItem` gains `langTags: string[]`| Precomputed at catalog-sync time; enables client-side language re-sort with no refetch  | P0       |
-
-**Why #7 is P0:** Without `langTags` on the item, the frontend has no signal to sort Telugu results above Hindi for a given query. Today we'd have to re-derive from category name on each render (fragile — same issue LiveRoute has with `LANGUAGE_PATTERNS`). Doing it once in catalog-sync is both faster and authoritative.
-
-### B.8 Accessibility
-
-- Input: `aria-label="Search channels, movies, and series"`, `role="searchbox"`.
-- Results: live region `aria-live="polite"` on the section container; each section has `role="region" aria-label="Movies results"`.
-- Facet chips: `role="radio"` inside `role="radiogroup" aria-label="Filter by language"`.
-- Disabled chip (0 results): `aria-disabled="true"`, not removed from DOM (count stays as "Telugu 0" for clarity).
-
-### B.9 Migration plan (implementation order)
-
-1. Extract `<LanguageRail />` from `LiveRoute.tsx` into `src/features/language/LanguageRail.tsx` + `useLanguagePref` hook backed by `sv_lang_pref` localStorage.
-2. Mount on Movies, Series, Search (surface prop).
-3. Ship backend #7 (langTags) — unblocks client-side sort.
-4. Fix P1 #6: `SearchResultsSection` routes `type=series` to `navigate('/series/:id')` + temp placeholder page.
-5. Ship backend #1–#4 (recent + trending). Add empty-state rails.
-6. Debounce 300→250ms. Add `didYouMean` + facet counts.
-
-Steps 1, 2, 4 can ship in a single PR (pure frontend, no backend dep) and immediately eliminate the series-buffering bug plus give the user Telugu-first ordering everywhere.
+`sv_catalog` for Live only indexes `name` (no genre/metadata). Search hits Live by channel name only. "Vikram News 24x7" matches `"vikram"`; `"news"` would also match it. This is fine.
 
 ---
 
-SAVED: /home/crawler/streamvault-v3-frontend/docs/ux/04-search-and-language-rail.md
+## 5. Language filter on results
+
+Backend's `/api/search` does NOT return `inferredLang` on hits. Two options:
+
+### 5.1 Client-side annotation (MVP path)
+
+For each hit's `category_id` (or category name if carried), run the same frontend `inferLanguage(categoryName)` function used by list pages. This gives us a 4-value lang per hit.
+
+```
+onResults(hits):
+  annotated = hits.map(h => ({ ...h, inferredLang: inferLanguage(h.category_name) }))
+  return annotated
+```
+
+Rail selection then filters + re-sorts the annotated list client-side.
+
+### 5.2 Backend enrichment (Phase 2)
+
+Preferred long-term: backend adds `inferredLang` to search response. One extra field in `CatalogItemSchema` + `/api/search` adapter. Small backend PR; in `99-grill-findings` as open.
+
+**For now**: §5.1 works. Categories are cached; the inference is cheap.
+
+---
+
+## 6. D-pad focus flow
+
+```
+Dock(Search) ─ArrowUp─► Input (auto-focused on mount)
+                          │
+             ┌────────────┴─────────────┐
+             ↓ (after query + results)  │ Typing: letters appended
+         LanguageRail                   │ Backspace: delete char
+             ↓                          │ Enter: submit immediately
+         Kind chips                     │
+             ↓
+         First section
+         header / first result card
+```
+
+### 6.1 After results arrive
+
+On first successful search after typing, focus **stays in the input**. User can continue typing to refine. Only when user presses `ArrowDown` does focus move into results (first section's first card).
+
+Why: prevents stealing focus mid-typing.
+
+### 6.2 Card activation
+
+Per IA §2.3 card-activation matrix:
+- `hit.kind === "live"` → `openPlayer({ kind: "live", ... })`
+- `hit.kind === "vod"` → `openPlayer({ kind: "movie", ... })`
+- `hit.kind === "series"` → `navigate('/series/${hit.id}')`
+
+---
+
+## 7. Click / keypress budgets
+
+| Task | Typed path | Goal |
+|---|---|---|
+| Search "vikram" → play top movie | Dock nav (4) + type 6 letters (via on-screen keyboard, ~24 D-pad events) + Enter (1) + Down to first card (1) + Enter (1) | ~31 events, ~9 decisions |
+| Refine with kind=Series | +1 ArrowDown + ArrowRight to "Series" chip + Enter | +3 |
+| Switch lang filter (Telugu → Hindi) | ArrowUp to LanguageRail + ArrowRight + Enter | +3 |
+
+On-screen keyboard typing is the long pole on Fire TV. The spec **does not try to shortcut it** — the honest answer is "typing is slow, searches should be rare, muscle memory for recent queries would help but requires backend."
+
+---
+
+## 8. Data contract
+
+### 8.1 Endpoint used
+
+```
+GET /api/search?q=<query>&type=live|vod|series&hideAdult=true
+  → {
+      live: CatalogItem[],       // max 50
+      vod: CatalogItem[],        // max 50
+      series: CatalogItem[],     // max 50
+      total: number
+    }
+```
+
+Backend caps at 150 total hits across buckets. Pagination not supported.
+
+### 8.2 Small backend ask — prefix match (P1)
+
+Tweak `catalog.service.ts` search query to append `:*` to each token. Backward-compatible (no schema change, no new endpoint). See §4.3.
+
+### 8.3 Long-term backend asks (tracked but deferred)
+
+Listed in `99-grill-findings` with priorities:
+- `inferredLang` on search hits (P1)
+- `/api/trending?lang=telugu&limit=8` (P2)
+- `/api/search/recent` persistence (P2)
+- `pg_trgm` similarity for did-you-mean (P2)
+
+---
+
+## 9. Persistence
+
+| Key | Value | Lifetime |
+|---|---|---|
+| `sv_lang_pref` | global | forever |
+| Last query | URL `?q=` | browser history |
+
+No recent-searches localStorage yet — a client-only implementation would diverge from the "backend-persisted" long-term plan and cause confusion when multiple devices are used.
+
+---
+
+## 10. Accessibility
+
+- Input: `role="searchbox"`, `aria-label="Search channels, movies, and series"`
+- Section containers: `role="region" aria-label="Movies results"` etc.
+- Results live region: `aria-live="polite"` announces result counts on every debounce fire
+- Chips: `role="radio"` inside `role="radiogroup"`
+- Focus return: on Back from a series detail opened from search, focus restores to the originating result card (via ref bookmark)
+
+---
+
+## 11. Decision log
+
+| # | Decision | Alternative rejected |
+|---|---|---|
+| 1 | Scope = Live + Movies + Series | Movies-only (users expect to search channels too) |
+| 2 | Whole-word + multi-word AND | Substring matching (Postgres FTS default behavior is the right fit) |
+| 3 | Prefix match (`vikr` → `vikram`) via `:*` | Require full word (too strict for 2-char min) |
+| 4 | 4 chips (no Sports) — match Movies/Series | 5 chips (Sports is too noisy on search) |
+| 5 | Client-side lang annotation via `inferLanguage(category_name)` | Block on backend enrichment (avoids Phase 1 dependency) |
+| 6 | No voice search in MVP | Include (webkitSpeechRecognition unreliable on Fire TV Silk) |
+| 7 | No recent searches / trending in MVP | Build with localStorage (diverges from future server-backed) |
+| 8 | No did-you-mean in MVP | Add pg_trgm index now (out of scope for this pass) |
+| 9 | Debounce 300ms → 250ms | Keep 300ms (user-perceivable latency reduction) |
+| 10 | Focus stays in input after first results | Jump to first result (interrupts typing when refining) |
+
+---
+
+**End of spec.**
