@@ -66,10 +66,14 @@ export function SeriesGrid({
       aria-label="Series grid"
       style={{
         display: "grid",
+        // User ask 2026-04-23 evening: ≥ 3 rows visible above the dock.
+        // Drive the minimum card width off --poster-min-width so Series
+        // grid density matches the Movies grid's density tiers in
+        // tokens.css (120/138/155/175/195 px across viewport width).
         gridTemplateColumns:
-          "repeat(auto-fill, minmax(min(220px, 100%), 1fr))",
+          "repeat(auto-fill, minmax(min(var(--poster-min-width, 140px), 100%), 1fr))",
         gap: "var(--space-4)",
-        padding: "var(--space-4) var(--space-6)",
+        padding: "var(--space-3) var(--space-6)",
       }}
     >
       {items.map((item) => (

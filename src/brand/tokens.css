@@ -309,7 +309,10 @@
       calc(var(--dock-height) + var(--dock-bottom-offset) + var(--space-6));
 
     /* ── Hero banner ─────────────────────────────────────────── */
-    --hero-height:         clamp(280px, 42vh, 560px);
+    /* Tightened 2026-04-23 evening — was clamp(280px, 42vh, 560px). User
+       wants ≥ 3 rows of posters visible above the dock; the old value stole
+       half the viewport. 28vh leaves ~60-70% of vh for the grid. */
+    --hero-height:         clamp(200px, 28vh, 380px);
     --hero-side-padding:   var(--gutter-tv);
 
     /* ── Poster card (2:3 aspect fixed; width fluid per tier) ── */
@@ -323,22 +326,25 @@
     --player-seek-thick:   clamp(4px, 0.6vh, 8px);
   }
 
-  /* Density tiers — drive grid column count via --poster-min-width.
-     auto-fill grids pick up these values automatically. Tiers approx:
-     <960 → 4 cols · 960-1279 → 5 · 1280-1599 → 6 · 1600-1919 → 7 · 1920+ → 7-8 */
+  /* Density tiers — drive auto-fill grid column count via --poster-min-width.
+     User ask 2026-04-23 evening: ≥ 3 rows of 4+ cards visible above the dock.
+     With a fixed 2:3 poster aspect, row height shrinks with column width, so
+     denser columns = more rows visible in the same viewport. Tiers below
+     target: ≤ 959 → 4-5 cols · 960-1279 → 6-7 · 1280-1599 → 7-8 ·
+     1600-1919 → 8-9 · 1920+ → 9-10. */
   :root[data-tv="true"] {
-    --poster-min-width: 160px; /* ≤ 959 fallback */
+    --poster-min-width: 120px; /* ≤ 959 fallback */
   }
   @media (min-width: 960px) and (max-width: 1279px) {
-    :root[data-tv="true"] { --poster-min-width: 180px; }
+    :root[data-tv="true"] { --poster-min-width: 138px; }
   }
   @media (min-width: 1280px) and (max-width: 1599px) {
-    :root[data-tv="true"] { --poster-min-width: 195px; }
+    :root[data-tv="true"] { --poster-min-width: 155px; }
   }
   @media (min-width: 1600px) and (max-width: 1919px) {
-    :root[data-tv="true"] { --poster-min-width: 210px; }
+    :root[data-tv="true"] { --poster-min-width: 175px; }
   }
   @media (min-width: 1920px) {
-    :root[data-tv="true"] { --poster-min-width: 230px; }
+    :root[data-tv="true"] { --poster-min-width: 195px; }
   }
 }

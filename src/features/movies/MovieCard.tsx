@@ -303,10 +303,10 @@ export function MovieCard({
 
         <div
           style={{
-            padding: "var(--space-2) var(--space-3)",
+            padding: "var(--space-1) var(--space-2)",
             paddingRight: focused
-              ? "calc(var(--space-3) + 40px)"
-              : "var(--space-3)",
+              ? "calc(var(--space-2) + 32px)"
+              : "var(--space-2)",
             color: "var(--text-primary)",
             fontSize: "var(--text-label-size)",
             letterSpacing: "var(--text-label-tracking)",
@@ -322,7 +322,7 @@ export function MovieCard({
         {(stream.year ?? stream.rating) && (
           <div
             style={{
-              padding: "0 var(--space-3) var(--space-2)",
+              padding: "0 var(--space-2) var(--space-1)",
               color: "var(--text-secondary)",
               fontSize: "var(--text-caption-size)",
               fontVariantNumeric: "tabular-nums",
