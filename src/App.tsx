@@ -133,13 +133,27 @@ function AppShell() {
       const active = document.activeElement?.getAttribute("aria-label");
       const dockLabels = Object.values(DOCK_LABELS);
       if (active && dockLabels.includes(active)) {
-        // Back pressed while the dock is focused. Let the event through so
-        // the browser / Fire TV host can close the tab or PWA (a user on
-        // the dock signalling Back means "leave the app"). We also record
-        // the timestamp so the popstate sentinel below stops re-pushing
-        // the exit guard — otherwise Fire TV's hardware Back would be
-        // absorbed by the sentinel re-push and never reach the OS.
+        // Back on the dock → exit. Record the timestamp so the popstate
+        // sentinel stops re-pushing and the hardware Back reaches the OS.
         lastDockBackAtRef.current = Date.now();
+        return;
+      }
+
+      // 4-level hierarchy (UX lead confirmed 2026-04-24):
+      //   Detail route (/series/:id, /movies/:id, …) → browser history.back()
+      //     so React Router navigates to the parent list route.
+      //   Root route (/series, /movies, /live, /search, /settings) → jump
+      //     focus to the active dock tab, preventDefault so we stay on the
+      //     page. The *next* Back (now on the dock) exits per the branch
+      //     above.
+      // The previous implementation always setFocus'd to the dock, which
+      // stranded detail routes — user on /series/16420 couldn't get back
+      // to /series without manually navigating.
+      const segments = window.location.pathname.split("/").filter(Boolean);
+      const isDetailRoute = segments.length > 1;
+      if (isDetailRoute) {
+        // Let the browser's default (or the popstate listener below)
+        // handle the history pop. Don't preventDefault.
         return;
       }
       setFocus(`DOCK_${activeTab.toUpperCase()}`);
