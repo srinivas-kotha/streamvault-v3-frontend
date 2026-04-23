@@ -13,9 +13,14 @@
  *
  * Design decisions:
  *  - backBufferLength: 20 — reduces memory pressure on Fire TV; do NOT raise.
+ *  - maxBufferLength: 120 — 2 min forward target for smoother playback on
+ *    flaky networks (2026-04-23 prod feedback). maxMaxBufferLength caps at
+ *    180 so hls.js can't grow the buffer indefinitely under adaptive pressure.
  *  - Use nextLevel (NOT currentLevel) for quality changes — avoids mid-segment
  *    cuts (lesson from v2 Sprint 4).
  *  - mpegts.js: enableStashBuffer=false + lowBufferLatencyChasing — live-TV tuned.
+ *    Live is deliberately near-live-edge, so the 120 s VOD buffer doesn't
+ *    apply; chasing would fight against a deep live buffer anyway.
  *  - Clean up hls.destroy() / mpegts.destroy() on unmount.
  */
 import { useEffect, useRef, useState, useCallback } from "react";
@@ -142,10 +147,14 @@ export function useHlsPlayer(
         /* autoplay blocked or jsdom */
       });
     } else if (isM3u8 && Hls.isSupported()) {
+      // Phase 6 follow-up (2026-04-23 user ask): bump forward-buffer target
+      // to 120 s for smoother playback on flaky networks. backBufferLength
+      // stays at 20 s — keeps memory pressure on Fire TV bounded per the
+      // v2 lesson.
       const hls = new Hls({
         backBufferLength: 20,
-        maxBufferLength: 30,
-        maxMaxBufferLength: 60,
+        maxBufferLength: 120,
+        maxMaxBufferLength: 180,
         enableWorker: true,
         lowLatencyMode: false,
       });

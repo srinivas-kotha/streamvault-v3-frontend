@@ -165,6 +165,11 @@ export function PlayerShell() {
             objectFit: "contain",
           }}
           playsInline
+          // Hint to the browser: prefetch as much VOD as possible. Native
+          // video buffer size is ultimately browser-controlled, but "auto"
+          // tells it not to throttle prefetch. For HLS / mpegts this attr
+          // is ignored — those libraries manage their own buffer.
+          preload="auto"
         />
 
         {(status === "loading" || status === "buffering") && (
