@@ -30,8 +30,14 @@ test.describe.serial("Player smoke (prod)", () => {
         .locator('button[type="submit"]')
         .or(page.getByRole("button", { name: /sign in|log in|login/i }));
 
-      await usernameInput.fill(process.env["E2E_USERNAME"] ?? "admin");
-      await passwordInput.fill(process.env["E2E_PASSWORD"] ?? "admin");
+      // CI injects E2E_USER / E2E_PASS (same secrets as auth.spec.ts).
+      // E2E_USERNAME / E2E_PASSWORD are accepted as fallbacks for local .env.local.
+      const user =
+        process.env["E2E_USER"] ?? process.env["E2E_USERNAME"] ?? "admin";
+      const pass =
+        process.env["E2E_PASS"] ?? process.env["E2E_PASSWORD"] ?? "admin";
+      await usernameInput.fill(user);
+      await passwordInput.fill(pass);
       await submitButton.click();
 
       // ── 2. Navigate to /live ───────────────────────────────────────────────
