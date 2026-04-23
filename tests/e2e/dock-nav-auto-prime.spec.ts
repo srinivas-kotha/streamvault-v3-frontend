@@ -33,25 +33,31 @@ test.describe("BottomDock auto-prime (AppShell useEffect)", () => {
     expect(label).toBe("Live");
   });
 
-  test("ArrowRight moves from Live to Movies without __svSetFocus priming", async ({
+  // Dock order is [Movies, Series, Live, Search, Settings]. Deep-linking to
+  // /live focuses DOCK_LIVE (position 3), so ArrowRight lands on Search.
+  test("ArrowRight moves from Live to Search without __svSetFocus priming", async ({
     page,
   }) => {
     await page.keyboard.press("ArrowRight");
     await page.waitForFunction(
-      () => document.activeElement?.getAttribute("aria-label") === "Movies",
+      () => document.activeElement?.getAttribute("aria-label") === "Search",
       { timeout: 2000 },
     );
     expect(
       await page.evaluate(() =>
         document.activeElement?.getAttribute("aria-label"),
       ),
-    ).toBe("Movies");
+    ).toBe("Search");
   });
 
-  test("ArrowRight walks the whole dock: Live -> Movies -> Series -> Search -> Settings", async ({
+  test("ArrowRight walks the whole dock: Movies -> Series -> Live -> Search -> Settings", async ({
     page,
   }) => {
-    const expected = ["Live", "Movies", "Series", "Search", "Settings"];
+    // Walk starts from leftmost tab, so navigate to /movies first (overriding
+    // the beforeEach goto("/live")) to prime focus on DOCK_MOVIES.
+    await page.goto("/movies");
+    await page.waitForTimeout(1500);
+    const expected = ["Movies", "Series", "Live", "Search", "Settings"];
     for (let i = 0; i < expected.length; i += 1) {
       const want = expected[i];
       await page.waitForFunction(

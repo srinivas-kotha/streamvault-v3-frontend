@@ -27,49 +27,51 @@ test.describe("BottomDock D-pad navigation", () => {
     await page.waitForTimeout(300);
   });
 
-  test("ArrowRight moves focus from Live to Movies in dock", async ({
+  // Dock order is [Movies, Series, Live, Search, Settings] — Movies is
+  // leftmost so ArrowRight from Movies lands on Series.
+  test("ArrowRight moves focus from Movies to Series in dock", async ({
     page,
   }) => {
     await page.evaluate(() =>
       (
         window as unknown as { __svSetFocus: (key: string) => void }
-      ).__svSetFocus("DOCK_LIVE"),
+      ).__svSetFocus("DOCK_MOVIES"),
     );
     await page.waitForFunction(
-      () => document.activeElement?.getAttribute("aria-label") === "Live",
+      () => document.activeElement?.getAttribute("aria-label") === "Movies",
       { timeout: 2000 },
     );
 
     await page.keyboard.press("ArrowRight");
     await page.waitForFunction(
-      () => document.activeElement?.getAttribute("aria-label") === "Movies",
+      () => document.activeElement?.getAttribute("aria-label") === "Series",
       { timeout: 2000 },
     );
     expect(
       await page.evaluate(() =>
         document.activeElement?.getAttribute("aria-label"),
       ),
-    ).toBe("Movies");
+    ).toBe("Series");
   });
 
   test("Enter on dock item navigates to that route", async ({ page }) => {
     await page.evaluate(() =>
       (
         window as unknown as { __svSetFocus: (key: string) => void }
-      ).__svSetFocus("DOCK_LIVE"),
+      ).__svSetFocus("DOCK_MOVIES"),
     );
-    await page.waitForFunction(
-      () => document.activeElement?.getAttribute("aria-label") === "Live",
-      { timeout: 2000 },
-    );
-    await page.keyboard.press("ArrowRight");
     await page.waitForFunction(
       () => document.activeElement?.getAttribute("aria-label") === "Movies",
       { timeout: 2000 },
     );
+    await page.keyboard.press("ArrowRight");
+    await page.waitForFunction(
+      () => document.activeElement?.getAttribute("aria-label") === "Series",
+      { timeout: 2000 },
+    );
     await page.keyboard.press("Enter");
-    await expect(page).toHaveURL(/\/movies/);
-    await expect(page.locator('[data-page="movies"]')).toBeVisible();
+    await expect(page).toHaveURL(/\/series/);
+    await expect(page.locator('[data-page="series"]')).toBeVisible();
   });
 
   test("dock is visible on /live and /movies", async ({ page }) => {

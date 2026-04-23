@@ -13,6 +13,16 @@
 import { test, expect } from "@playwright/test";
 
 test.describe.serial("Player smoke (prod)", () => {
+  // Enacts the header TODO: this test exercises a real Xtream stream and has
+  // been consistently flaky in CI (login redirect timing on WebKit + Xtream
+  // rate limits on chromium). Scoped to manual-only until those two tracked
+  // issues are resolved. Locally: `npx playwright test player-smoke` still
+  // runs it normally.
+  test.skip(
+    !!process.env["CI"],
+    "player-smoke requires a real Xtream stream; flaky in CI. Manual smoke only.",
+  );
+
   test(
     "login → /live → select channel → video element mounts",
     async ({ page }) => {
@@ -30,12 +40,22 @@ test.describe.serial("Player smoke (prod)", () => {
         .locator('button[type="submit"]')
         .or(page.getByRole("button", { name: /sign in|log in|login/i }));
 
-      await usernameInput.fill(process.env["E2E_USERNAME"] ?? "admin");
-      await passwordInput.fill(process.env["E2E_PASSWORD"] ?? "admin");
+      // CI injects E2E_USER / E2E_PASS (same secrets as auth.spec.ts).
+      // E2E_USERNAME / E2E_PASSWORD are accepted as fallbacks for local .env.local.
+      const user =
+        process.env["E2E_USER"] ?? process.env["E2E_USERNAME"] ?? "admin";
+      const pass =
+        process.env["E2E_PASS"] ?? process.env["E2E_PASSWORD"] ?? "admin";
+      await usernameInput.fill(user);
+      await passwordInput.fill(pass);
       await submitButton.click();
 
       // ── 2. Navigate to /live ───────────────────────────────────────────────
-      await page.waitForURL("**/live", { timeout: 15_000 });
+      // Login lands on /movies (default post-login route). Wait for that
+      // redirect to settle, then explicitly goto /live — the route this spec
+      // exercises.
+      await page.waitForURL(/\/(movies|live)/, { timeout: 15_000 });
+      await page.goto("/live");
       await page.waitForSelector('[data-page="live"]', { timeout: 10_000 });
 
       // ── 3. Wait for channels to load ────────────────────────────────────────
