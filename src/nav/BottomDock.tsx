@@ -72,6 +72,7 @@ export function BottomDock({
               key={item.id}
               item={item}
               isActive={activeItem === item.id}
+              activeItem={activeItem}
               onSelect={() => onNavigate(item.id)}
             />
           ))}
@@ -84,10 +85,12 @@ export function BottomDock({
 function DockTab({
   item,
   isActive,
+  activeItem,
   onSelect,
 }: {
   item: (typeof DOCK_ITEMS)[0];
   isActive: boolean;
+  activeItem: DockItem;
   onSelect: () => void;
 }) {
   // Task 2.4: explicit focusKey per tab. Without this, norigin can't uniquely
@@ -101,12 +104,18 @@ function DockTab({
   // feels stuck. Handle ArrowUp explicitly: setFocus to the active route's
   // CONTENT_AREA_* container, which has trackChildren:true so norigin forwards
   // focus into the grid/list instead of staying pinned on the dock.
+  //
+  // 2026-04-23 fix: target CONTENT_AREA_{activeItem}, not {item.id}. When the
+  // user ArrowRight's to hover a different tab WITHOUT pressing Enter, the
+  // hovered tab's route isn't mounted — calling setFocus on an unmounted key
+  // silently fails AND corrupts norigin's focus state (subsequent arrows
+  // stop working). Always target the mounted route's content area.
   const { ref, focused } = useFocusable({
     focusKey: `DOCK_${item.id.toUpperCase()}`,
     onEnterPress: onSelect,
     onArrowPress: (direction) => {
       if (direction === "up") {
-        setFocus(`CONTENT_AREA_${item.id.toUpperCase()}`);
+        setFocus(`CONTENT_AREA_${activeItem.toUpperCase()}`);
         return false; // consume the event — we've handled it
       }
       return true; // let norigin handle left/right/down
