@@ -6,9 +6,15 @@ import "./index.css";
 import "./primitives/index.css"; // aggregator — all primitive stylesheets
 import App from "./App.tsx";
 import { initSpatialNav } from "./nav/spatialNav";
+import { captureInstallPrompt } from "./features/install/installPrompt";
 
 // Must run before createRoot so norigin is ready when React mounts.
 initSpatialNav();
+
+// `beforeinstallprompt` fires once per load and must be captured synchronously
+// on the window, BEFORE React mounts — otherwise the event is lost and the
+// Settings InstallHint can't programmatically trigger the native install UI.
+captureInstallPrompt();
 
 // TV platform sniff — covers Fire TV (Silk/AFT*), Android TV, Google TV,
 // Chromecast (CrKey), Tizen, webOS, HbbTV, and common smart-TV UA markers.

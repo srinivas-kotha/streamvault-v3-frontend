@@ -18,6 +18,7 @@ import { logout } from "../api/auth";
 import { ChangePasswordForm } from "../features/settings/ChangePasswordForm";
 import { PreferencesPanel } from "../features/settings/PreferencesPanel";
 import { AppInfoPanel } from "../features/settings/AppInfoPanel";
+import { InstallHint } from "../features/install/InstallHint";
 import "../features/settings/settings.css";
 
 // ─── Read username from the session sentinel ─────────────────────────────────
@@ -357,6 +358,7 @@ export function SettingsRoute() {
           Settings
         </h1>
 
+        <InstallHint />
         <AccountSection onLoggedOut={handleLoggedOut} />
         <ShortcutsSection />
         <PreferencesPanel />
