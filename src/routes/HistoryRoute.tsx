@@ -212,6 +212,11 @@ export function HistoryRoute() {
     focusKey: "CONTENT_AREA_HISTORY",
     focusable: false,
     trackChildren: true,
+    // Absorb dead-direction bubble-ups at the route's outer edges; Down
+    // stays open so rows can still reach BottomDock. See
+    // streamvault-v3-focus-vanish-bug.md.
+    isFocusBoundary: true,
+    focusBoundaryDirections: ["left", "right", "up"],
   });
   const navigate = useNavigate();
   const { history, loading, error, remove, reload } = useWatchHistory();

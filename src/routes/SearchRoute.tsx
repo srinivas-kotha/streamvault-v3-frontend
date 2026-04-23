@@ -118,6 +118,11 @@ export function SearchRoute() {
     focusKey: "CONTENT_AREA_SEARCH",
     focusable: false,
     trackChildren: true,
+    // Absorb dead-direction bubble-ups at the route's outer edges; Down
+    // stays open so results can still reach BottomDock. See
+    // streamvault-v3-focus-vanish-bug.md.
+    isFocusBoundary: true,
+    focusBoundaryDirections: ["left", "right", "up"],
   });
 
   const [query, setQuery] = useState("");
