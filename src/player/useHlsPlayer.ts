@@ -66,6 +66,8 @@ export interface UseHlsPlayerReturn {
   selectLevel: (idx: number) => void;
   selectAudioTrack: (idx: number) => void;
   selectSubtitleTrack: (idx: number) => void;
+  /** Re-attach the playback engine so a failed stream is retried in place. */
+  retry: () => void;
 }
 
 export function useHlsPlayer(
@@ -82,6 +84,10 @@ export function useHlsPlayer(
   const [levels, setLevels] = useState<HlsLevel[]>([]);
   const [audioTracks, setAudioTracks] = useState<HlsAudioTrack[]>([]);
   const [subtitleTracks, setSubtitleTracks] = useState<HlsSubtitleTrack[]>([]);
+  // Bumping this forces the main attach/tear-down effect to re-run even when
+  // src/kind haven't changed — the "Try again" button on the failure overlay
+  // relies on this so users don't have to close + re-open from the card.
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -255,7 +261,7 @@ export function useHlsPlayer(
       }
       video.src = "";
     };
-  }, [videoRef, src, kind]);
+  }, [videoRef, src, kind, retryCount]);
 
   const play = useCallback(() => {
     videoRef.current?.play().catch(() => {});
@@ -306,6 +312,10 @@ export function useHlsPlayer(
     }
   }, []);
 
+  const retry = useCallback(() => {
+    setRetryCount((c) => c + 1);
+  }, []);
+
   return {
     status,
     error,
@@ -321,5 +331,6 @@ export function useHlsPlayer(
     selectLevel,
     selectAudioTrack,
     selectSubtitleTrack,
+    retry,
   };
 }

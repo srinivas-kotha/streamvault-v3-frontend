@@ -26,12 +26,15 @@ import type {
   PlayerStatus,
 } from "./useHlsPlayer";
 import type { PlayerKind } from "./PlayerProvider";
+import { useReducedMotion } from "./useReducedMotion";
 
 // ─── Focus keys (exported for tests + call sites) ────────────────────────────
 
 export const FK = {
   BACK: "PLAYER_BACK",
+  PREV: "PLAYER_PREV",
   PLAY_PAUSE: "PLAYER_PLAY_PAUSE",
+  NEXT: "PLAYER_NEXT",
   SEEK_BACK: "PLAYER_SEEK_BACK",
   SEEK_FORWARD: "PLAYER_SEEK_FORWARD",
   VOLUME: "PLAYER_VOLUME",
@@ -93,6 +96,13 @@ export interface PlayerControlsProps {
   onSelectLevel: (idx: number) => void;
   onSelectAudioTrack: (idx: number) => void;
   onSelectSubtitleTrack: (idx: number) => void;
+  /**
+   * Jump to the previous sibling (prev channel on Live, prev episode on a
+   * series). Undefined means the button is hidden — spec §3.1 says disabled
+   * controls don't render. Movies never get these.
+   */
+  onPrev?: () => void;
+  onNext?: () => void;
 }
 
 type MenuName = "audio" | "subtitles" | "quality" | "volume";
@@ -413,7 +423,11 @@ export function PlayerControls({
   onSelectLevel,
   onSelectAudioTrack,
   onSelectSubtitleTrack,
+  onPrev,
+  onNext,
 }: PlayerControlsProps) {
+  const reducedMotion = useReducedMotion();
+
   // Controls open visible (spec §4.1), then fade after AUTO_HIDE_MS idle.
   const [visible, setVisible] = useState(true);
   const [openMenu, setOpenMenu] = useState<MenuName | null>(null);
@@ -594,9 +608,13 @@ export function PlayerControls({
   const audioHasOptions = audioTracks.length > 1;
   const subsAvailable = subtitleTracks.length > 0;
   const qualityAvailable = levels.length > 0;
+  const hasPrev = Boolean(onPrev);
+  const hasNext = Boolean(onNext);
 
   const orderedKeys: string[] = [
+    hasPrev ? FK.PREV : null,
     FK.PLAY_PAUSE,
+    hasNext ? FK.NEXT : null,
     seekable ? FK.SEEK_BACK : null,
     seekable ? FK.SEEK_FORWARD : null,
     FK.VOLUME,
@@ -693,7 +711,8 @@ export function PlayerControls({
           inset: 0,
           pointerEvents: visible ? "auto" : "none",
           opacity: visible ? 1 : 0,
-          transition: `opacity ${FADE_MS}ms ease-out`,
+          // Spec §10 — prefers-reduced-motion disables the fade.
+          transition: reducedMotion ? "none" : `opacity ${FADE_MS}ms ease-out`,
           display: "flex",
           flexDirection: "column",
           justifyContent: "space-between",
@@ -838,6 +857,17 @@ export function PlayerControls({
               gap: "var(--space-3)",
             }}
           >
+            {hasPrev && onPrev && (
+              <ControlButton
+                focusKey={FK.PREV}
+                label={isLive ? "Previous channel" : "Previous episode"}
+                icon="⏮"
+                onPress={onPrev}
+                isEdgeLeft={leftEdgeKey === FK.PREV}
+                isEdgeRight={rightEdgeKey === FK.PREV}
+              />
+            )}
+
             <ControlButton
               focusKey={FK.PLAY_PAUSE}
               label={isPlaying ? "Pause" : "Play"}
@@ -846,6 +876,17 @@ export function PlayerControls({
               isEdgeLeft={leftEdgeKey === FK.PLAY_PAUSE}
               isEdgeRight={rightEdgeKey === FK.PLAY_PAUSE}
             />
+
+            {hasNext && onNext && (
+              <ControlButton
+                focusKey={FK.NEXT}
+                label={isLive ? "Next channel" : "Next episode"}
+                icon="⏭"
+                onPress={onNext}
+                isEdgeLeft={leftEdgeKey === FK.NEXT}
+                isEdgeRight={rightEdgeKey === FK.NEXT}
+              />
+            )}
 
             <ControlButton
               focusKey={FK.SEEK_BACK}

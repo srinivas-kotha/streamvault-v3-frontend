@@ -20,10 +20,26 @@ import {
 
 export type PlayerKind = "live" | "vod" | "series-episode";
 
+/**
+ * Identifies the originating content item so the player can write tier-lock
+ * cache entries against the right stream id on failure. VOD uses the stream
+ * id from /api/vod/streams; series-episode uses the episode id.
+ */
+export interface PlayerContentId {
+  kind: PlayerKind;
+  id: string;
+}
+
 export interface PlayerOpenPayload {
   src: string;
   title: string;
   kind?: PlayerKind;
+  /** Jump to previous sibling (prev channel / prev episode). Undefined = disabled. */
+  onPrev?: () => void;
+  /** Jump to next sibling. Undefined = disabled. */
+  onNext?: () => void;
+  /** When set, the failure overlay uses this id to memo a tier-lock hit. */
+  contentId?: PlayerContentId;
 }
 
 interface PlayerStateOpen {
@@ -31,6 +47,9 @@ interface PlayerStateOpen {
   src: string;
   title: string;
   kind: PlayerKind;
+  onPrev?: () => void;
+  onNext?: () => void;
+  contentId?: PlayerContentId;
 }
 
 interface PlayerStateIdle {
@@ -45,13 +64,20 @@ type PlayerAction =
 
 function playerReducer(_state: PlayerState, action: PlayerAction): PlayerState {
   switch (action.type) {
-    case "OPEN":
-      return {
+    case "OPEN": {
+      // tsconfig exactOptionalPropertyTypes:true — only set the keys when
+      // actually defined to avoid { onPrev: undefined } showing up in state.
+      const next: PlayerStateOpen = {
         status: "open",
         src: action.payload.src,
         title: action.payload.title,
         kind: action.payload.kind ?? "vod",
       };
+      if (action.payload.onPrev) next.onPrev = action.payload.onPrev;
+      if (action.payload.onNext) next.onNext = action.payload.onNext;
+      if (action.payload.contentId) next.contentId = action.payload.contentId;
+      return next;
+    }
     case "CLOSE":
       return { status: "idle" };
     default:
