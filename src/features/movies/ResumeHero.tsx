@@ -15,7 +15,7 @@
  * seeds focus here instead of the first poster.
  */
 import type { RefObject } from "react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useFocusable } from "@noriginmedia/norigin-spatial-navigation";
 
 export interface ResumeHeroProps {
@@ -23,6 +23,14 @@ export interface ResumeHeroProps {
   /** Seconds remaining in the movie (duration − progress). */
   remainingSeconds: number;
   onSelect: () => void;
+  /**
+   * When true, the hero grabs norigin focus on mount via focusSelf().
+   * The parent decides this based on whether the initial seed should
+   * land on the hero vs the first poster. focusSelf is tied to the
+   * component's own registration so there's no "target not yet
+   * registered" race — unlike setFocus("RESUME_HERO") from the parent.
+   */
+  shouldAutoFocus?: boolean;
 }
 
 function formatRemaining(seconds: number): string {
@@ -39,30 +47,45 @@ export function ResumeHero({
   title,
   remainingSeconds,
   onSelect,
+  shouldAutoFocus = false,
 }: ResumeHeroProps) {
   // Bounce-on-dead-direction. The hero sits at the top-most row and is full
   // width, so Up / Left / Right have no neighbour. Without feedback, those
   // presses look like the button is broken (observed in prod 2026-04-23 PM).
-  // onArrowPress fires before norigin navigates; for Down we let it pass
-  // through untouched (target = LanguageRail).
   const [bouncePulse, setBouncePulse] = useState(0);
 
-  const { ref, focused } = useFocusable<HTMLButtonElement>({
+  // norigin contract (verified by reading `SpatialNavigation.onArrowPress`
+  // in dist/index.js): `return false` PREVENTS the default navigation;
+  // any other return value (including `true` and `undefined`) lets norigin
+  // navigate. A previous iteration of this file inverted that assumption
+  // and silently blocked Down from walking to the LanguageRail.
+  //
+  // We always return `true`: Up/Left/Right have no neighbour so the
+  // navigation is a no-op anyway, Down walks to the rail as intended.
+  const { ref, focused, focusSelf } = useFocusable<HTMLButtonElement>({
     focusKey: "RESUME_HERO",
     onEnterPress: onSelect,
     onArrowPress: (direction) => {
-      // Dead directions (no neighbour) → bounce + consume the event so
-      // norigin doesn't traverse.
       if (direction === "up" || direction === "left" || direction === "right") {
         setBouncePulse((p) => p + 1);
-        return true;
       }
-      // Down has a real target (LanguageRail) — let norigin navigate.
-      // Returning `true` here previously pinned focus on the hero and
-      // broke the only working direction (observed in prod 2026-04-23 PM).
-      return false;
+      return true;
     },
   });
+
+  // Fire focusSelf exactly once on mount when the parent requested it.
+  // Using focusSelf (not setFocus) avoids the "target not registered yet"
+  // race we hit when the parent called setFocus("RESUME_HERO") before the
+  // hero's useFocusable had a chance to register with norigin.
+  const autoFocusedRef = useRef(false);
+  useEffect(() => {
+    if (shouldAutoFocus && !autoFocusedRef.current) {
+      autoFocusedRef.current = true;
+      focusSelf();
+    }
+    // focusSelf identity changes every render; intentionally omit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shouldAutoFocus]);
 
   return (
     <div
