@@ -563,12 +563,61 @@ export function PlayerControls({
 
   // ── Focusables for top bar ────────────────────────────────────────────────
 
+  const hasPrev = Boolean(onPrev);
+  const hasNext = Boolean(onNext);
+
+  // Top-bar layout (6e — UX option 1): Back | Prev | Next on series-episode.
+  // Back is the left edge; walking right in the top bar goes Back → Prev →
+  // Next. Down from any of them lands on Play/Pause (predictable re-entry
+  // to the transport row per spec §4.2).
   const { ref: backRef, focused: backFocused } = useFocusable({
     focusKey: FK.BACK,
     onEnterPress: onClose,
     onArrowPress: (direction) => {
       if (direction === "down") {
         setFocus(FK.PLAY_PAUSE);
+        return false;
+      }
+      if (direction === "right" && hasPrev) {
+        setFocus(FK.PREV);
+        return false;
+      }
+      return false;
+    },
+  });
+
+  const { ref: prevRef, focused: prevFocused } = useFocusable({
+    focusKey: FK.PREV,
+    focusable: hasPrev,
+    onEnterPress: () => onPrev?.(),
+    onArrowPress: (direction) => {
+      if (direction === "down") {
+        setFocus(FK.PLAY_PAUSE);
+        return false;
+      }
+      if (direction === "left") {
+        setFocus(FK.BACK);
+        return false;
+      }
+      if (direction === "right" && hasNext) {
+        setFocus(FK.NEXT);
+        return false;
+      }
+      return false;
+    },
+  });
+
+  const { ref: nextRef, focused: nextFocused } = useFocusable({
+    focusKey: FK.NEXT,
+    focusable: hasNext,
+    onEnterPress: () => onNext?.(),
+    onArrowPress: (direction) => {
+      if (direction === "down") {
+        setFocus(FK.PLAY_PAUSE);
+        return false;
+      }
+      if (direction === "left") {
+        setFocus(hasPrev ? FK.PREV : FK.BACK);
         return false;
       }
       return false;
@@ -618,13 +667,11 @@ export function PlayerControls({
   const audioHasOptions = audioTracks.length > 1;
   const subsAvailable = subtitleTracks.length > 0;
   const qualityAvailable = levels.length > 0;
-  const hasPrev = Boolean(onPrev);
-  const hasNext = Boolean(onNext);
 
+  // 6e — Prev/Next moved to the top bar so arrow-seek on the transport row
+  // stays clean. Only the transport + settings rows live in orderedKeys now.
   const orderedKeys: string[] = [
-    hasPrev ? FK.PREV : null,
     FK.PLAY_PAUSE,
-    hasNext ? FK.NEXT : null,
     seekable ? FK.SEEK_BACK : null,
     seekable ? FK.SEEK_FORWARD : null,
     FK.VOLUME,
@@ -791,6 +838,36 @@ export function PlayerControls({
           >
             {title}
           </span>
+          {hasPrev && (
+            <button
+              ref={prevRef as RefObject<HTMLButtonElement>}
+              type="button"
+              className="focus-ring"
+              aria-label="Previous episode"
+              onClick={() => onPrev?.()}
+              style={{
+                ...controlButtonStyle,
+                outline: prevFocused ? "2px solid var(--accent-copper)" : undefined,
+              }}
+            >
+              ⏮
+            </button>
+          )}
+          {hasNext && (
+            <button
+              ref={nextRef as RefObject<HTMLButtonElement>}
+              type="button"
+              className="focus-ring"
+              aria-label="Next episode"
+              onClick={() => onNext?.()}
+              style={{
+                ...controlButtonStyle,
+                outline: nextFocused ? "2px solid var(--accent-copper)" : undefined,
+              }}
+            >
+              ⏭
+            </button>
+          )}
           {isLive ? (
             <span
               aria-label="Live"
@@ -893,17 +970,6 @@ export function PlayerControls({
               gap: "var(--space-3)",
             }}
           >
-            {hasPrev && onPrev && (
-              <ControlButton
-                focusKey={FK.PREV}
-                label={isLive ? "Previous channel" : "Previous episode"}
-                icon="⏮"
-                onPress={onPrev}
-                isEdgeLeft={leftEdgeKey === FK.PREV}
-                isEdgeRight={rightEdgeKey === FK.PREV}
-              />
-            )}
-
             <ControlButton
               focusKey={FK.PLAY_PAUSE}
               label={isPlaying ? "Pause" : "Play"}
@@ -913,17 +979,6 @@ export function PlayerControls({
               isEdgeRight={rightEdgeKey === FK.PLAY_PAUSE}
               arrowOverrides={transportArrowOverrides}
             />
-
-            {hasNext && onNext && (
-              <ControlButton
-                focusKey={FK.NEXT}
-                label={isLive ? "Next channel" : "Next episode"}
-                icon="⏭"
-                onPress={onNext}
-                isEdgeLeft={leftEdgeKey === FK.NEXT}
-                isEdgeRight={rightEdgeKey === FK.NEXT}
-              />
-            )}
 
             <ControlButton
               focusKey={FK.SEEK_BACK}
