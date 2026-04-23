@@ -36,6 +36,8 @@
        ────────────────────────────────────────────── */
     --live-indicator: #e85a2b;
     --danger: #d84343;
+    --success: #4caf88;
+    --warning: #f59e0b;
 
     /* ──────────────────────────────────────────────
        Typography scale
@@ -153,10 +155,6 @@
       rgba(30, 26, 22, 0.3)
     );
     --card-glass-border: 1px solid rgba(237, 228, 211, 0.06);
-
-    /* Copper focus glow — used by cards + dock tabs */
-    --focus-glow: 0 0 0 2px var(--accent-copper),
-      0 8px 32px -8px rgba(200, 121, 65, 0.45);
 
     /* Copper inset glow when card focused */
     --card-inset-glow: inset 0 0 0 1px rgba(200, 121, 65, 0.25);

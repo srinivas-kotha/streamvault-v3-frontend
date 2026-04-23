@@ -84,7 +84,7 @@ export function FavoritePosterCard({
         position: "relative",
         width: "100%",
         transform: focused ? "scale(1.03)" : "scale(1)",
-        transition: "transform 150ms ease-out",
+        transition: "transform var(--motion-focus)",
       }}
     >
       <button
@@ -102,14 +102,14 @@ export function FavoritePosterCard({
           border: focused
             ? "1px solid var(--accent-copper)"
             : "var(--card-glass-border, 1px solid rgba(237,228,211,0.06))",
-          borderRadius: "var(--radius-sm, 6px)",
+          borderRadius: "var(--radius-sm)",
           padding: 0,
           cursor: "pointer",
           boxShadow: focused
-            ? "var(--focus-glow, 0 0 0 2px var(--accent-copper), 0 8px 32px -8px rgba(200,121,65,0.45))"
+            ? "var(--focus-ring-shadow)"
             : "0 2px 8px rgba(0,0,0,0.3)",
           transition:
-            "box-shadow 150ms ease-out, border-color 150ms ease-out",
+            "box-shadow var(--motion-focus), border-color var(--motion-focus)",
           overflow: "hidden",
           textAlign: "left",
         }}
@@ -119,7 +119,7 @@ export function FavoritePosterCard({
             width: "100%",
             paddingBottom: "150%",
             position: "relative",
-            background: "var(--bg-elevated, #2a2520)",
+            background: "var(--bg-elevated)",
           }}
         >
           {item.content_icon ? (
@@ -169,7 +169,7 @@ export function FavoritePosterCard({
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
-            transition: "padding-right 150ms ease-out",
+            transition: "padding-right var(--motion-focus)",
           }}
         >
           {title}

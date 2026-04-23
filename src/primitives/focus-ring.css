@@ -15,8 +15,9 @@
 .focus-ring:focus-visible {
   outline: 2px solid var(--accent-copper);
   outline-offset: 2px;
-  /* Copper focus glow — spec: 2px ring + deep ambient shadow */
-  box-shadow: var(--focus-glow, 0 0 0 2px var(--accent-copper), 0 8px 32px -8px rgba(200, 121, 65, 0.45));
+  /* Canonical Oxide focus ring (UX spec §6.8): 2px copper + 24px glow.
+     Single source of truth — see --focus-ring-shadow in tokens.css. */
+  box-shadow: var(--focus-ring-shadow);
   transition:
     outline var(--motion-focus),
     box-shadow var(--motion-focus),

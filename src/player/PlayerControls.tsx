@@ -944,7 +944,7 @@ export function PlayerControls({
                   width: "8px",
                   height: "8px",
                   borderRadius: "50%",
-                  background: "#E5484D",
+                  background: "var(--danger)",
                   display: "inline-block",
                 }}
               />

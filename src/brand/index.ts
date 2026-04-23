@@ -41,6 +41,8 @@ export const OXIDE = {
   // Semantic
   liveIndicator: "#e85a2b",
   danger: "#d84343",
+  success: "#4caf88",
+  warning: "#f59e0b",
 
   // Spacing — 8px base grid
   spacingBase: 8,

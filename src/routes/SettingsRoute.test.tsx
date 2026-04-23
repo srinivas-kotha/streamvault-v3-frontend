@@ -21,6 +21,11 @@ vi.mock("@noriginmedia/norigin-spatial-navigation", () => ({
   setFocus: vi.fn(),
 }));
 
+const navigateMock = vi.hoisted(() => vi.fn());
+vi.mock("react-router-dom", () => ({
+  useNavigate: () => navigateMock,
+}));
+
 const logoutMock = vi.hoisted(() => vi.fn());
 const changePasswordMock = vi.hoisted(() => vi.fn());
 vi.mock("../api/auth", () => ({
@@ -100,6 +105,33 @@ describe("SettingsRoute sections", () => {
   it("renders Clear Favorites button", () => {
     renderSettings();
     expect(screen.getByTestId("btn-clear-favorites")).toBeInTheDocument();
+  });
+
+  it("renders Library shortcuts (Favorites + History)", () => {
+    renderSettings();
+    expect(
+      screen.getByRole("heading", { name: /library/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("link-favorites")).toBeInTheDocument();
+    expect(screen.getByTestId("link-history")).toBeInTheDocument();
+  });
+});
+
+// ─── Shortcuts navigation ────────────────────────────────────────────────────
+
+describe("Library shortcuts", () => {
+  it("navigates to /favorites when Favorites row is clicked", async () => {
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(screen.getByTestId("link-favorites"));
+    expect(navigateMock).toHaveBeenCalledWith("/favorites");
+  });
+
+  it("navigates to /history when History row is clicked", async () => {
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(screen.getByTestId("link-history"));
+    expect(navigateMock).toHaveBeenCalledWith("/history");
   });
 });
 

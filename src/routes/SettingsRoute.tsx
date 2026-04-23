@@ -9,6 +9,7 @@
  */
 import type { RefObject } from "react";
 import { useState, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   useFocusable,
   FocusContext,
@@ -130,6 +131,79 @@ function AccountSection({ onLoggedOut }: { onLoggedOut: () => void }) {
           {loggingOut ? "Signing out…" : "Sign Out"}
         </button>
       </div>
+    </section>
+  );
+}
+
+// ─── Shortcuts — Favorites / History ─────────────────────────────────────────
+//
+// IA promises dedicated Favorites and History surfaces (docs/ux/00 §1).
+// They're reachable via deep-link and in-route ⋯ actions but have no
+// front-door entry; a reachability audit flagged this in Phase 7. Two
+// focusable rows that navigate() to the dedicated routes.
+
+interface ShortcutRowProps {
+  focusKey: string;
+  title: string;
+  description: string;
+  to: string;
+  testId?: string;
+}
+
+function ShortcutRow({
+  focusKey,
+  title,
+  description,
+  to,
+  testId,
+}: ShortcutRowProps) {
+  const navigate = useNavigate();
+  const go = useCallback(() => navigate(to), [navigate, to]);
+
+  const { ref, focused } = useFocusable<HTMLButtonElement>({
+    focusKey,
+    onEnterPress: go,
+  });
+
+  return (
+    <div className="settings-danger-row">
+      <div className="settings-danger-text">
+        <span className="settings-danger-title">{title}</span>
+        <span className="settings-danger-desc">{description}</span>
+      </div>
+      <button
+        ref={ref as RefObject<HTMLButtonElement>}
+        type="button"
+        className={`settings-btn settings-btn--ghost${focused ? " settings-btn--focused" : ""}`}
+        onClick={go}
+        data-testid={testId}
+      >
+        Open
+      </button>
+    </div>
+  );
+}
+
+function ShortcutsSection() {
+  return (
+    <section className="settings-section" aria-labelledby="shortcuts-heading">
+      <h2 id="shortcuts-heading" className="settings-section-title">
+        Library
+      </h2>
+      <ShortcutRow
+        focusKey="SHORTCUT_FAVORITES"
+        title="Favorites"
+        description="Everything you've starred — Live, Movies, and Series."
+        to="/favorites"
+        testId="link-favorites"
+      />
+      <ShortcutRow
+        focusKey="SHORTCUT_HISTORY"
+        title="Watch History"
+        description="Recently watched channels and resume points."
+        to="/history"
+        testId="link-history"
+      />
     </section>
   );
 }
@@ -284,6 +358,7 @@ export function SettingsRoute() {
         </h1>
 
         <AccountSection onLoggedOut={handleLoggedOut} />
+        <ShortcutsSection />
         <PreferencesPanel />
         <AppInfoPanel />
         <DangerSection />

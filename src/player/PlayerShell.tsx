@@ -401,8 +401,8 @@ function FailureOverlay({ kind, onRetry, onClose }: FailureOverlayProps) {
         style={{
           maxWidth: "540px",
           width: "100%",
-          background: "rgba(245,158,11,0.12)",
-          border: "1px solid #F59E0B",
+          background: "color-mix(in srgb, var(--warning) 12%, transparent)",
+          border: "1px solid var(--warning)",
           borderRadius: "var(--radius-md)",
           padding: "var(--space-6)",
           display: "flex",
