@@ -180,42 +180,58 @@ function AppShell() {
     return () => window.removeEventListener("keydown", handleEscape);
   }, [activeTab]);
 
-  // Exit-guard: keep a sentinel history entry so Fire TV's hardware Back (which
-  // can fire popstate directly without a keydown) doesn't pop us out of the
-  // PWA. The PlayerProvider's own popstate listener takes precedence while the
-  // player is open; this one runs for the rest of the app.
+  // Exit-guard: keep ONE sentinel history entry so Fire TV's hardware Back
+  // (which can fire popstate directly without a keydown) doesn't pop us out
+  // of the PWA on its own. The PlayerProvider's own popstate listener takes
+  // precedence while the player is open; this one runs for the rest of the
+  // app.
   //
-  // Strategy: on mount, push one sentinel. Each time popstate fires, push
-  // another sentinel back — unless we're on a sub-route like /series/:id,
-  // where natural back-navigation is what the user wants. Detail routes are
-  // anything deeper than a single path segment ("/series/123" has two).
+  // Bug shipped before 2026-04-23 evening fix: this effect depended on
+  // `[activeTab]`, and every dock-tab switch re-pushed a fresh sentinel.
+  // History accumulated `[… /series, /series#sv, /live, /live#sv, /movies,
+  // /movies#sv]`, and Back from the dock walked through every entry one at
+  // a time — user saw the URL "re-populate" through old tabs instead of
+  // exiting. Fixed by pushing the sentinel exactly once (tracked via ref)
+  // and by letting popstate re-push only when absolutely needed.
+  //
+  // Active-tab reference is captured in a ref so the popstate handler always
+  // reads the latest tab without re-subscribing.
+  const activeTabRef = useRef(activeTab);
   useEffect(() => {
-    if (!window.history.state?.svExitGuard) {
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
+
+  const sentinelPushedRef = useRef(false);
+  useEffect(() => {
+    if (!sentinelPushedRef.current && !window.history.state?.svExitGuard) {
       window.history.pushState({ svExitGuard: true }, "");
+      sentinelPushedRef.current = true;
     }
+
     const onPop = () => {
       // If Back was just pressed from the dock, the user is asking to leave.
       // Don't re-push the sentinel — let the pop resolve so the browser /
       // Fire TV host can close the tab / PWA. 600ms window matches the
       // Prime Video exit timing.
       if (Date.now() - lastDockBackAtRef.current < 600) {
+        sentinelPushedRef.current = false;
         return;
       }
-      const segments = window.location.pathname
-        .split("/")
-        .filter(Boolean);
+      const segments = window.location.pathname.split("/").filter(Boolean);
       const isDetailRoute = segments.length > 1;
       if (isDetailRoute) {
         // React-router will handle the navigation; don't interfere.
         return;
       }
-      // Root dock route — re-push the sentinel and anchor focus to the dock.
+      // Root dock route and the user hasn't initiated an exit — re-push the
+      // sentinel so a stray popstate doesn't strand us outside the app.
       window.history.pushState({ svExitGuard: true }, "");
-      setFocus(`DOCK_${activeTab.toUpperCase()}`);
+      sentinelPushedRef.current = true;
+      setFocus(`DOCK_${activeTabRef.current.toUpperCase()}`);
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
-  }, [activeTab]);
+  }, []);
 
   // Global D-pad focus-recovery watcher. Any dead-direction arrow press
   // (Left on the first poster, Right on the rightmost dock tab, Up on the
