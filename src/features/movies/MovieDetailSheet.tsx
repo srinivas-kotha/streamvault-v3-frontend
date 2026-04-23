@@ -160,13 +160,16 @@ export function MovieDetailSheet({
 
   const meta = useMemo(() => {
     const year = info?.year ?? stream.year;
-    const durationMin =
-      info?.duration && info.duration > 0
-        ? `${Math.round(info.duration / 60)} min`
-        : undefined;
+    // `duration` is a display string from Xtream ("2h 15min"); use it verbatim
+    // when present, otherwise derive from the numeric durationSecs.
+    const durationLabel =
+      info?.duration ||
+      (info?.durationSecs && info.durationSecs > 0
+        ? `${Math.round(info.durationSecs / 60)} min`
+        : undefined);
     const rating = info?.rating ?? stream.rating;
     const genre = info?.genre ?? stream.genre;
-    return [year, durationMin, rating ? `★ ${rating}` : undefined, genre]
+    return [year, durationLabel, rating ? `★ ${rating}` : undefined, genre]
       .filter(Boolean)
       .join(" · ");
   }, [info, stream]);
