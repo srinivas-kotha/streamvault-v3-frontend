@@ -52,6 +52,7 @@ import { Skeleton } from "../primitives/Skeleton";
 import { EmptyStateWithLanguageSwitch } from "../primitives/EmptyStateWithLanguageSwitch";
 import { useLangPref } from "../lib/useLangPref";
 import { fetchHistory } from "../api/history";
+import { fetchVodInfo } from "../api/vod";
 import { usePlayerOpener } from "../player/usePlayerOpener";
 import type { HistoryItem, VodStream } from "../api/schemas";
 import type { LangId } from "../lib/langPref";
@@ -100,7 +101,8 @@ function SortButton({ id, label, isActive, onSelect }: SortButtonProps) {
 }
 
 const SORT_OPTIONS: { id: MovieSortKey; label: string }[] = [
-  { id: "added", label: "Added" },
+  { id: "added", label: "Newest" },
+  { id: "year", label: "Year" },
   { id: "name", label: "Name" },
 ];
 
@@ -118,6 +120,13 @@ export function MoviesRoute() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  // Distinct from `loading`: on a lang-switch the previous grid stays
+  // visible until the new fetch resolves, and this flag drives a dim +
+  // count-area spinner so the click is clearly acknowledged (fixes "did
+  // my Hindi click register?"). Flipped to `true` in user-triggered
+  // handlers (handleLangChange / handleRetry) — never synchronously in an
+  // effect, which keeps react-hooks/set-state-in-effect quiet.
+  const [transitioning, setTransitioning] = useState(false);
   const [sheetStream, setSheetStream] = useState<VodStream | null>(null);
 
   // ─── Language union fetch ─────────────────────────────────────────────────
@@ -135,11 +144,13 @@ export function MoviesRoute() {
         setStreams(fetched);
         setLoading(false);
         setError(false);
+        setTransitioning(false);
       })
       .catch(() => {
         if (cancelled) return;
         setLoading(false);
         setError(true);
+        setTransitioning(false);
       });
 
     return () => {
@@ -219,14 +230,49 @@ export function MoviesRoute() {
     return null;
   }, [history]);
 
+  // Backfill the resume title when history doesn't have content_name (older
+  // rows, pre-capture). Without this the hero renders "Resume your movie" —
+  // confirmed in prod 2026-04-23 PM. Fetches /api/vod/info/:id once per
+  // candidate change; silent-fails to the current content_name / fallback.
+  // Backfill is stored with the id it belongs to so a stale entry from a
+  // previous candidate cannot bleed into a new one — no sync setState
+  // needed in the effect to "reset" it.
+  const [resumeTitleBackfill, setResumeTitleBackfill] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+  useEffect(() => {
+    if (!resumeCandidate || resumeCandidate.content_name) return;
+    let cancelled = false;
+    const id = String(resumeCandidate.content_id);
+    fetchVodInfo(id)
+      .then((info) => {
+        if (!cancelled && info.name) setResumeTitleBackfill({ id, name: info.name });
+      })
+      .catch(() => {
+        // Keep the generic fallback if info fetch fails.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [resumeCandidate]);
+
+  const resumeTitle =
+    resumeCandidate?.content_name ??
+    (resumeCandidate &&
+    resumeTitleBackfill?.id === String(resumeCandidate.content_id)
+      ? resumeTitleBackfill.name
+      : null) ??
+    "your movie";
+
   const handleResume = useCallback(() => {
     if (!resumeCandidate) return;
     void openPlayer({
       kind: "vod",
       id: String(resumeCandidate.content_id),
-      title: resumeCandidate.content_name ?? "Resume",
+      title: resumeTitle,
     });
-  }, [resumeCandidate, openPlayer]);
+  }, [resumeCandidate, resumeTitle, openPlayer]);
 
   // ─── Focus seeding ────────────────────────────────────────────────────────
   // Cold mount seeds to the hero when a resume candidate exists (2-input
@@ -274,10 +320,22 @@ export function MoviesRoute() {
     setSortPref(next);
   }, []);
 
+  // Wrap setLang so a chip click flips `transitioning` immediately —
+  // otherwise the old grid keeps rendering with no visual acknowledgement
+  // until the new language's fetch resolves.
+  const handleLangChange = useCallback(
+    (next: LangId) => {
+      setTransitioning(true);
+      setLang(next);
+    },
+    [setLang],
+  );
+
   const handleRetry = useCallback(() => {
     invalidateLanguageUnionCache();
     setLoading(true);
     setError(false);
+    setTransitioning(true);
     setFetchGeneration((g) => g + 1);
   }, []);
 
@@ -320,7 +378,7 @@ export function MoviesRoute() {
           <>
             {resumeCandidate ? (
               <ResumeHero
-                title={resumeCandidate.content_name ?? "your movie"}
+                title={resumeTitle}
                 remainingSeconds={
                   resumeCandidate.duration_seconds -
                   resumeCandidate.progress_seconds
@@ -329,7 +387,7 @@ export function MoviesRoute() {
               />
             ) : null}
 
-            <LanguageRail value={lang} onChange={setLang} />
+            <LanguageRail value={lang} onChange={handleLangChange} />
 
             <div
               role="toolbar"
@@ -384,29 +442,66 @@ export function MoviesRoute() {
                   color: "var(--text-secondary)",
                   fontSize: "var(--text-label-size)",
                   fontVariantNumeric: "tabular-nums",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "var(--space-2)",
                 }}
               >
-                {sortedStreams.length.toLocaleString()} movies
+                {transitioning ? (
+                  <span
+                    aria-hidden="true"
+                    data-testid="movies-transitioning-dot"
+                    style={{
+                      width: 10,
+                      height: 10,
+                      borderRadius: 9999,
+                      background: "var(--accent-copper)",
+                      animation: "movies-pulse 900ms ease-in-out infinite",
+                    }}
+                  />
+                ) : null}
+                {transitioning
+                  ? `Loading ${langLabel(lang) || "all"} movies…`
+                  : `${sortedStreams.length.toLocaleString()} movies`}
               </span>
             </div>
+            <style>{`
+              @keyframes movies-pulse {
+                0%, 100% { opacity: 0.35; transform: scale(0.85); }
+                50%      { opacity: 1;    transform: scale(1.1);  }
+              }
+              @media (prefers-reduced-motion: reduce) {
+                [data-testid="movies-transitioning-dot"] { animation: none !important; }
+              }
+            `}</style>
 
-            {sortedStreams.length === 0 ? (
-              <EmptyStateWithLanguageSwitch
-                currentLang={lang}
-                onSwitch={setLang}
-                headline={`No ${langLabel(lang)} movies in this catalog.`}
-                message="The provider hasn't categorised any movies this way. Try another language."
-              />
-            ) : (
-              <MovieGrid
-                streams={sortedStreams}
-                onSelect={handleSelect}
-                onMoreInfo={handleMoreInfo}
-                getProgress={getProgress}
-                isWatched={isWatched}
-                isTierLocked={isTierLockedFn}
-              />
-            )}
+            <div
+              style={{
+                position: "relative",
+                opacity: transitioning ? 0.4 : 1,
+                pointerEvents: transitioning ? "none" : "auto",
+                transition: "opacity 180ms ease-out",
+              }}
+              aria-busy={transitioning || undefined}
+            >
+              {sortedStreams.length === 0 && !transitioning ? (
+                <EmptyStateWithLanguageSwitch
+                  currentLang={lang}
+                  onSwitch={setLang}
+                  headline={`No ${langLabel(lang)} movies in this catalog.`}
+                  message="The provider hasn't categorised any movies this way. Try another language."
+                />
+              ) : (
+                <MovieGrid
+                  streams={sortedStreams}
+                  onSelect={handleSelect}
+                  onMoreInfo={handleMoreInfo}
+                  getProgress={getProgress}
+                  isWatched={isWatched}
+                  isTierLocked={isTierLockedFn}
+                />
+              )}
+            </div>
           </>
         )}
 

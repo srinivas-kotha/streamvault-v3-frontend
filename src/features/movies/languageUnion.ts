@@ -14,7 +14,6 @@
  * Spec: docs/ux/03-movies.md §3 (client-side language union).
  */
 import { fetchVodCategories, fetchVodStreams } from "../../api/vod";
-import { inferLanguage } from "../../lib/inferLanguage";
 import type { VodCategory, VodStream } from "../../api/schemas";
 import type { LangId } from "../../lib/langPref";
 
@@ -68,13 +67,44 @@ export function getStreamsCached(categoryId: string): Promise<VodStream[]> {
   return promise;
 }
 
-/** True when a category should be included under the given language filter. */
+/**
+ * Strict, mutually-exclusive language detection for category NAMES.
+ *
+ * Unlike the broader `inferLanguage` used for post-query search annotation,
+ * this filter is intentionally narrow:
+ *   1. Word-boundary matching on the primary language name (e.g. `\btelugu\b`)
+ *      so "Bollywood" doesn't accidentally match a Telugu filter.
+ *   2. Multi-language categories are rejected — if a category mentions TWO
+ *      or more of {telugu, hindi, english} as words, it is ambiguous and
+ *      included under NONE of them. This keeps "Telugu Dubbed Hindi",
+ *      "Indian Telugu", etc. out of every language-specific view.
+ *
+ * Reason: the Xtream provider's category names are noisy. Loose substring
+ * matching leaked Hindi titles into Telugu view (observed 2026-04-23: Bhediya,
+ * Adipurush under Telugu). Strict matching prefers correctness over recall —
+ * ambiguous categories are still reachable under "All".
+ */
+const LANG_WORDS: Record<"telugu" | "hindi" | "english", RegExp> = {
+  telugu: /\btelugu\b/i,
+  hindi: /\bhindi\b/i,
+  english: /\benglish\b/i,
+};
+
 export function categoryMatchesLang(cat: VodCategory, lang: LangId): boolean {
   if (lang === "all") return true;
-  // Movies rail has no Sports chip (03-movies.md §4). A "sports" preference
-  // leaks in only via legacy storage on the Live surface; treat as no-match.
+  // Movies rail has no Sports chip (03-movies.md §4). Treat as no-match.
   if (lang === "sports") return false;
-  return inferLanguage(cat.name) === lang;
+
+  const name = cat.name;
+  const target = LANG_WORDS[lang];
+  if (!target.test(name)) return false;
+
+  // Reject ambiguous categories mentioning another language word.
+  for (const otherLang of ["telugu", "hindi", "english"] as const) {
+    if (otherLang === lang) continue;
+    if (LANG_WORDS[otherLang].test(name)) return false;
+  }
+  return true;
 }
 
 async function poolMap<T, R>(

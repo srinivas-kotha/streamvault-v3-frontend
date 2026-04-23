@@ -15,6 +15,7 @@
  * seeds focus here instead of the first poster.
  */
 import type { RefObject } from "react";
+import { useState } from "react";
 import { useFocusable } from "@noriginmedia/norigin-spatial-navigation";
 
 export interface ResumeHeroProps {
@@ -39,9 +40,22 @@ export function ResumeHero({
   remainingSeconds,
   onSelect,
 }: ResumeHeroProps) {
+  // Bounce-on-dead-direction. The hero sits at the top-most row and is full
+  // width, so Up / Left / Right have no neighbour. Without feedback, those
+  // presses look like the button is broken (observed in prod 2026-04-23 PM).
+  // onArrowPress fires before norigin navigates; for Down we let it pass
+  // through untouched (target = LanguageRail).
+  const [bouncePulse, setBouncePulse] = useState(0);
+
   const { ref, focused } = useFocusable<HTMLButtonElement>({
     focusKey: "RESUME_HERO",
     onEnterPress: onSelect,
+    onArrowPress: (direction) => {
+      if (direction === "up" || direction === "left" || direction === "right") {
+        setBouncePulse((p) => p + 1);
+      }
+      return true;
+    },
   });
 
   return (
@@ -50,12 +64,27 @@ export function ResumeHero({
         padding: "var(--space-4) var(--space-6) var(--space-2)",
       }}
     >
+      <style>{`
+        @keyframes resume-hero-bump {
+          0%   { transform: translateX(0); }
+          25%  { transform: translateX(-4px); }
+          75%  { transform: translateX(4px); }
+          100% { transform: translateX(0); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          [data-resume-hero-button="1"] { animation: none !important; }
+        }
+      `}</style>
       <button
         ref={ref as RefObject<HTMLButtonElement>}
         type="button"
         aria-label={`Resume ${title} — ${formatRemaining(remainingSeconds)}`}
         onClick={onSelect}
         className="focus-ring"
+        data-resume-hero-button="1"
+        // Re-trigger the animation by keying the element — each bounce gets
+        // a fresh mount of the animation. Cheap and avoids manual setTimeout.
+        key={bouncePulse}
         style={{
           display: "flex",
           alignItems: "center",
@@ -77,6 +106,7 @@ export function ResumeHero({
             : "0 4px 16px rgba(0, 0, 0, 0.35)",
           transition:
             "background var(--motion-focus), color var(--motion-focus), border-color var(--motion-focus), box-shadow var(--motion-focus)",
+          animation: bouncePulse > 0 ? "resume-hero-bump 220ms ease-out" : undefined,
         }}
       >
         <span

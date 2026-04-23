@@ -215,16 +215,26 @@ describe("MoviesRoute", () => {
     expect(screen.getByRole("button", { name: /show all/i })).toBeInTheDocument();
   });
 
-  it("renders the sort toolbar with Added default + movie count", async () => {
+  it("renders the sort toolbar with Newest default + movie count", async () => {
     fetchLanguageUnionMock.mockResolvedValue({
       streams: mockStreams,
       matchedCategories: 1,
     });
     render(<MoviesRoute />);
     await screen.findByRole("button", { name: /die hard/i });
-    const addedBtn = screen.getByRole("button", { name: /added/i });
-    expect(addedBtn).toHaveAttribute("aria-pressed", "true");
+    const newestBtn = screen.getByRole("button", { name: /^newest$/i });
+    expect(newestBtn).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText(/2 movies/i)).toBeInTheDocument();
+  });
+
+  it("exposes Year as a sort option", async () => {
+    fetchLanguageUnionMock.mockResolvedValue({
+      streams: mockStreams,
+      matchedCategories: 1,
+    });
+    render(<MoviesRoute />);
+    await screen.findByRole("button", { name: /die hard/i });
+    expect(screen.getByRole("button", { name: /^year$/i })).toBeInTheDocument();
   });
 
   it("flipping sort to Name reorders the cards alphabetically", async () => {
