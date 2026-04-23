@@ -45,16 +45,14 @@ export function PlayerShell() {
   const [currentAudioTrack, setCurrentAudioTrack] = useState(-1);
   const [currentSubtitleTrack, setCurrentSubtitleTrack] = useState(-1);
   const [volume, setVolumeState] = useState(1);
-  const [muted, setMuted] = useState(false);
-  const lastVolumeBeforeMute = useRef(1);
 
   const { ref: shellRef, focusKey } = useFocusable({
     focusKey: "PLAYER_SHELL",
     isFocusBoundary: true,
   });
 
-  // Reset track / level state when a new src loads so stale "720p" labels
-  // don't stick around through channel switches.
+  // Reset track / level state when a new src loads so stale labels don't
+  // stick around through channel or episode switches.
   useEffect(() => {
     setCurrentLevel(-1);
     setCurrentAudioTrack(-1);
@@ -85,19 +83,13 @@ export function PlayerShell() {
     [selectSubtitleTrack],
   );
 
-  const handleToggleMute = useCallback(() => {
-    if (muted) {
-      setMuted(false);
-      const v = lastVolumeBeforeMute.current || 1;
+  const handleSetVolume = useCallback(
+    (v: number) => {
       setVolumeState(v);
       setVolume(v);
-    } else {
-      lastVolumeBeforeMute.current = volume;
-      setMuted(true);
-      setVolumeState(0);
-      setVolume(0);
-    }
-  }, [muted, volume, setVolume]);
+    },
+    [setVolume],
+  );
 
   if (state.status === "idle") {
     return null;
@@ -105,7 +97,6 @@ export function PlayerShell() {
 
   return (
     <FocusContext.Provider value={focusKey}>
-      {/* Full-screen overlay — position: fixed, NO transform, NO backdrop-filter */}
       <div
         ref={shellRef as RefObject<HTMLDivElement>}
         data-testid="player-shell"
@@ -130,7 +121,6 @@ export function PlayerShell() {
           playsInline
         />
 
-        {/* Buffering / loading spinner */}
         {(status === "loading" || status === "buffering") && (
           <div
             aria-label="Loading video"
@@ -158,8 +148,7 @@ export function PlayerShell() {
           </div>
         )}
 
-        {/* Playback-failure overlay — full treatment ships in Phase 6c. For now
-            keep the minimal close-out so error states don't leave users stuck. */}
+        {/* Minimal error state — full amber overlay + tier-lock copy ships in 6c. */}
         {status === "error" && (
           <div
             style={{
@@ -198,7 +187,6 @@ export function PlayerShell() {
           </div>
         )}
 
-        {/* Controls overlay */}
         {status !== "error" && (
           <PlayerControls
             title={title}
@@ -207,7 +195,6 @@ export function PlayerShell() {
             currentTime={currentTime}
             duration={duration}
             volume={volume}
-            muted={muted}
             levels={levels}
             audioTracks={audioTracks}
             subtitleTracks={subtitleTracks}
@@ -218,7 +205,7 @@ export function PlayerShell() {
             onPause={pause}
             onSeek={seek}
             onClose={close}
-            onToggleMute={handleToggleMute}
+            onSetVolume={handleSetVolume}
             onSelectLevel={handleSelectLevel}
             onSelectAudioTrack={handleSelectAudioTrack}
             onSelectSubtitleTrack={handleSelectSubtitleTrack}
