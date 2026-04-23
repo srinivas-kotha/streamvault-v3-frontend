@@ -32,15 +32,18 @@ export interface MovieGridProps {
 }
 
 function columnsForWidth(width: number): number {
-  // Card-density tuned for 10-foot readability. On a real Fire TV (reported
-  // 2026-04-24) 6 cols at 1280 CSS px felt oversized relative to the TV
-  // type scale; dropping one column per tier lands cards at ~250-280 px wide,
-  // which matches Netflix / Prime grid density on 1080p TVs.
-  if (width >= 1600) return 6;
-  if (width >= 1280) return 5;
-  if (width >= 960) return 4;
-  if (width >= 640) return 3;
-  return 2;
+  // User ask 2026-04-23 (evening): at least 3 rows of 4+ poster cards visible
+  // above the dock on TV viewports. With 2:3 poster aspect, row height scales
+  // with column width — to fit 3 rows, cards must be narrower, which means
+  // more columns per tier. These counts land cards at roughly 130-180 CSS px
+  // wide on 1080p and ~100-130 px on 720p, which is denser than Netflix but
+  // gives the user the row count they requested.
+  if (width >= 1920) return 9;
+  if (width >= 1600) return 8;
+  if (width >= 1280) return 7;
+  if (width >= 960) return 6;
+  if (width >= 640) return 4;
+  return 3;
 }
 
 function useResponsiveColumns(): number {
@@ -97,10 +100,11 @@ export function MovieGrid({
               style={{
                 display: "grid",
                 gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
-                gap: "var(--space-4)",
+                gap: "var(--space-3)",
                 padding: "0 var(--space-6)",
-                marginTop: rowIndex === 0 ? "var(--space-6)" : 0,
-                marginBottom: "var(--space-4)",
+                // Tightened 2026-04-23 evening for 3+ visible rows on TV.
+                marginTop: rowIndex === 0 ? "var(--space-3)" : 0,
+                marginBottom: "var(--space-3)",
               }}
             >
               {row.map((stream) => {
