@@ -1,5 +1,13 @@
 /**
- * SearchRoute — unified search across Live / Movies / Series.
+ * SearchRoute — cross-library FTS across Live / Movies / Series.
+ *
+ * Relationship to in-route Find:
+ *   The FIND chip on /movies and /series is a client-side substring filter
+ *   over the already-loaded grid, scoped to the current library + current
+ *   language. This dock Search is the cross-library escalation — Postgres
+ *   full-text search, stemmed, ranked, all languages, returns three buckets.
+ *   Movies/Series empty states link here via /search?q=<findQuery>, which
+ *   this route preseeds from the URL param.
  *
  * Updated 2026-04-24 (search-favorites session):
  *   - Section order Movies → Series → Live (04 spec §3.4)
@@ -201,16 +209,28 @@ export function SearchRoute() {
         />
 
         {showHelp && (
-          <p
+          <div
             aria-live="polite"
             style={{
+              padding: "0 var(--space-6) var(--space-4)",
               color: "var(--text-secondary)",
               fontSize: "var(--text-body-size)",
-              padding: "0 var(--space-6) var(--space-4)",
             }}
           >
-            Type at least 2 characters to search
-          </p>
+            <p style={{ margin: 0 }}>
+              Find across Live, Movies &amp; Series — all languages.
+            </p>
+            <p
+              style={{
+                margin: "var(--space-1) 0 0",
+                fontSize: "var(--text-caption-size)",
+                color: "var(--text-tertiary)",
+              }}
+            >
+              Type at least 2 characters. For filtering inside a single
+              library, use FIND on Movies or Series instead.
+            </p>
+          </div>
         )}
 
         {hasResults && !loading && !error && (
