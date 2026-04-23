@@ -17,7 +17,11 @@ import {
   useNavigate,
   useLocation,
 } from "react-router-dom";
-import { setFocus } from "@noriginmedia/norigin-spatial-navigation";
+import {
+  setFocus,
+  getCurrentFocusKey,
+  doesFocusableExist,
+} from "@noriginmedia/norigin-spatial-navigation";
 import { BottomDock, type DockItem } from "./nav/BottomDock";
 import { LiveRoute } from "./routes/LiveRoute";
 import { MoviesRoute } from "./routes/MoviesRoute";
@@ -121,6 +125,63 @@ function AppShell() {
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
   }, [activeTab]);
+
+  // Global D-pad focus-recovery watcher. Any dead-direction arrow press
+  // (Left on the first poster, Right on the rightmost dock tab, Up on the
+  // hero, arrows on an empty state, etc.) can leave norigin's currentFocusKey
+  // pointing at an unmounted key while document.activeElement drifts to
+  // <body>. Subsequent arrows are then no-ops until the user clicks or
+  // reloads — see streamvault-v3-focus-vanish-bug.md.
+  //
+  // Strategy: remember the last focusKey that was genuinely focused, and on
+  // every arrow keyup check whether focus survived. If it didn't, restore
+  // the last known good key; if that key is also gone, fall back to the
+  // active dock tab (same anchor the mount-prime effect uses).
+  //
+  // Runtime cost: two cheap listeners, one ref write per focus change, no
+  // work in the common (focus-is-fine) case.
+  useEffect(() => {
+    if (hideDock) return;
+    const fallbackKey = `DOCK_${activeTab.toUpperCase()}`;
+    let lastGoodKey: string | null = null;
+
+    const onFocusIn = () => {
+      const key = getCurrentFocusKey();
+      if (key && doesFocusableExist(key)) {
+        lastGoodKey = key;
+      }
+    };
+
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (
+        e.key !== "ArrowUp" &&
+        e.key !== "ArrowDown" &&
+        e.key !== "ArrowLeft" &&
+        e.key !== "ArrowRight"
+      ) {
+        return;
+      }
+      const current = getCurrentFocusKey();
+      const stuck =
+        !current ||
+        !doesFocusableExist(current) ||
+        document.activeElement === document.body ||
+        document.activeElement == null;
+      if (!stuck) return;
+      const target =
+        lastGoodKey && doesFocusableExist(lastGoodKey)
+          ? lastGoodKey
+          : fallbackKey;
+      setFocus(target);
+    };
+
+    window.addEventListener("focusin", onFocusIn);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("focusin", onFocusIn);
+      window.removeEventListener("keyup", onKeyUp);
+    };
+  }, [activeTab, hideDock]);
 
   return (
     <div style={{ background: "var(--bg-shell-gradient, var(--bg-base))", minHeight: "100vh" }}>
