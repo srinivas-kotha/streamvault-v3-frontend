@@ -13,6 +13,16 @@
 import { test, expect } from "@playwright/test";
 
 test.describe.serial("Player smoke (prod)", () => {
+  // Enacts the header TODO: this test exercises a real Xtream stream and has
+  // been consistently flaky in CI (login redirect timing on WebKit + Xtream
+  // rate limits on chromium). Scoped to manual-only until those two tracked
+  // issues are resolved. Locally: `npx playwright test player-smoke` still
+  // runs it normally.
+  test.skip(
+    !!process.env["CI"],
+    "player-smoke requires a real Xtream stream; flaky in CI. Manual smoke only.",
+  );
+
   test(
     "login → /live → select channel → video element mounts",
     async ({ page }) => {
