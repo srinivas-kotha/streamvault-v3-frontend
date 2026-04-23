@@ -17,7 +17,11 @@
 import { fetchSeriesCategories, fetchSeriesList } from "../../api/series";
 import type { SeriesCategory, SeriesItem } from "../../api/schemas";
 import type { LangId } from "../../lib/langPref";
-import { inferLanguage } from "../../lib/inferLanguage";
+import {
+  inferLanguage,
+  isOttPlatform,
+  seriesNameMatchesLang,
+} from "../../lib/inferLanguage";
 
 const TTL_MS = 5 * 60 * 1000;
 const MAX_CONCURRENCY = 8;
@@ -75,20 +79,43 @@ export function getSeriesListCached(categoryId: string): Promise<SeriesItem[]> {
   return promise;
 }
 
-// Uses the shared `inferLanguage` pattern set (mirrors the backend service) so
-// a Hindi filter picks up "Bollywood Classics" / "Indian Series", English
-// picks up "Netflix Originals" / "HBO Series", etc. The narrower word-boundary
-// match used in the Movies union (features/movies/languageUnion.ts) drops
-// those categories — we intentionally diverge here per user ask "get
-// everything of telugu". `inferLanguage` is the authoritative source because
-// it matches what the backend attaches as `inferredLang` to each item.
+/**
+ * Categories split into two buckets for the series union:
+ *
+ *   PURE-LANGUAGE — the category name uniquely determines the language
+ *   (Telugu Movies, Zee Telugu, Colors Hindi, Bollywood, etc.). Every item
+ *   inside is included under that language.
+ *
+ *   OTT-PLATFORM — the category spans multiple languages (Hotstar, Netflix,
+ *   Zee5, Sony LIV, etc.). Items are included ONLY if the series NAME itself
+ *   carries the target language tag ("… (Telugu)", "… - Hindi", etc.).
+ *
+ * `classifyCategory` returns which bucket a category falls into for a given
+ * language selection. `null` means the category contributes nothing.
+ */
+export type CategoryBucket = "pure-lang" | "ott-platform";
+
+export function classifyCategory(
+  cat: SeriesCategory,
+  lang: LangId,
+): CategoryBucket | null {
+  // "All" includes every category, OTT or pure. No per-item name filter.
+  if (lang === "all") return "pure-lang";
+  if (lang === "sports") return null;
+  if (inferLanguage(cat.name) === lang) return "pure-lang";
+  if (isOttPlatform(cat.name)) return "ott-platform";
+  return null;
+}
+
+/**
+ * Legacy name kept for the test suite — synonymous with "this category
+ * contributes at least one item". Prefer `classifyCategory` in new code.
+ */
 export function categoryMatchesLang(
   cat: SeriesCategory,
   lang: LangId,
 ): boolean {
-  if (lang === "all") return true;
-  if (lang === "sports") return false;
-  return inferLanguage(cat.name) === lang;
+  return classifyCategory(cat, lang) !== null;
 }
 
 async function poolMap<T, R>(
@@ -130,9 +157,13 @@ export async function streamSeriesLanguageUnion(
   onBatch: (batch: SeriesLanguageUnionBatch) => void,
 ): Promise<void> {
   const cats = await getSeriesCategoriesCached();
-  const matching = cats.filter((c) => categoryMatchesLang(c, lang));
+  const classified: { cat: SeriesCategory; bucket: CategoryBucket }[] = [];
+  for (const c of cats) {
+    const bucket = classifyCategory(c, lang);
+    if (bucket) classified.push({ cat: c, bucket });
+  }
 
-  if (matching.length === 0) {
+  if (classified.length === 0) {
     onBatch({
       items: [],
       isFinal: true,
@@ -146,24 +177,28 @@ export async function streamSeriesLanguageUnion(
   const merged: SeriesItem[] = [];
   let completed = 0;
 
-  await poolMap(matching, MAX_CONCURRENCY, async (c) => {
+  await poolMap(classified, MAX_CONCURRENCY, async ({ cat, bucket }) => {
     try {
-      const items = await getSeriesListCached(c.id);
+      const items = await getSeriesListCached(cat.id);
       for (const s of items) {
-        if (!seen.has(s.id)) {
-          seen.add(s.id);
-          merged.push(s);
+        if (seen.has(s.id)) continue;
+        // OTT platforms (Hotstar / Netflix / Zee5 …) carry all languages.
+        // Only include items whose NAME tags them for the selected language.
+        if (bucket === "ott-platform" && !seriesNameMatchesLang(s.name, lang)) {
+          continue;
         }
+        seen.add(s.id);
+        merged.push(s);
       }
     } catch {
       // per-category failures contribute zero items
     }
     completed += 1;
-    const isFinal = completed === matching.length;
+    const isFinal = completed === classified.length;
     onBatch({
       items: merged.slice(),
       isFinal,
-      matchedCategories: matching.length,
+      matchedCategories: classified.length,
       completedCategories: completed,
     });
   });

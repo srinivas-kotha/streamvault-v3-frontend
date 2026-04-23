@@ -23,6 +23,9 @@ import { useHlsPlayer } from "./useHlsPlayer";
 import { PlayerControls } from "./PlayerControls";
 import { useReducedMotion } from "./useReducedMotion";
 import { markTierLocked } from "../features/movies/tierLockCache";
+import { recordHistory } from "../api/history";
+import { getLangPref } from "../lib/langPref";
+import { pickAudioTrackForLang } from "../lib/inferLanguage";
 
 // Failure-overlay focus keys — kept local, only the overlay reads them.
 const FK_RETRY = "PLAYER_FAIL_RETRY";
@@ -93,6 +96,35 @@ export function PlayerShell() {
     setCurrentSubtitleTrack(-1);
   }, [src]);
 
+  // Auto-select audio to match the user's language pref (sv_lang_pref) on
+  // the first track list that arrives for a given stream. Fires once per
+  // open; manual selections in the 🎧 menu take over after that.
+  //
+  // Rationale: OTT titles (Hotstar / Netflix / Zee5) often ship multi-audio
+  // HLS. Before this, a Telugu user landing in "Panchayat" heard the default
+  // Hindi track and had to dig through the menu on every episode. The
+  // language rail already tells us which track they want — honour it.
+  const autoSelectedForSrcRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!src) {
+      autoSelectedForSrcRef.current = null;
+      return;
+    }
+    if (autoSelectedForSrcRef.current === src) return;
+    if (audioTracks.length < 2) return; // single-track: nothing to pick
+    const pref = getLangPref();
+    const idx = pickAudioTrackForLang(audioTracks, pref);
+    if (idx < 0) {
+      // No meaningful match. Mark as done so we don't retry on every
+      // track-list update; user can pick manually.
+      autoSelectedForSrcRef.current = src;
+      return;
+    }
+    autoSelectedForSrcRef.current = src;
+    selectAudioTrack(idx);
+    setCurrentAudioTrack(idx);
+  }, [src, audioTracks, selectAudioTrack]);
+
   const handleSelectLevel = useCallback(
     (idx: number) => {
       selectLevel(idx);
@@ -134,6 +166,39 @@ export function PlayerShell() {
       markTierLocked(contentId.id);
     }
   }, [failureClass, contentId]);
+
+  // Live progress tracking → watch history.
+  //
+  // Writes (currentTime, duration, title) every ~15 s of playback so the
+  // ResumeHero can pick the correct in-progress item and show the full
+  // episode/movie title. Without this, history was only ever written on
+  // "mark as watched" — legacy rows had content_name = null, producing
+  // "Resume your episode" (reported 2026-04-23).
+  //
+  // Live streams are excluded: the Xtream TS feed has no stable "duration"
+  // and there is no resume semantic for live TV.
+  const lastWrittenRef = useRef<{ id: string; at: number } | null>(null);
+  useEffect(() => {
+    if (state.status !== "open") return;
+    if (kind === "live") return;
+    if (!contentId) return;
+    if (!(duration > 0)) return;
+    if (!(currentTime > 0)) return;
+
+    const now = Date.now();
+    const prev = lastWrittenRef.current;
+    const sameItem = prev?.id === contentId.id;
+    // Throttle: 15 s between writes per item.
+    if (sameItem && now - (prev?.at ?? 0) < 15_000) return;
+    lastWrittenRef.current = { id: contentId.id, at: now };
+
+    void recordHistory(Number(contentId.id), {
+      content_type: kind === "series-episode" ? "series" : "vod",
+      content_name: title,
+      progress_seconds: Math.floor(currentTime),
+      duration_seconds: Math.floor(duration),
+    });
+  }, [state.status, kind, contentId, currentTime, duration, title]);
 
   if (state.status === "idle") {
     return null;

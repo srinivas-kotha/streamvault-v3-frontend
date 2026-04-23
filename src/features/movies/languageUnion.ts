@@ -16,6 +16,7 @@
 import { fetchVodCategories, fetchVodStreams } from "../../api/vod";
 import type { VodCategory, VodStream } from "../../api/schemas";
 import type { LangId } from "../../lib/langPref";
+import { isOttPlatform, seriesNameMatchesLang } from "../../lib/inferLanguage";
 
 const TTL_MS = 5 * 60 * 1000;
 const MAX_CONCURRENCY = 8;
@@ -123,6 +124,35 @@ export function categoryMatchesLang(cat: VodCategory, lang: LangId): boolean {
   return true;
 }
 
+/**
+ * Categories are classified the same way as series (see
+ * `features/series/seriesLanguageUnion.ts`):
+ *
+ *   pure-lang    — category name uniquely identifies the language
+ *   ott-platform — multi-language catalogue; each item is filtered by name
+ *
+ * Pure-lang uses the strict word-boundary `categoryMatchesLang` to avoid
+ * Hindi titles leaking under Telugu (see top-of-file comment on
+ * `LANG_WORDS`). OTT platforms are identified via the shared pattern set so
+ * Movies and Series stay consistent.
+ */
+export type MovieCategoryBucket = "pure-lang" | "ott-platform";
+
+export function classifyMovieCategory(
+  cat: VodCategory,
+  lang: LangId,
+): MovieCategoryBucket | null {
+  if (lang === "all") {
+    return categoryMatchesLang(cat, lang) || isOttPlatform(cat.name)
+      ? "pure-lang"
+      : null;
+  }
+  if (lang === "sports") return null;
+  if (categoryMatchesLang(cat, lang)) return "pure-lang";
+  if (isOttPlatform(cat.name)) return "ott-platform";
+  return null;
+}
+
 async function poolMap<T, R>(
   items: readonly T[],
   concurrency: number,
@@ -161,15 +191,27 @@ export async function fetchLanguageUnion(
   lang: LangId,
 ): Promise<LanguageUnionResult> {
   const cats = await getCategoriesCached();
-  const matching = cats.filter((c) => categoryMatchesLang(c, lang));
+  const classified: { cat: VodCategory; bucket: MovieCategoryBucket }[] = [];
+  for (const c of cats) {
+    const bucket = classifyMovieCategory(c, lang);
+    if (bucket) classified.push({ cat: c, bucket });
+  }
 
-  const perCategory = await poolMap(matching, MAX_CONCURRENCY, async (c) => {
-    try {
-      return await getStreamsCached(c.id);
-    } catch {
-      return [] as VodStream[];
-    }
-  });
+  const perCategory = await poolMap(
+    classified,
+    MAX_CONCURRENCY,
+    async ({ cat, bucket }) => {
+      try {
+        const items = await getStreamsCached(cat.id);
+        // OTT platforms are multi-language — filter by item name.
+        return bucket === "ott-platform"
+          ? items.filter((s) => seriesNameMatchesLang(s.name, lang))
+          : items;
+      } catch {
+        return [] as VodStream[];
+      }
+    },
+  );
 
   const seen = new Set<string>();
   const merged: VodStream[] = [];
@@ -182,7 +224,7 @@ export async function fetchLanguageUnion(
     }
   }
 
-  return { streams: merged, matchedCategories: matching.length };
+  return { streams: merged, matchedCategories: classified.length };
 }
 
 export interface LanguageUnionBatch {
@@ -208,9 +250,13 @@ export async function streamLanguageUnion(
   onBatch: (batch: LanguageUnionBatch) => void,
 ): Promise<void> {
   const cats = await getCategoriesCached();
-  const matching = cats.filter((c) => categoryMatchesLang(c, lang));
+  const classified: { cat: VodCategory; bucket: MovieCategoryBucket }[] = [];
+  for (const c of cats) {
+    const bucket = classifyMovieCategory(c, lang);
+    if (bucket) classified.push({ cat: c, bucket });
+  }
 
-  if (matching.length === 0) {
+  if (classified.length === 0) {
     onBatch({
       streams: [],
       isFinal: true,
@@ -224,25 +270,27 @@ export async function streamLanguageUnion(
   const merged: VodStream[] = [];
   let completed = 0;
 
-  await poolMap(matching, MAX_CONCURRENCY, async (c) => {
+  await poolMap(classified, MAX_CONCURRENCY, async ({ cat, bucket }) => {
     try {
-      const items = await getStreamsCached(c.id);
+      const items = await getStreamsCached(cat.id);
       for (const s of items) {
-        if (!seen.has(s.id)) {
-          seen.add(s.id);
-          merged.push(s);
+        if (seen.has(s.id)) continue;
+        if (bucket === "ott-platform" && !seriesNameMatchesLang(s.name, lang)) {
+          continue;
         }
+        seen.add(s.id);
+        merged.push(s);
       }
     } catch {
-      // per-category failures contribute zero streams, same as fetchLanguageUnion
+      // per-category failures contribute zero streams
     }
     completed += 1;
-    const isFinal = completed === matching.length;
+    const isFinal = completed === classified.length;
     // Shallow copy so React's setState sees a new reference.
     onBatch({
       streams: merged.slice(),
       isFinal,
-      matchedCategories: matching.length,
+      matchedCategories: classified.length,
       completedCategories: completed,
     });
   });

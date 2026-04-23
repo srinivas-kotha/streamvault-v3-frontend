@@ -230,11 +230,18 @@ export function SeriesRoute() {
   }, [history]);
 
   const resumeLabel = useMemo<string>(() => {
-    if (!resumeCandidate) return "your episode";
+    if (!resumeCandidate) return "your last episode";
     const parsed = parseEpisodeName(resumeCandidate.content_name);
     if (parsed.sEp && parsed.series) return `${parsed.sEp} of ${parsed.series}`;
     if (parsed.sEp) return parsed.sEp;
-    return resumeCandidate.content_name ?? "your episode";
+    // content_name populated but not in the series/episode format — fall
+    // through to the raw name (likely an older row from a different writer).
+    if (resumeCandidate.content_name) return resumeCandidate.content_name;
+    // Legacy null content_name. The player now writes the full
+    // "Series · S_E_ · Title" format on every timeupdate (PlayerShell), so
+    // this branch self-heals the next time the user presses play. Until
+    // then, show something less generic than "your episode".
+    return "your last episode";
   }, [resumeCandidate]);
 
   const handleResume = useCallback(() => {

@@ -27,11 +27,20 @@ describe("seriesLanguageUnion.categoryMatchesLang", () => {
     expect(categoryMatchesLang(cat("4", "Hindi Serials"), "hindi")).toBe(true);
   });
 
-  it("matches English via broader patterns — Netflix, HBO, Amazon", () => {
-    expect(categoryMatchesLang(cat("1", "Netflix Originals"), "english")).toBe(
+  it("matches English by the literal word", () => {
+    expect(categoryMatchesLang(cat("1", "English Drama"), "english")).toBe(true);
+    expect(categoryMatchesLang(cat("2", "HBO Series"), "english")).toBe(true);
+  });
+
+  it("OTT platforms contribute under every language (items are filtered by name downstream)", () => {
+    // 2026-04-23: Netflix / Hotstar / Zee5 / Sony LIV carry multi-language
+    // content. They're matched as OTT categories so their items flow into
+    // the union — the union then filters by series NAME per selected
+    // language (see `streamSeriesLanguageUnion`).
+    expect(categoryMatchesLang(cat("1", "Netflix Originals"), "telugu")).toBe(
       true,
     );
-    expect(categoryMatchesLang(cat("2", "HBO Series"), "english")).toBe(true);
+    expect(categoryMatchesLang(cat("2", "Disney+ Hotstar"), "hindi")).toBe(true);
     expect(categoryMatchesLang(cat("3", "Amazon Prime"), "english")).toBe(true);
   });
 
@@ -43,12 +52,12 @@ describe("seriesLanguageUnion.categoryMatchesLang", () => {
     expect(categoryMatchesLang(cat("1", "Sports Live"), "sports")).toBe(false);
   });
 
-  it("first-matching-language wins when patterns overlap", () => {
-    expect(categoryMatchesLang(cat("1", "English Hindi Mix"), "hindi")).toBe(
-      true,
-    );
-    expect(categoryMatchesLang(cat("2", "English Hindi Mix"), "english")).toBe(
-      false,
-    );
+  it("Telugu-exclusive categories beat ambiguous OTT matches", () => {
+    // "Zee Telugu" contains the word "telugu" → pure-lang telugu match.
+    expect(categoryMatchesLang(cat("1", "Zee Telugu"), "telugu")).toBe(true);
+    expect(categoryMatchesLang(cat("2", "Zee Telugu"), "hindi")).toBe(false);
+    // "Colors Hindi" has no telugu cue → does not leak into Telugu.
+    expect(categoryMatchesLang(cat("3", "Colors Hindi"), "telugu")).toBe(false);
+    expect(categoryMatchesLang(cat("4", "Colors Hindi"), "hindi")).toBe(true);
   });
 });

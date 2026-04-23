@@ -115,6 +115,15 @@ export function useHlsPlayer(
     // proxies a direct MP4/MKV. Browser handles natively.
     const useNative = !isM3u8 && !isLiveTs;
 
+    // When the browser blocks autoplay, `video.play()` rejects silently and
+    // the `playing` event never fires — the spinner would otherwise spin
+    // forever on a paused video (reported 2026-04-23: "video not playing at
+    // all" even though duration loaded). Flip status to "paused" so the
+    // Play icon renders and the user can hit Enter.
+    const markAutoplayBlocked = () => {
+      setStatus((s) => (s === "playing" ? s : "paused"));
+    };
+
     if (isLiveTs && mpegts.getFeatureList().mseLivePlayback) {
       // Live: backend transcodes Xtream TS → video-copy + AAC TS on the wire,
       // mpegts.js wraps MSE for the browser.
@@ -132,9 +141,7 @@ export function useHlsPlayer(
       mpegtsRef.current = player;
       player.attachMediaElement(video);
       player.load();
-      player.play()?.catch(() => {
-        /* autoplay blocked — user must press play */
-      });
+      player.play()?.catch(markAutoplayBlocked);
 
       player.on(mpegts.Events.ERROR, (errType, errDetail) => {
         setError(new Error(`${errType}: ${errDetail}`));
@@ -143,9 +150,38 @@ export function useHlsPlayer(
     } else if (useNative) {
       video.src = src;
       video.load();
-      void Promise.resolve(video.play()).catch(() => {
-        /* autoplay blocked or jsdom */
-      });
+      // Native MP4/MKV containers can carry multi-audio (dubbed OTT titles
+      // are the common case). `video.audioTracks` is a live AudioTrackList;
+      // surface it into our state the same way the HLS path does so the
+      // 🎧 picker and auto-select logic work identically.
+      // Chromium exposes this; Firefox doesn't — guarded to avoid throwing.
+      const nativeAudio = (
+        video as HTMLVideoElement & {
+          audioTracks?: {
+            length: number;
+            [i: number]: { id?: string; label?: string; language?: string; enabled?: boolean };
+            onaddtrack?: (() => void) | null;
+            onchange?: (() => void) | null;
+          };
+        }
+      ).audioTracks;
+      if (nativeAudio) {
+        const syncNativeAudio = () => {
+          const arr: HlsAudioTrack[] = [];
+          for (let i = 0; i < nativeAudio.length; i += 1) {
+            const t = nativeAudio[i]!;
+            arr.push({
+              index: i,
+              name: t.label || t.language || `Audio ${i}`,
+              lang: t.language ?? "",
+            });
+          }
+          setAudioTracks(arr);
+        };
+        syncNativeAudio();
+        nativeAudio.onaddtrack = syncNativeAudio;
+      }
+      void Promise.resolve(video.play()).catch(markAutoplayBlocked);
     } else if (isM3u8 && Hls.isSupported()) {
       // Phase 6 follow-up (2026-04-23 user ask): bump forward-buffer target
       // to 120 s for smoother playback on flaky networks. backBufferLength
@@ -172,9 +208,7 @@ export function useHlsPlayer(
             name: l.name ?? (l.height ? `${l.height}p` : `Level ${i}`),
           })),
         );
-        video.play().catch(() => {
-          // autoplay blocked — user must press play manually
-        });
+        video.play().catch(markAutoplayBlocked);
       });
 
       hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, (_event, data) => {
@@ -215,9 +249,7 @@ export function useHlsPlayer(
       // mpegts.js says MSE live playback isn't supported.
       video.src = src;
       video.load();
-      void Promise.resolve(video.play()).catch(() => {
-        /* autoplay blocked or jsdom */
-      });
+      void Promise.resolve(video.play()).catch(markAutoplayBlocked);
     }
 
     const onPlay = () => setStatus("playing");
@@ -308,11 +340,31 @@ export function useHlsPlayer(
     }
   }, []);
 
-  const selectAudioTrack = useCallback((idx: number) => {
-    if (hlsRef.current) {
-      hlsRef.current.audioTrack = idx;
-    }
-  }, []);
+  const selectAudioTrack = useCallback(
+    (idx: number) => {
+      if (hlsRef.current) {
+        hlsRef.current.audioTrack = idx;
+        return;
+      }
+      // Native MP4/MKV: flip `enabled` on the AudioTrackList entries. This
+      // API is Chromium-only; on browsers without support the call is a
+      // no-op (`audioTracks` is undefined and the guard bails cleanly).
+      const v = videoRef.current as
+        | (HTMLVideoElement & {
+            audioTracks?: {
+              length: number;
+              [i: number]: { enabled?: boolean };
+            };
+          })
+        | null;
+      const list = v?.audioTracks;
+      if (!list) return;
+      for (let i = 0; i < list.length; i += 1) {
+        list[i]!.enabled = i === idx;
+      }
+    },
+    [videoRef],
+  );
 
   const selectSubtitleTrack = useCallback((idx: number) => {
     if (hlsRef.current) {
