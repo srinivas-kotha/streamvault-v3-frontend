@@ -185,6 +185,7 @@ export function FindTrigger({ surface, onSelect, isActive }: FindTriggerProps) {
  * token to appear (case-insensitive) in `fields`. Shared between MoviesRoute
  * and SeriesRoute for identical filter semantics.
  */
+// eslint-disable-next-line react-refresh/only-export-components
 export function filterByQuery<T>(
   items: readonly T[],
   query: string,

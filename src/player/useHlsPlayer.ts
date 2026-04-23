@@ -100,7 +100,6 @@ export function useHlsPlayer(
       return;
     }
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setStatus("loading");
     setError(null);
     setLevels([]);
@@ -360,6 +359,7 @@ export function useHlsPlayer(
       const list = v?.audioTracks;
       if (!list) return;
       for (let i = 0; i < list.length; i += 1) {
+        // eslint-disable-next-line react-hooks/immutability -- videoRef.current.audioTracks is the browser's native track list; toggling .enabled is the supported API for native HLS track selection
         list[i]!.enabled = i === idx;
       }
     },

@@ -378,7 +378,7 @@ export function SeriesRoute() {
         tabIndex={-1}
         style={{
           paddingBottom:
-            "calc(var(--dock-height) + var(--space-6) + var(--space-6))",
+            "var(--dock-content-reserve, calc(var(--dock-height) + var(--space-6) + var(--space-6)))",
           backgroundImage: "var(--hero-ambient)",
           backgroundRepeat: "no-repeat",
           backgroundSize: "100% 280px",

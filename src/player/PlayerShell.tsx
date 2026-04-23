@@ -90,7 +90,13 @@ export function PlayerShell() {
     isFocusBoundary: true,
   });
 
+  // Reset track selections whenever the source changes. This IS the external
+  // sync — src is the upstream, currentLevel/Audio/Subtitle are derived state
+  // that must reset when it flips. React's set-state-in-effect rule flags it,
+  // but there's no alternative: these track indices are owned by the HLS
+  // engine, not by the src prop.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: resync derived state with src
     setCurrentLevel(-1);
     setCurrentAudioTrack(-1);
     setCurrentSubtitleTrack(-1);
@@ -122,6 +128,7 @@ export function PlayerShell() {
     }
     autoSelectedForSrcRef.current = src;
     selectAudioTrack(idx);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: mirror HLS engine selection back into local state
     setCurrentAudioTrack(idx);
   }, [src, audioTracks, selectAudioTrack]);
 

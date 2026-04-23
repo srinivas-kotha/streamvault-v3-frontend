@@ -233,7 +233,7 @@ export function FavoritesRoute() {
         tabIndex={-1}
         style={{
           paddingBottom:
-            "calc(var(--dock-height) + var(--space-6) + var(--space-6))",
+            "var(--dock-content-reserve, calc(var(--dock-height) + var(--space-6) + var(--space-6)))",
           padding: "var(--space-6)",
         }}
       >

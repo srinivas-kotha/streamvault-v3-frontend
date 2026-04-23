@@ -191,7 +191,7 @@ export function SearchRoute() {
         tabIndex={-1}
         style={{
           paddingBottom:
-            "calc(var(--dock-height) + var(--space-6) + var(--space-6))",
+            "var(--dock-content-reserve, calc(var(--dock-height) + var(--space-6) + var(--space-6)))",
         }}
       >
         <SearchInput

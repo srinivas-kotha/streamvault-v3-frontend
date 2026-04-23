@@ -30,6 +30,7 @@ import { useReducedMotion } from "./useReducedMotion";
 
 // ─── Focus keys (exported for tests + call sites) ────────────────────────────
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const FK = {
   BACK: "PLAYER_BACK",
   PREV: "PLAYER_PREV",
@@ -145,6 +146,7 @@ function MenuItem({
   const highlighted = isActive || focused;
 
   return (
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-to-interactive-role -- intentional listbox/option pattern; keyboard nav handled by spatial-nav
     <li style={{ listStyle: "none" }} role="option" aria-selected={isActive}>
       <button
         ref={ref as RefObject<HTMLButtonElement>}
@@ -1098,6 +1100,7 @@ export function PlayerControls({
                   upTarget={FK.PLAY_PAUSE}
                 />
                 {openMenu === "audio" && (
+                  // eslint-disable-next-line jsx-a11y/no-noninteractive-element-to-interactive-role -- intentional listbox pattern
                   <ul style={menuStyle} role="listbox" aria-label="Audio tracks">
                     {audioTracks.map((track) => (
                       <MenuItem
@@ -1135,6 +1138,7 @@ export function PlayerControls({
                   upTarget={FK.PLAY_PAUSE}
                 />
                 {openMenu === "subtitles" && (
+                  // eslint-disable-next-line jsx-a11y/no-noninteractive-element-to-interactive-role -- intentional listbox pattern
                   <ul style={menuStyle} role="listbox" aria-label="Subtitles">
                     <MenuItem
                       label="Off"
@@ -1182,6 +1186,7 @@ export function PlayerControls({
                   upTarget={FK.PLAY_PAUSE}
                 />
                 {openMenu === "quality" && (
+                  // eslint-disable-next-line jsx-a11y/no-noninteractive-element-to-interactive-role -- intentional listbox pattern
                   <ul style={menuStyle} role="listbox" aria-label="Quality">
                     <MenuItem
                       label="Auto"

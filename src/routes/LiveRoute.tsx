@@ -230,7 +230,7 @@ export function LiveRoute() {
         tabIndex={-1}
         style={{
           paddingBottom:
-            "calc(var(--dock-height) + var(--space-6) + var(--space-6))",
+            "var(--dock-content-reserve, calc(var(--dock-height) + var(--space-6) + var(--space-6)))",
           // Chromatic ambient fill — softly lit console atmosphere
           backgroundImage: "var(--hero-ambient)",
           backgroundRepeat: "no-repeat",

@@ -58,7 +58,6 @@ export function logEvent(
     at: new Date().toISOString(),
   };
   pushToBuffer(evt);
-  // eslint-disable-next-line no-console
   console.info(`[telemetry] ${name}`, props);
 }
 
