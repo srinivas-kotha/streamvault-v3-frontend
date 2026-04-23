@@ -380,37 +380,66 @@ export default function App() {
 
   // TV browsers (Android TV / Google TV Chrome) keep the URL bar visible
   // unless the app is installed as a PWA or enters Fullscreen via user
-  // gesture. The manifest declares display:fullscreen, but that only takes
-  // effect for installed PWAs.
+  // gesture. The manifest declares display:fullscreen, but that only
+  // takes effect for installed PWAs.
   //
-  // Bug reported 2026-04-23 evening: earlier version requested fullscreen
-  // only on the FIRST gesture (`{ once: true }`). If the browser dropped
-  // fullscreen for any reason (route change, popstate, media control,
-  // some TV browsers re-show the URL bar on navigation), we never
-  // re-entered, and the URL bar stayed visible until reload.
+  // Production pattern — event-armed, zero idle work:
+  //   • `fullscreenchange` sets a `needsReenter` flag when the browser
+  //     drops fullscreen for any reason.
+  //   • The gesture listener (keydown / pointerdown) is the cheapest
+  //     possible no-op while we're in fullscreen — just a boolean read
+  //     — and only does real work when the flag is armed.
+  //   • Rejected fullscreen requests trip a 3 s backoff so pathological
+  //     browsers that refuse without a visible prompt don't pay a
+  //     rejection cost per keystroke.
   //
-  // Fix: keep listeners alive for the whole authed session. On every
-  // gesture, if we're NOT in fullscreen, try to enter. Browsers require
-  // a user gesture to enter fullscreen, and a keypress / tap qualifies,
-  // so this silently re-arms the full-bleed view whenever the user is
-  // interacting with the app.
+  // Long-term fix is PWA install (`display:fullscreen` kicks in
+  // structurally). A Settings-surfaced install hint is tracked as a
+  // follow-up. The in-tab path above is the graceful fallback.
   useEffect(() => {
     if (gate !== "authed") return;
+    let needsReenter = true;
+    let lastFailAt = 0;
+    const FAIL_BACKOFF_MS = 3000;
+
+    const onFullscreenChange = () => {
+      needsReenter = !document.fullscreenElement;
+    };
+
     const tryEnter = () => {
-      if (document.fullscreenElement) return;
+      if (!needsReenter) return;
+      if (Date.now() - lastFailAt < FAIL_BACKOFF_MS) return;
+      needsReenter = false;
       const el = document.documentElement as HTMLElement & {
         webkitRequestFullscreen?: () => Promise<void>;
       };
       const req =
         el.requestFullscreen?.bind(el) ?? el.webkitRequestFullscreen?.bind(el);
-      if (!req) return;
+      if (!req) {
+        // Browser doesn't expose the API at all — don't retry.
+        return;
+      }
       Promise.resolve(req()).catch(() => {
-        /* silent — TV browser may refuse without PWA install */
+        // Refused (permission policy / PWA-only mode). Re-arm with a
+        // backoff so we don't hammer the browser every keystroke.
+        needsReenter = true;
+        lastFailAt = Date.now();
       });
     };
+
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    document.addEventListener(
+      "webkitfullscreenchange",
+      onFullscreenChange as EventListener,
+    );
     window.addEventListener("keydown", tryEnter, { passive: true });
     window.addEventListener("pointerdown", tryEnter, { passive: true });
     return () => {
+      document.removeEventListener("fullscreenchange", onFullscreenChange);
+      document.removeEventListener(
+        "webkitfullscreenchange",
+        onFullscreenChange as EventListener,
+      );
       window.removeEventListener("keydown", tryEnter);
       window.removeEventListener("pointerdown", tryEnter);
     };
