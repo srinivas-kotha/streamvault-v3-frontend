@@ -49,6 +49,7 @@ vi.mock("@noriginmedia/norigin-spatial-navigation", () => ({
   FocusContext: {
     Provider: ({ children }: { children: ReactNode }) => children,
   },
+  setFocus: vi.fn(),
 }));
 
 // ─── Test wrapper ─────────────────────────────────────────────────────────────

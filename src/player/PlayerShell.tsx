@@ -7,11 +7,11 @@
  *  - NO CSS transform on this element (breaks position:fixed children).
  *  - NO backdrop-filter (TV perf kill).
  *  - NO transition-all.
- *  - Full-screen overlay, no HTML5 controls — we render PlayerControls.
+ *  - Full-screen overlay, no HTML5 controls — PlayerControls owns the UI.
  *  - FocusContext wrapper so D-pad works inside the player.
  */
 import type { RefObject } from "react";
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect, useCallback } from "react";
 import { useFocusable, FocusContext } from "@noriginmedia/norigin-spatial-navigation";
 import { usePlayerStore } from "./PlayerProvider";
 import { useHlsPlayer } from "./useHlsPlayer";
@@ -23,7 +23,7 @@ export function PlayerShell() {
 
   const src = state.status === "open" ? state.src : undefined;
   const title = state.status === "open" ? state.title : "";
-  const kind = state.status === "open" ? state.kind : undefined;
+  const kind = state.status === "open" ? state.kind : "vod";
 
   const {
     status,
@@ -35,6 +35,7 @@ export function PlayerShell() {
     play,
     pause,
     seek,
+    setVolume,
     selectLevel,
     selectAudioTrack,
     selectSubtitleTrack,
@@ -43,29 +44,60 @@ export function PlayerShell() {
   const [currentLevel, setCurrentLevel] = useState(-1);
   const [currentAudioTrack, setCurrentAudioTrack] = useState(-1);
   const [currentSubtitleTrack, setCurrentSubtitleTrack] = useState(-1);
-
-  // Reset track selection when a new src loads — derive from src change
-  // by initializing to -1. Actual updates happen via callbacks below.
+  const [volume, setVolumeState] = useState(1);
+  const [muted, setMuted] = useState(false);
+  const lastVolumeBeforeMute = useRef(1);
 
   const { ref: shellRef, focusKey } = useFocusable({
     focusKey: "PLAYER_SHELL",
     isFocusBoundary: true,
   });
 
-  const handleSelectLevel = (idx: number) => {
-    selectLevel(idx);
-    setCurrentLevel(idx);
-  };
+  // Reset track / level state when a new src loads so stale "720p" labels
+  // don't stick around through channel switches.
+  useEffect(() => {
+    setCurrentLevel(-1);
+    setCurrentAudioTrack(-1);
+    setCurrentSubtitleTrack(-1);
+  }, [src]);
 
-  const handleSelectAudioTrack = (idx: number) => {
-    selectAudioTrack(idx);
-    setCurrentAudioTrack(idx);
-  };
+  const handleSelectLevel = useCallback(
+    (idx: number) => {
+      selectLevel(idx);
+      setCurrentLevel(idx);
+    },
+    [selectLevel],
+  );
 
-  const handleSelectSubtitleTrack = (idx: number) => {
-    selectSubtitleTrack(idx);
-    setCurrentSubtitleTrack(idx);
-  };
+  const handleSelectAudioTrack = useCallback(
+    (idx: number) => {
+      selectAudioTrack(idx);
+      setCurrentAudioTrack(idx);
+    },
+    [selectAudioTrack],
+  );
+
+  const handleSelectSubtitleTrack = useCallback(
+    (idx: number) => {
+      selectSubtitleTrack(idx);
+      setCurrentSubtitleTrack(idx);
+    },
+    [selectSubtitleTrack],
+  );
+
+  const handleToggleMute = useCallback(() => {
+    if (muted) {
+      setMuted(false);
+      const v = lastVolumeBeforeMute.current || 1;
+      setVolumeState(v);
+      setVolume(v);
+    } else {
+      lastVolumeBeforeMute.current = volume;
+      setMuted(true);
+      setVolumeState(0);
+      setVolume(0);
+    }
+  }, [muted, volume, setVolume]);
 
   if (state.status === "idle") {
     return null;
@@ -84,9 +116,6 @@ export function PlayerShell() {
           background: "#000",
         }}
       >
-        {/* Video element — no HTML5 controls.
-            Captions are provided by hls.js subtitle tracks (dynamic).
-            eslint-disable-next-line jsx-a11y/media-has-caption */}
         {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
         <video
           ref={videoRef}
@@ -129,7 +158,8 @@ export function PlayerShell() {
           </div>
         )}
 
-        {/* Error state */}
+        {/* Playback-failure overlay — full treatment ships in Phase 6c. For now
+            keep the minimal close-out so error states don't leave users stuck. */}
         {status === "error" && (
           <div
             style={{
@@ -168,13 +198,16 @@ export function PlayerShell() {
           </div>
         )}
 
-        {/* Controls overlay — absolute, NOT fixed */}
+        {/* Controls overlay */}
         {status !== "error" && (
           <PlayerControls
             title={title}
+            kind={kind}
             status={status}
             currentTime={currentTime}
             duration={duration}
+            volume={volume}
+            muted={muted}
             levels={levels}
             audioTracks={audioTracks}
             subtitleTracks={subtitleTracks}
@@ -185,6 +218,7 @@ export function PlayerShell() {
             onPause={pause}
             onSeek={seek}
             onClose={close}
+            onToggleMute={handleToggleMute}
             onSelectLevel={handleSelectLevel}
             onSelectAudioTrack={handleSelectAudioTrack}
             onSelectSubtitleTrack={handleSelectSubtitleTrack}
@@ -192,7 +226,6 @@ export function PlayerShell() {
         )}
       </div>
 
-      {/* Spinner keyframe — injected once */}
       <style>{`
         @keyframes sv-spin {
           to { transform: rotate(360deg); }
