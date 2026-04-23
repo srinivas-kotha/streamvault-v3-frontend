@@ -395,4 +395,34 @@ describe("PlayerControls", () => {
     });
     expect(onPrev).toHaveBeenCalledOnce();
   });
+
+  // ─── 6d: arrow-seek on transport buttons (prod feedback) ────────────────
+
+  it("ArrowLeft on Play/Pause seeks -10s on VOD", () => {
+    const onSeek = vi.fn() as Mock;
+    render(<PlayerControls {...makeProps({ kind: "vod", currentTime: 120, onSeek })} />);
+    act(() => pressArrow("PLAYER_PLAY_PAUSE", "left"));
+    expect(onSeek).toHaveBeenCalledWith(110);
+  });
+
+  it("ArrowRight on Play/Pause seeks +10s on VOD", () => {
+    const onSeek = vi.fn() as Mock;
+    render(<PlayerControls {...makeProps({ kind: "vod", currentTime: 120, onSeek })} />);
+    act(() => pressArrow("PLAYER_PLAY_PAUSE", "right"));
+    expect(onSeek).toHaveBeenCalledWith(130);
+  });
+
+  it("ArrowLeft on Play/Pause does NOT seek on Live (falls through to nav)", () => {
+    const onSeek = vi.fn() as Mock;
+    render(<PlayerControls {...makeProps({ kind: "live", currentTime: 120, onSeek })} />);
+    act(() => pressArrow("PLAYER_PLAY_PAUSE", "left"));
+    expect(onSeek).not.toHaveBeenCalled();
+  });
+
+  it("ArrowLeft on the SeekBack button seeks -10s (consistent with Play/Pause)", () => {
+    const onSeek = vi.fn() as Mock;
+    render(<PlayerControls {...makeProps({ kind: "vod", currentTime: 200, onSeek })} />);
+    act(() => pressArrow("PLAYER_SEEK_BACK", "left"));
+    expect(onSeek).toHaveBeenCalledWith(190);
+  });
 });
