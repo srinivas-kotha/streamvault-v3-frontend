@@ -35,11 +35,13 @@ vi.mock("@noriginmedia/norigin-spatial-navigation", () => ({
   setFocus: vi.fn(),
 }));
 
-const fetchLanguageUnionMock = vi.hoisted(() => vi.fn());
+const streamLanguageUnionMock = vi.hoisted(() => vi.fn());
 const invalidateLanguageUnionCacheMock = vi.hoisted(() => vi.fn());
+const lookupCachedStreamMock = vi.hoisted(() => vi.fn(() => undefined));
 vi.mock("../features/movies/languageUnion", () => ({
-  fetchLanguageUnion: fetchLanguageUnionMock,
+  streamLanguageUnion: streamLanguageUnionMock,
   invalidateLanguageUnionCache: invalidateLanguageUnionCacheMock,
+  lookupCachedStream: lookupCachedStreamMock,
 }));
 
 const fetchHistoryMock = vi.hoisted(() => vi.fn());
@@ -126,8 +128,10 @@ describe("MoviesRoute", () => {
   beforeEach(() => {
     useFocusableSpy.mockClear();
     openPlayerMock.mockClear();
-    fetchLanguageUnionMock.mockReset();
+    streamLanguageUnionMock.mockReset();
     invalidateLanguageUnionCacheMock.mockReset();
+    lookupCachedStreamMock.mockReset();
+    lookupCachedStreamMock.mockReturnValue(undefined);
     fetchHistoryMock.mockReset();
     fetchHistoryMock.mockResolvedValue([]);
     langRef.current = "all";
@@ -135,20 +139,20 @@ describe("MoviesRoute", () => {
   });
 
   it("shows skeleton while the language union is pending", () => {
-    fetchLanguageUnionMock.mockReturnValue(new Promise(() => {}));
+    streamLanguageUnionMock.mockReturnValue(new Promise(() => {}));
     const { container } = render(<MoviesRoute />);
     expect(container.querySelectorAll(".skeleton").length).toBeGreaterThan(0);
   });
 
   it("renders ErrorShell when the union fetch rejects", async () => {
-    fetchLanguageUnionMock.mockRejectedValue(new Error("network down"));
+    streamLanguageUnionMock.mockRejectedValue(new Error("network down"));
     render(<MoviesRoute />);
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     expect(screen.getByText(/can't load movies/i)).toBeInTheDocument();
   });
 
   it("Retry re-runs the union fetch — does not call window.location.reload", async () => {
-    fetchLanguageUnionMock.mockRejectedValueOnce(new Error("oops"));
+    streamLanguageUnionMock.mockRejectedValueOnce(new Error("oops"));
     render(<MoviesRoute />);
     await screen.findByRole("alert");
 
@@ -158,10 +162,17 @@ describe("MoviesRoute", () => {
       value: { ...window.location, reload: reloadSpy },
     });
 
-    fetchLanguageUnionMock.mockResolvedValueOnce({
-      streams: mockStreams,
-      matchedCategories: 1,
-    });
+    streamLanguageUnionMock.mockImplementationOnce(
+      (_lang: string, onBatch: (b: unknown) => void) => {
+        onBatch({
+          streams: mockStreams,
+          isFinal: true,
+          matchedCategories: 1,
+          completedCategories: 1,
+        });
+        return Promise.resolve();
+      },
+    );
     await userEvent.click(screen.getByRole("button", { name: /retry/i }));
 
     await waitFor(() => {
@@ -169,14 +180,21 @@ describe("MoviesRoute", () => {
     });
     expect(reloadSpy).not.toHaveBeenCalled();
     expect(invalidateLanguageUnionCacheMock).toHaveBeenCalled();
-    expect(fetchLanguageUnionMock).toHaveBeenCalledTimes(2);
+    expect(streamLanguageUnionMock).toHaveBeenCalledTimes(2);
   });
 
   it("renders movie cards once the union resolves", async () => {
-    fetchLanguageUnionMock.mockResolvedValue({
-      streams: mockStreams,
-      matchedCategories: 2,
-    });
+    streamLanguageUnionMock.mockImplementation(
+      (_lang: string, onBatch: (b: unknown) => void) => {
+        onBatch({
+          streams: mockStreams,
+          isFinal: true,
+          matchedCategories: 2,
+          completedCategories: 2,
+        });
+        return Promise.resolve();
+      },
+    );
     render(<MoviesRoute />);
     expect(
       await screen.findByRole("button", { name: /die hard/i }),
@@ -185,10 +203,17 @@ describe("MoviesRoute", () => {
   });
 
   it("clicking a movie card opens the player with the vod kind + item title", async () => {
-    fetchLanguageUnionMock.mockResolvedValue({
-      streams: mockStreams,
-      matchedCategories: 1,
-    });
+    streamLanguageUnionMock.mockImplementation(
+      (_lang: string, onBatch: (b: unknown) => void) => {
+        onBatch({
+          streams: mockStreams,
+          isFinal: true,
+          matchedCategories: 1,
+          completedCategories: 1,
+        });
+        return Promise.resolve();
+      },
+    );
     render(<MoviesRoute />);
     const card = await screen.findByRole("button", { name: /die hard/i });
     await userEvent.click(card);
@@ -201,10 +226,17 @@ describe("MoviesRoute", () => {
 
   it("renders the language-switch empty state when the union is empty", async () => {
     langRef.current = "telugu";
-    fetchLanguageUnionMock.mockResolvedValue({
-      streams: [],
-      matchedCategories: 0,
-    });
+    streamLanguageUnionMock.mockImplementation(
+      (_lang: string, onBatch: (b: unknown) => void) => {
+        onBatch({
+          streams: [],
+          isFinal: true,
+          matchedCategories: 0,
+          completedCategories: 0,
+        });
+        return Promise.resolve();
+      },
+    );
     render(<MoviesRoute />);
     expect(
       await screen.findByText(/no telugu movies in this catalog/i),
@@ -216,10 +248,17 @@ describe("MoviesRoute", () => {
   });
 
   it("renders the sort toolbar with Newest default + movie count", async () => {
-    fetchLanguageUnionMock.mockResolvedValue({
-      streams: mockStreams,
-      matchedCategories: 1,
-    });
+    streamLanguageUnionMock.mockImplementation(
+      (_lang: string, onBatch: (b: unknown) => void) => {
+        onBatch({
+          streams: mockStreams,
+          isFinal: true,
+          matchedCategories: 1,
+          completedCategories: 1,
+        });
+        return Promise.resolve();
+      },
+    );
     render(<MoviesRoute />);
     await screen.findByRole("button", { name: /die hard/i });
     const newestBtn = screen.getByRole("button", { name: /^newest$/i });
@@ -228,20 +267,34 @@ describe("MoviesRoute", () => {
   });
 
   it("exposes Year as a sort option", async () => {
-    fetchLanguageUnionMock.mockResolvedValue({
-      streams: mockStreams,
-      matchedCategories: 1,
-    });
+    streamLanguageUnionMock.mockImplementation(
+      (_lang: string, onBatch: (b: unknown) => void) => {
+        onBatch({
+          streams: mockStreams,
+          isFinal: true,
+          matchedCategories: 1,
+          completedCategories: 1,
+        });
+        return Promise.resolve();
+      },
+    );
     render(<MoviesRoute />);
     await screen.findByRole("button", { name: /die hard/i });
     expect(screen.getByRole("button", { name: /^year$/i })).toBeInTheDocument();
   });
 
   it("flipping sort to Name reorders the cards alphabetically", async () => {
-    fetchLanguageUnionMock.mockResolvedValue({
-      streams: mockStreams,
-      matchedCategories: 1,
-    });
+    streamLanguageUnionMock.mockImplementation(
+      (_lang: string, onBatch: (b: unknown) => void) => {
+        onBatch({
+          streams: mockStreams,
+          isFinal: true,
+          matchedCategories: 1,
+          completedCategories: 1,
+        });
+        return Promise.resolve();
+      },
+    );
     render(<MoviesRoute />);
     await screen.findByRole("button", { name: /die hard/i });
     await userEvent.click(screen.getByRole("button", { name: /^name$/i }));
@@ -253,10 +306,17 @@ describe("MoviesRoute", () => {
   });
 
   it("registers CONTENT_AREA_MOVIES focus key + per-card VOD_CARD_* keys", async () => {
-    fetchLanguageUnionMock.mockResolvedValue({
-      streams: mockStreams,
-      matchedCategories: 1,
-    });
+    streamLanguageUnionMock.mockImplementation(
+      (_lang: string, onBatch: (b: unknown) => void) => {
+        onBatch({
+          streams: mockStreams,
+          isFinal: true,
+          matchedCategories: 1,
+          completedCategories: 1,
+        });
+        return Promise.resolve();
+      },
+    );
     render(<MoviesRoute />);
     await screen.findByRole("button", { name: /die hard/i });
     const keys = useFocusableSpy.mock.calls

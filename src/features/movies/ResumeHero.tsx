@@ -51,10 +51,16 @@ export function ResumeHero({
     focusKey: "RESUME_HERO",
     onEnterPress: onSelect,
     onArrowPress: (direction) => {
+      // Dead directions (no neighbour) → bounce + consume the event so
+      // norigin doesn't traverse.
       if (direction === "up" || direction === "left" || direction === "right") {
         setBouncePulse((p) => p + 1);
+        return true;
       }
-      return true;
+      // Down has a real target (LanguageRail) — let norigin navigate.
+      // Returning `true` here previously pinned focus on the hero and
+      // broke the only working direction (observed in prod 2026-04-23 PM).
+      return false;
     },
   });
 
