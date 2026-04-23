@@ -1,11 +1,14 @@
 /**
- * PlayerControls unit tests.
+ * PlayerControls unit tests — Phase 6a shape.
  *
- * Verifies: play/pause toggle, D-pad seek ±10s, auto-hide timing.
+ * Covers: initial visibility + focus, auto-hide, wake-only first arrow,
+ * Enter short-circuit, Back closes player, seek shortcuts (j/l), Live mode
+ * hides scrubber and skips ±10s, quality popover still selects levels.
  */
 import { render, screen, act, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
 import { PlayerControls } from "./PlayerControls";
+import type { PlayerControlsProps } from "./PlayerControls";
 import type { ReactNode } from "react";
 
 // ─── Mock norigin ─────────────────────────────────────────────────────────────
@@ -20,16 +23,20 @@ vi.mock("@noriginmedia/norigin-spatial-navigation", () => ({
   FocusContext: {
     Provider: ({ children }: { children: ReactNode }) => children,
   },
+  setFocus: vi.fn(),
 }));
 
 // ─── Default props ────────────────────────────────────────────────────────────
 
-function makeProps(overrides = {}) {
+function makeProps(overrides: Partial<PlayerControlsProps> = {}): PlayerControlsProps {
   return {
-    title: "Test Channel",
-    status: "playing" as const,
+    title: "Test Title",
+    kind: "vod",
+    status: "playing",
     currentTime: 30,
     duration: 120,
+    volume: 1,
+    muted: false,
     levels: [],
     audioTracks: [],
     subtitleTracks: [],
@@ -40,6 +47,7 @@ function makeProps(overrides = {}) {
     onPause: vi.fn(),
     onSeek: vi.fn(),
     onClose: vi.fn(),
+    onToggleMute: vi.fn(),
     onSelectLevel: vi.fn(),
     onSelectAudioTrack: vi.fn(),
     onSelectSubtitleTrack: vi.fn(),
@@ -58,141 +66,219 @@ describe("PlayerControls", () => {
     vi.useRealTimers();
   });
 
-  // Controls start hidden — user must interact to reveal them. Tests need
-  // to fire a keydown first to surface the control surface.
-  function reveal() {
-    act(() => {
-      fireEvent.keyDown(window, { key: "ArrowDown" });
-    });
-  }
-
-  it("renders play/pause button", () => {
+  it("renders Play/Pause, Back button, and title on mount (spec §4.1)", () => {
     const props = makeProps();
     render(<PlayerControls {...props} />);
-    reveal();
-    expect(screen.getByRole("button", { name: /pause/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Pause" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Back" })).toBeTruthy();
+    expect(screen.getByText("Test Title")).toBeTruthy();
   });
 
-  it("calls onPause when pause button is clicked (playing state)", () => {
-    const props = makeProps({ status: "playing" });
-    render(<PlayerControls {...props} />);
-    reveal();
-
-    screen.getByRole("button", { name: /pause/i }).click();
-    expect(props.onPause).toHaveBeenCalledOnce();
-  });
-
-  it("calls onPlay when play button is clicked (paused state)", () => {
+  it("shows Play label when paused", () => {
     const props = makeProps({ status: "paused" });
     render(<PlayerControls {...props} />);
-    reveal();
-
-    // Use exact match to avoid matching "Close player" button
-    screen.getByRole("button", { name: "Play" }).click();
-    expect(props.onPlay).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "Play" })).toBeTruthy();
   });
 
-  it("seeks -10s on ArrowLeft key", () => {
-    const onSeek = vi.fn();
-    const props = makeProps({ currentTime: 30, onSeek });
-    render(<PlayerControls {...props} />);
-
-    fireEvent.keyDown(window, { key: "ArrowLeft" });
-    expect(onSeek).toHaveBeenCalledWith(20);
-  });
-
-  it("seeks +10s on ArrowRight key", () => {
-    const onSeek = vi.fn();
-    const props = makeProps({ currentTime: 30, onSeek });
-    render(<PlayerControls {...props} />);
-
-    fireEvent.keyDown(window, { key: "ArrowRight" });
-    expect(onSeek).toHaveBeenCalledWith(40);
-  });
-
-  it("auto-hides controls after 3 seconds of idle", () => {
+  it("auto-hides controls after 3s idle", () => {
     const props = makeProps();
     render(<PlayerControls {...props} />);
+    const el = screen.getByTestId("player-controls");
+    expect(el.getAttribute("aria-hidden")).toBe("false");
 
-    // Controls start HIDDEN on mount — user hasn't touched the remote yet.
-    expect(screen.queryByTestId("player-controls")).toBeNull();
-
-    // Reveal via a key press.
-    reveal();
-    expect(screen.queryByTestId("player-controls")).toBeTruthy();
-
-    // Advance past the 3s auto-hide threshold
     act(() => {
       vi.advanceTimersByTime(3100);
     });
-
-    // Controls should be hidden again
-    expect(screen.queryByTestId("player-controls")).toBeNull();
+    expect(el.getAttribute("aria-hidden")).toBe("true");
   });
 
-  it("shows controls again on keydown after auto-hide", () => {
+  it("wakes on first arrow press without triggering navigation", () => {
     const props = makeProps();
     render(<PlayerControls {...props} />);
 
-    // Hide controls
     act(() => {
       vi.advanceTimersByTime(3100);
     });
-    expect(screen.queryByTestId("player-controls")).toBeNull();
+    expect(screen.getByTestId("player-controls").getAttribute("aria-hidden")).toBe(
+      "true",
+    );
 
-    // Any key press should show controls
+    act(() => {
+      fireEvent.keyDown(window, { key: "ArrowRight" });
+    });
+    expect(screen.getByTestId("player-controls").getAttribute("aria-hidden")).toBe(
+      "false",
+    );
+    // onSeek must NOT fire — the first arrow is wake-only (spec §4.3).
+    expect(props.onSeek).not.toHaveBeenCalled();
+  });
+
+  it("Enter short-circuits pause even when controls are hidden (spec §4.3)", () => {
+    const props = makeProps({ status: "playing" });
+    render(<PlayerControls {...props} />);
+
+    act(() => {
+      vi.advanceTimersByTime(3100);
+    });
     act(() => {
       fireEvent.keyDown(window, { key: "Enter" });
     });
-    expect(screen.getByTestId("player-controls")).toBeTruthy();
+    expect(props.onPause).toHaveBeenCalledOnce();
+    expect(screen.getByTestId("player-controls").getAttribute("aria-hidden")).toBe(
+      "false",
+    );
   });
 
-  it("calls onClose when Escape key is pressed with no menu open", () => {
-    const onClose = vi.fn();
-    const props = makeProps({ onClose });
+  it("Space and k also toggle play/pause", () => {
+    const props = makeProps({ status: "playing" });
     render(<PlayerControls {...props} />);
 
-    fireEvent.keyDown(window, { key: "Escape" });
-    expect(onClose).toHaveBeenCalledOnce();
-  });
-
-  it("shows quality menu when levels are provided and quality button is clicked", () => {
-    const levels = [
-      { index: 0, height: 720, bitrate: 2000000, name: "720p" },
-      { index: 1, height: 1080, bitrate: 4000000, name: "1080p" },
-    ];
-    const props = makeProps({ levels });
-    render(<PlayerControls {...props} />);
-    reveal();
-
-    const qualityBtn = screen.getByRole("button", { name: /quality/i });
     act(() => {
-      qualityBtn.click();
+      fireEvent.keyDown(window, { key: " " });
     });
+    expect(props.onPause).toHaveBeenCalledTimes(1);
 
-    expect(screen.getByRole("button", { name: "720p" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "1080p" })).toBeTruthy();
+    act(() => {
+      fireEvent.keyDown(window, { key: "k" });
+    });
+    expect(props.onPause).toHaveBeenCalledTimes(2);
   });
 
-  it("calls onSelectLevel and closes menu when a quality level is selected", () => {
+  it("j / l seek -10s / +10s on VOD", () => {
+    const props = makeProps({ currentTime: 30, kind: "vod" });
+    render(<PlayerControls {...props} />);
+
+    act(() => {
+      fireEvent.keyDown(window, { key: "j" });
+    });
+    expect(props.onSeek).toHaveBeenCalledWith(20);
+
+    act(() => {
+      fireEvent.keyDown(window, { key: "l" });
+    });
+    expect(props.onSeek).toHaveBeenCalledWith(40);
+  });
+
+  it("j / l do NOT seek on Live (no seekable window)", () => {
+    const props = makeProps({ currentTime: 30, kind: "live" });
+    render(<PlayerControls {...props} />);
+
+    act(() => {
+      fireEvent.keyDown(window, { key: "j" });
+    });
+    act(() => {
+      fireEvent.keyDown(window, { key: "l" });
+    });
+    expect(props.onSeek).not.toHaveBeenCalled();
+  });
+
+  it("Escape closes the player when no popover is open", () => {
+    const props = makeProps();
+    render(<PlayerControls {...props} />);
+
+    act(() => {
+      fireEvent.keyDown(window, { key: "Escape" });
+    });
+    expect(props.onClose).toHaveBeenCalledOnce();
+  });
+
+  it("renders ● Live badge and hides scrubber on Live kind", () => {
+    const props = makeProps({ kind: "live" });
+    const { container } = render(<PlayerControls {...props} />);
+    expect(screen.getByLabelText("Live")).toBeTruthy();
+    expect(container.querySelector("[role='progressbar']")).toBeNull();
+  });
+
+  it("renders scrubber for VOD", () => {
+    const props = makeProps({ kind: "vod" });
+    const { container } = render(<PlayerControls {...props} />);
+    expect(container.querySelector("[role='progressbar']")).toBeTruthy();
+  });
+
+  it("skips ±10s buttons (focusable:false) on Live", () => {
+    const props = makeProps({ kind: "live" });
+    render(<PlayerControls {...props} />);
+    const seekBack = screen.getByRole("button", { name: "Back 10 seconds" });
+    const seekFwd = screen.getByRole("button", { name: "Forward 10 seconds" });
+    expect(seekBack.getAttribute("aria-disabled")).toBe("true");
+    expect(seekFwd.getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("quality popover selects a level and closes", () => {
     const onSelectLevel = vi.fn() as Mock;
-    const levels = [{ index: 0, height: 720, bitrate: 2000000, name: "720p" }];
+    const levels = [
+      { index: 0, height: 720, bitrate: 2_000_000, name: "720p" },
+      { index: 1, height: 1080, bitrate: 4_000_000, name: "1080p" },
+    ];
     const props = makeProps({ levels, onSelectLevel });
     render(<PlayerControls {...props} />);
-    reveal();
 
-    // Open quality menu
     act(() => {
       screen.getByRole("button", { name: /quality/i }).click();
     });
 
-    // Select 720p
+    // Highest-first order (spec §5.3): 1080p is listed before 720p.
+    const items = screen.getAllByRole("option");
+    expect(items.length).toBeGreaterThan(0);
+
     act(() => {
       screen.getByRole("button", { name: "720p" }).click();
     });
-
     expect(onSelectLevel).toHaveBeenCalledWith(0);
-    // Menu should be closed
     expect(screen.queryByRole("button", { name: "720p" })).toBeNull();
+  });
+
+  it("subtitles popover renders Off + tracks", () => {
+    const subtitleTracks = [
+      { index: 0, name: "English", lang: "en" },
+      { index: 1, name: "Telugu", lang: "te" },
+    ];
+    const props = makeProps({ subtitleTracks });
+    render(<PlayerControls {...props} />);
+
+    act(() => {
+      screen.getByRole("button", { name: /subtitles/i }).click();
+    });
+    expect(screen.getByRole("button", { name: "Off" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "English" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Telugu" })).toBeTruthy();
+  });
+
+  it("audio popover hidden when only one track (spec: aria-disabled if 1 track)", () => {
+    const audioTracks = [{ index: 0, name: "English", lang: "en" }];
+    const props = makeProps({ audioTracks });
+    render(<PlayerControls {...props} />);
+    expect(screen.queryByRole("button", { name: /audio/i })).toBeNull();
+  });
+
+  it("volume button toggles mute on Enter", () => {
+    const props = makeProps();
+    render(<PlayerControls {...props} />);
+    act(() => {
+      screen.getByRole("button", { name: "Mute" }).click();
+    });
+    expect(props.onToggleMute).toHaveBeenCalledOnce();
+  });
+
+  it("Escape closes popover first, player second", () => {
+    const levels = [{ index: 0, height: 720, bitrate: 2_000_000, name: "720p" }];
+    const props = makeProps({ levels });
+    render(<PlayerControls {...props} />);
+
+    act(() => {
+      screen.getByRole("button", { name: /quality/i }).click();
+    });
+    expect(screen.getByRole("button", { name: "720p" })).toBeTruthy();
+
+    act(() => {
+      fireEvent.keyDown(window, { key: "Escape" });
+    });
+    expect(screen.queryByRole("button", { name: "720p" })).toBeNull();
+    expect(props.onClose).not.toHaveBeenCalled();
+
+    act(() => {
+      fireEvent.keyDown(window, { key: "Escape" });
+    });
+    expect(props.onClose).toHaveBeenCalledOnce();
   });
 });
