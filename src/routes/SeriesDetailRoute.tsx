@@ -718,6 +718,13 @@ export function SeriesDetailRoute() {
     focusKey: "CONTENT_AREA_SERIES_DETAIL",
     focusable: false,
     trackChildren: true,
+    // Absorb dead-direction bubble-ups at the detail route's outer edges
+    // (Left on first episode / first season chip, Right on last, Up on
+    // hero). Down stays open so episode rows can still reach BottomDock.
+    // Matches PR #85's treatment of CONTENT_AREA_* — see
+    // streamvault-v3-focus-vanish-bug.md.
+    isFocusBoundary: true,
+    focusBoundaryDirections: ["left", "right", "up"],
   });
 
   const [info, setInfo] = useState<SeriesInfo | null>(null);

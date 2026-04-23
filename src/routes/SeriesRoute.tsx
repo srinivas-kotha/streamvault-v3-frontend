@@ -145,6 +145,13 @@ export function SeriesRoute() {
     focusKey: "CONTENT_AREA_SERIES",
     focusable: false,
     trackChildren: true,
+    // Absorb dead-direction bubble-ups at the route's outer edges (Left on
+    // first card / first chip, Right on last, Up on hero). Down stays open
+    // so the bottom row still reaches BottomDock. Matches PR #85's
+    // treatment of other CONTENT_AREA_* routes — see
+    // streamvault-v3-focus-vanish-bug.md.
+    isFocusBoundary: true,
+    focusBoundaryDirections: ["left", "right", "up"],
   });
 
   const navigate = useNavigate();
