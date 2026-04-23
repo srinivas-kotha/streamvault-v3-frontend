@@ -35,7 +35,11 @@ test.describe.serial("Player smoke (prod)", () => {
       await submitButton.click();
 
       // ── 2. Navigate to /live ───────────────────────────────────────────────
-      await page.waitForURL("**/live", { timeout: 15_000 });
+      // Login lands on /movies (default post-login route). Wait for that
+      // redirect to settle, then explicitly goto /live — the route this spec
+      // exercises.
+      await page.waitForURL(/\/(movies|live)/, { timeout: 15_000 });
+      await page.goto("/live");
       await page.waitForSelector('[data-page="live"]', { timeout: 10_000 });
 
       // ── 3. Wait for channels to load ────────────────────────────────────────

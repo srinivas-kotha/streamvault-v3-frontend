@@ -6,9 +6,9 @@ test.describe("Routing", () => {
     await seedFakeAuth(page);
   });
 
-  test("/ redirects to /live", async ({ page }) => {
+  test("/ redirects to /movies", async ({ page }) => {
     await page.goto("/");
-    await expect(page).toHaveURL(/\/live/);
+    await expect(page).toHaveURL(/\/movies/);
   });
   test("/movies renders Movies shell", async ({ page }) => {
     await page.goto("/movies");

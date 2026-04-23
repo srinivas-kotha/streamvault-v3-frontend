@@ -83,10 +83,11 @@ test.describe("Favorites flow", () => {
     await expect(page.getByText("Cached Movie")).toBeVisible({ timeout: 5000 });
   });
 
-  test("back button from /favorites goes back to previous page", async ({
+  // FavoritesRoute currently has no in-app "Go back" button (the rebuild in
+  // PR #96 dropped it). Restore this test if/when the button is re-introduced.
+  test.skip("back button from /favorites goes back to previous page", async ({
     page,
   }) => {
-    // Navigate to /settings first so history has an entry, then go to /favorites.
     await page.goto("/settings");
     await expect(page.locator('[data-page="settings"]')).toBeVisible();
     await page.goto("/favorites");
