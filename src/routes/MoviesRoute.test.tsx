@@ -80,28 +80,19 @@ vi.mock("../lib/useLangPref", () => ({
 
 // react-virtuoso: jsdom has no real layout engine. Render all items eagerly.
 vi.mock("react-virtuoso", () => ({
-  VirtuosoGrid: ({
+  Virtuoso: ({
     totalCount,
     itemContent,
-    components,
   }: {
     totalCount: number;
     itemContent: (index: number) => React.ReactNode;
-    components?: {
-      List?: React.ComponentType<React.HTMLAttributes<HTMLDivElement>>;
-      Item?: React.ComponentType<React.HTMLAttributes<HTMLDivElement>>;
-    };
-  }) => {
-    const List = components?.List ?? "div";
-    const Item = components?.Item ?? "div";
-    return (
-      <List>
-        {Array.from({ length: totalCount }, (_, i) => (
-          <Item key={i}>{itemContent(i)}</Item>
-        ))}
-      </List>
-    );
-  },
+  }) => (
+    <div>
+      {Array.from({ length: totalCount }, (_, i) => (
+        <div key={i}>{itemContent(i)}</div>
+      ))}
+    </div>
+  ),
 }));
 
 import { MoviesRoute } from "./MoviesRoute";
