@@ -74,6 +74,24 @@ vi.mock("../player/PlayerProvider", () => ({
   usePlayerStore: () => ({ state: { status: "idle" } }),
 }));
 
+// react-virtuoso: jsdom has no real layout engine. Render all items eagerly
+// so list-item assertions work (same pattern as MoviesRoute.test.tsx).
+vi.mock("react-virtuoso", () => ({
+  Virtuoso: ({
+    totalCount,
+    itemContent,
+  }: {
+    totalCount: number;
+    itemContent: (index: number) => React.ReactNode;
+  }) => (
+    <div>
+      {Array.from({ length: totalCount }, (_, i) => (
+        <div key={i}>{itemContent(i)}</div>
+      ))}
+    </div>
+  ),
+}));
+
 // Force "all" language so mock items pass the filter.
 const langRef = { current: "all" as "all" | "telugu" | "hindi" | "english" };
 vi.mock("../lib/useLangPref", () => ({

@@ -1,12 +1,19 @@
 /**
- * SeriesGrid — responsive poster grid with D-pad 2D navigation.
+ * SeriesGrid — virtualized poster grid using row-chunking (mirror of
+ * MovieGrid — see that file's header for the VirtuosoGrid-vs-row-chunks
+ * reasoning).
  *
- * Plain CSS grid (no virtualization) — series counts per language are
- * typically <500 (02-series.md §2), well under the DOM-node ceiling.
- * Card progress / NEW / S_E_ overlays are computed per-item via the
- * optional predicates so this component stays dumb about history shape.
+ * Prior behaviour was plain CSS grid; under Fire TV throttling, rendering
+ * 666+ cards simultaneously caused 96% dropped frames on D-pad scroll
+ * (measured 2026-04-24, PR #111 findings). Virtualized rows keep the DOM
+ * bounded (COLS × overscan rows ≈ 30-60 cards live) so scroll stays
+ * smooth on low-RAM Silk.
+ *
+ * Column tiers mirror MovieGrid exactly so both surfaces have identical
+ * density on the same viewport width.
  */
-import type { ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Virtuoso } from "react-virtuoso";
 import type { SeriesItem } from "../../api/schemas";
 import { SeriesCard, type SeriesCardProgress } from "./SeriesCard";
 
@@ -27,6 +34,38 @@ export interface SeriesGridProps {
   renderCard?: (item: SeriesItem) => ReactNode;
 }
 
+function columnsForWidth(width: number): number {
+  // Mirror MovieGrid.columnsForWidth — keeps Series density identical to
+  // Movies at every breakpoint. See MovieGrid.tsx for the rationale.
+  if (width >= 1920) return 9;
+  if (width >= 1600) return 8;
+  if (width >= 1280) return 7;
+  if (width >= 960) return 6;
+  if (width >= 640) return 4;
+  return 3;
+}
+
+function useResponsiveColumns(): number {
+  const [cols, setCols] = useState<number>(() =>
+    typeof window === "undefined" ? 6 : columnsForWidth(window.innerWidth),
+  );
+  useEffect(() => {
+    let frame = 0;
+    const onResize = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        setCols(columnsForWidth(window.innerWidth));
+      });
+    };
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      cancelAnimationFrame(frame);
+    };
+  }, []);
+  return cols;
+}
+
 export function SeriesGrid({
   items,
   onCardClick,
@@ -35,6 +74,16 @@ export function SeriesGrid({
   isNew,
   renderCard,
 }: SeriesGridProps) {
+  const cols = useResponsiveColumns();
+
+  const rows = useMemo<SeriesItem[][]>(() => {
+    const out: SeriesItem[][] = [];
+    for (let i = 0; i < items.length; i += cols) {
+      out.push(items.slice(i, i + cols));
+    }
+    return out;
+  }, [items, cols]);
+
   if (items.length === 0) {
     return (
       <div
@@ -61,42 +110,55 @@ export function SeriesGrid({
   }
 
   return (
-    <div
-      role="list"
-      aria-label="Series grid"
-      style={{
-        display: "grid",
-        // User ask 2026-04-23 evening: ≥ 3 rows visible above the dock.
-        // Drive the minimum card width off --poster-min-width so Series
-        // grid density matches the Movies grid's density tiers in
-        // tokens.css (120/138/155/175/195 px across viewport width).
-        gridTemplateColumns:
-          "repeat(auto-fill, minmax(min(var(--poster-min-width, 140px), 100%), 1fr))",
-        gap: "var(--space-4)",
-        padding: "var(--space-3) var(--space-6)",
-      }}
-    >
-      {items.map((item) => (
-        <div key={item.id} role="listitem">
-          {renderCard ? (
-            renderCard(item)
-          ) : (
-            (() => {
-              const prog = getProgress?.(item);
-              const sEp = getSEpLabel?.(item);
-              return (
-                <SeriesCard
-                  item={item}
-                  onClick={onCardClick}
-                  {...(prog ? { progress: prog } : {})}
-                  {...(sEp ? { sEpLabel: sEp } : {})}
-                  isNew={isNew?.(item) ?? false}
-                />
-              );
-            })()
-          )}
-        </div>
-      ))}
+    <div aria-label="Series poster grid" role="grid">
+      <Virtuoso
+        useWindowScroll
+        totalCount={rows.length}
+        overscan={600}
+        itemContent={(rowIndex) => {
+          const row = rows[rowIndex];
+          if (!row) return null;
+          return (
+            <div
+              role="row"
+              style={{
+                display: "grid",
+                gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+                gap: "var(--space-3)",
+                padding: "0 var(--space-6)",
+                marginTop: rowIndex === 0 ? "var(--space-3)" : 0,
+                marginBottom: "var(--space-3)",
+              }}
+            >
+              {row.map((item) => (
+                <div role="gridcell" key={item.id}>
+                  {renderCard ? (
+                    renderCard(item)
+                  ) : (
+                    <SeriesCard
+                      item={item}
+                      onClick={onCardClick}
+                      {...(getProgress
+                        ? (() => {
+                            const p = getProgress(item);
+                            return p ? { progress: p } : {};
+                          })()
+                        : {})}
+                      {...(getSEpLabel
+                        ? (() => {
+                            const s = getSEpLabel(item);
+                            return s ? { sEpLabel: s } : {};
+                          })()
+                        : {})}
+                      isNew={isNew?.(item) ?? false}
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          );
+        }}
+      />
     </div>
   );
 }
