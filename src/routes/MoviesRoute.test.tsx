@@ -68,6 +68,9 @@ vi.mock("react-router-dom", () => ({
 vi.mock("../player/usePlayerOpener", () => ({
   usePlayerOpener: () => ({ openPlayer: openPlayerMock }),
 }));
+vi.mock("../player/PlayerProvider", () => ({
+  usePlayerStore: () => ({ state: { status: "idle" } }),
+}));
 
 // Use "all" for tests so all mock streams pass the language filter, and
 // force the hook's setLang to actually flip internal state so we can assert

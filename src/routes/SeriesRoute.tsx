@@ -48,6 +48,7 @@ import { EmptyStateWithLanguageSwitch } from "../primitives/EmptyStateWithLangua
 import { useLangPref } from "../lib/useLangPref";
 import { fetchHistory } from "../api/history";
 import { usePlayerOpener } from "../player/usePlayerOpener";
+import { usePlayerStore } from "../player/PlayerProvider";
 import {
   rememberOriginator,
   consumeOriginator,
@@ -162,6 +163,7 @@ export function SeriesRoute() {
 
   const navigate = useNavigate();
   const { openPlayer } = usePlayerOpener();
+  const playerStatus = usePlayerStore().state.status;
   const [lang, setLang] = useLangPref({ excludeSports: true });
   const [sort, setSort] = useState<SeriesSortKey>(() => getSortPref());
   const [items, setItems] = useState<SeriesItem[]>([]);
@@ -197,7 +199,12 @@ export function SeriesRoute() {
   }, [lang, fetchGeneration]);
 
   // ─── History fetch (non-blocking) ─────────────────────────────────────────
+  //
+  // Refetches on mount AND when the player transitions back to idle — the
+  // player is a global overlay that does NOT unmount this route. See the
+  // matching comment in MoviesRoute for the same fix.
   useEffect(() => {
+    if (playerStatus !== "idle") return;
     let cancelled = false;
     fetchHistory()
       .then((h) => {
@@ -209,7 +216,7 @@ export function SeriesRoute() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [playerStatus]);
 
   // ─── Derived: filter → sorted items ───────────────────────────────────────
   const filteredItems = useMemo(

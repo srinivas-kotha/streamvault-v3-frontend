@@ -57,6 +57,7 @@ import { useLangPref } from "../lib/useLangPref";
 import { fetchHistory } from "../api/history";
 import { fetchVodInfo } from "../api/vod";
 import { usePlayerOpener } from "../player/usePlayerOpener";
+import { usePlayerStore } from "../player/PlayerProvider";
 import type { HistoryItem, VodStream } from "../api/schemas";
 import type { LangId } from "../lib/langPref";
 import type { MovieCardProgress } from "../features/movies/MovieCard";
@@ -123,6 +124,7 @@ export function MoviesRoute() {
   });
 
   const { openPlayer } = usePlayerOpener();
+  const playerStatus = usePlayerStore().state.status;
   const navigate = useNavigate();
   const [lang, setLang] = useLangPref({ excludeSports: true });
   const [sort, setSort] = useState<MovieSortKey>(() => getSortPref());
@@ -173,7 +175,16 @@ export function MoviesRoute() {
   }, [lang, fetchGeneration]);
 
   // ─── History fetch (non-blocking) ─────────────────────────────────────────
+  //
+  // Refetches on mount AND when the player transitions back to idle. The
+  // player is a global overlay (PlayerProvider context) — it does NOT unmount
+  // MoviesRoute when opened, so without this the ResumeHero would stay pinned
+  // to whatever the fetch-on-mount resolved to. PlayerShell writes progress
+  // via `recordHistory()` (not via any hook that would push into this
+  // route's state), so the only way to see the just-watched title at the top
+  // of /movies is to refetch /api/history after close.
   useEffect(() => {
+    if (playerStatus !== "idle") return;
     let cancelled = false;
     fetchHistory()
       .then((items) => {
@@ -185,7 +196,7 @@ export function MoviesRoute() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [playerStatus]);
 
   // ─── Derived: filter → sort → history lookup map ────────────────────────
   // Filter applies first so the count reflects the visible set. Substring
