@@ -8,7 +8,7 @@
  * Preserved dev-time routes: /test-primitives and /silk-probe (permanent
  * Playwright probe targets — Task 1.7 + Task 2.1).
  */
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import {
   BrowserRouter,
   Routes,
@@ -32,9 +32,19 @@ import { SearchRoute } from "./routes/SearchRoute";
 import { SettingsRoute } from "./routes/SettingsRoute";
 import { FavoritesRoute } from "./routes/FavoritesRoute";
 import { HistoryRoute } from "./routes/HistoryRoute";
-import { SeriesDetailRoute } from "./routes/SeriesDetailRoute";
 import { TestPrimitivesRoute } from "./routes";
 import { SilkProbe } from "./nav/SilkProbe";
+
+// SeriesDetailRoute is the heaviest single route (~1,400 lines). Lazy-loading
+// keeps it out of the main bundle so /movies (default landing) parses faster
+// on Fire TV Stick-class CPUs. The app bundle gets ~40 KB gzip lighter; the
+// route is fetched on first /series/:id navigation, which already has a
+// perceived cost (click → detail transition).
+const SeriesDetailRoute = lazy(() =>
+  import("./routes/SeriesDetailRoute").then((m) => ({
+    default: m.SeriesDetailRoute,
+  })),
+);
 import { LoginPage } from "./features/auth/LoginPage";
 import { apiClient } from "./api/client";
 import { PlayerProvider, PlayerShell } from "./player";
@@ -314,7 +324,22 @@ function AppShell() {
         <Route path="/live" element={<LiveRoute />} />
         <Route path="/movies" element={<MoviesRoute />} />
         <Route path="/series" element={<SeriesRoute />} />
-        <Route path="/series/:id" element={<SeriesDetailRoute />} />
+        <Route
+          path="/series/:id"
+          element={
+            <Suspense
+              fallback={
+                <div
+                  data-page="series-detail"
+                  aria-busy="true"
+                  style={{ minHeight: "100vh" }}
+                />
+              }
+            >
+              <SeriesDetailRoute />
+            </Suspense>
+          }
+        />
         <Route path="/search" element={<SearchRoute />} />
         <Route path="/settings" element={<SettingsRoute />} />
         <Route path="/favorites" element={<FavoritesRoute />} />

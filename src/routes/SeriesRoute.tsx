@@ -518,6 +518,7 @@ export function SeriesRoute() {
               @media (prefers-reduced-motion: reduce) {
                 [data-testid="series-transitioning-dot"] { animation: none !important; }
               }
+              :root[data-tv="true"] [data-testid="series-transitioning-dot"] { animation: none !important; }
             `}</style>
 
             <div
