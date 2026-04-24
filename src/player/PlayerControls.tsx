@@ -17,6 +17,7 @@ import {
   useFocusable,
   FocusContext,
   setFocus,
+  getCurrentFocusKey,
 } from "@noriginmedia/norigin-spatial-navigation";
 import type { KeyPressDetails } from "@noriginmedia/norigin-spatial-navigation";
 import type {
@@ -49,6 +50,16 @@ const AUTO_HIDE_MS = 3000;
 const FADE_MS = 300;
 const HOLD_SEEK_STEP_S = 30;
 const HOLD_SEEK_TICK_MS = 500;
+// Delay before the first accelerated tick fires after the user starts
+// holding an arrow key. Short enough that "held down" feels responsive;
+// long enough that a single tap doesn't double-count with the norigin
+// single-press seek (which fires instantly via arrowOverrides).
+const ARROW_HOLD_DELAY_MS = 400;
+const TRANSPORT_FOCUS_KEYS: ReadonlySet<string> = new Set([
+  "PLAYER_PLAY_PAUSE",
+  "PLAYER_SEEK_BACK",
+  "PLAYER_SEEK_FORWARD",
+]);
 const VOLUME_STEP = 0.05;
 const VOLUME_SLIDER_IDLE_MS = 2000;
 
@@ -452,6 +463,30 @@ export function PlayerControls({
   const currentTimeRef = useRef(currentTime);
   currentTimeRef.current = currentTime;
 
+  // Arrow-hold acceleration state. norigin fires a single ±10s seek on
+  // first press via arrowOverrides; if the user continues holding the key
+  // past ARROW_HOLD_DELAY_MS, we tick ±HOLD_SEEK_STEP_S every
+  // HOLD_SEEK_TICK_MS until keyup. Fire TV remotes don't emit OS key-repeat,
+  // so we must drive the ticks ourselves.
+  const arrowHoldKeyRef = useRef<"ArrowLeft" | "ArrowRight" | null>(null);
+  const arrowHoldStartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const arrowHoldIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
+    null,
+  );
+  const clearArrowHold = useCallback(() => {
+    if (arrowHoldStartTimerRef.current) {
+      clearTimeout(arrowHoldStartTimerRef.current);
+      arrowHoldStartTimerRef.current = null;
+    }
+    if (arrowHoldIntervalRef.current) {
+      clearInterval(arrowHoldIntervalRef.current);
+      arrowHoldIntervalRef.current = null;
+    }
+    arrowHoldKeyRef.current = null;
+  }, []);
+
   const { ref: containerRef, focusKey: containerFocusKey } = useFocusable({
     focusKey: "PLAYER_CONTROLS",
     trackChildren: true,
@@ -602,17 +637,67 @@ export function PlayerControls({
       } else {
         if (isArrow || isEnter) wake();
       }
+
+      // Arm arrow-hold acceleration when ArrowLeft/Right is pressed on a
+      // transport control (Play/Pause, ±10s buttons) on a seekable surface.
+      // The initial ±10s seek is still delivered by norigin's arrowOverrides
+      // on the focused button — this effect only adds the ticking interval
+      // that kicks in once the user has held the key past ARROW_HOLD_DELAY_MS.
+      if (
+        !isLive &&
+        !openMenu &&
+        visibleRef.current &&
+        !e.repeat &&
+        (k === "ArrowLeft" || k === "ArrowRight") &&
+        arrowHoldKeyRef.current === null
+      ) {
+        const focusedKey = getCurrentFocusKey();
+        if (focusedKey && TRANSPORT_FOCUS_KEYS.has(focusedKey)) {
+          const direction = k === "ArrowLeft" ? -1 : 1;
+          arrowHoldKeyRef.current = k;
+          arrowHoldStartTimerRef.current = setTimeout(() => {
+            arrowHoldIntervalRef.current = setInterval(() => {
+              onSeek(
+                currentTimeRef.current + direction * HOLD_SEEK_STEP_S,
+              );
+              wake();
+            }, HOLD_SEEK_TICK_MS);
+          }, ARROW_HOLD_DELAY_MS);
+        }
+      }
+    };
+
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (
+        (e.key === "ArrowLeft" || e.key === "ArrowRight") &&
+        arrowHoldKeyRef.current !== null
+      ) {
+        clearArrowHold();
+      }
     };
 
     const onMouseMove = () => wake();
 
     window.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("keyup", onKeyUp, true);
     window.addEventListener("mousemove", onMouseMove);
     return () => {
+      clearArrowHold();
       window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("keyup", onKeyUp, true);
       window.removeEventListener("mousemove", onMouseMove);
     };
-  }, [onClose, onSeek, isLive, openMenu, togglePlayPause, wake, onNext, onPrev]);
+  }, [
+    onClose,
+    onSeek,
+    isLive,
+    openMenu,
+    togglePlayPause,
+    wake,
+    onNext,
+    onPrev,
+    clearArrowHold,
+  ]);
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 

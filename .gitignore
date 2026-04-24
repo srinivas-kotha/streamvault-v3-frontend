@@ -38,3 +38,4 @@ playwright-report-prod/
 perf-artifacts/
 perf-report.md
 perf-report.json
+.claude/

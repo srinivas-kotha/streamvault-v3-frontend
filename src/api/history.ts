@@ -87,7 +87,7 @@ export async function recordHistory(
   lsWrite([optimistic, ...existing]);
 
   try {
-    await apiClient.patch(`/api/history/${contentId}`, body);
+    await apiClient.put(`/api/history/${contentId}`, body);
   } catch {
     // localStorage already has the entry; leave it.
   }

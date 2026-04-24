@@ -71,8 +71,14 @@ vi.mock("@noriginmedia/norigin-spatial-navigation", () => {
       Provider: ({ children }: { children: ReactNode }) => children,
     },
     setFocus: vi.fn(),
+    getCurrentFocusKey: () => currentFocusKey,
   };
 });
+
+// The window-level arrow-hold logic calls getCurrentFocusKey to gate on
+// the transport row. Tests that need hold behavior set this before firing
+// the keydown; default is null (off the transport row → hold no-ops).
+let currentFocusKey: string | null = null;
 
 function pressEnter(focusKey: string, count = 1) {
   const h = handlersByKey[focusKey];
@@ -424,6 +430,86 @@ describe("PlayerControls", () => {
     render(<PlayerControls {...makeProps({ kind: "vod", currentTime: 200, onSeek })} />);
     act(() => pressArrow("PLAYER_SEEK_BACK", "left"));
     expect(onSeek).toHaveBeenCalledWith(190);
+  });
+
+  // ─── Arrow-hold acceleration ────────────────────────────────────────────
+
+  it("holding ArrowRight on Play/Pause ticks +30s every 500ms until keyup", () => {
+    const onSeek = vi.fn() as Mock;
+    render(<PlayerControls {...makeProps({ kind: "vod", currentTime: 100, onSeek })} />);
+    currentFocusKey = "PLAYER_PLAY_PAUSE";
+
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }));
+    });
+    // No tick before the hold delay.
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+    expect(onSeek).not.toHaveBeenCalled();
+
+    // Hold delay (400ms) elapses → first tick fires; each subsequent tick
+    // every 500ms. currentTime prop doesn't update in the test harness, so
+    // every tick sees currentTimeRef=100 and seeks to 130 — in production
+    // the player's timeupdate handler advances the prop between ticks.
+    act(() => {
+      vi.advanceTimersByTime(100 + 500);
+    });
+    expect(onSeek).toHaveBeenCalledTimes(1);
+    expect(onSeek).toHaveBeenLastCalledWith(130);
+
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    expect(onSeek).toHaveBeenCalledTimes(2);
+
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keyup", { key: "ArrowRight" }));
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(onSeek).toHaveBeenCalledTimes(2);
+  });
+
+  it("holding ArrowLeft on Play/Pause ticks -30s", () => {
+    const onSeek = vi.fn() as Mock;
+    render(<PlayerControls {...makeProps({ kind: "vod", currentTime: 200, onSeek })} />);
+    currentFocusKey = "PLAYER_PLAY_PAUSE";
+
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft" }));
+      vi.advanceTimersByTime(400 + 500);
+    });
+    expect(onSeek).toHaveBeenLastCalledWith(170);
+
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keyup", { key: "ArrowLeft" }));
+    });
+  });
+
+  it("holding an arrow does not fire hold ticks on Live (no seekable window)", () => {
+    const onSeek = vi.fn() as Mock;
+    render(<PlayerControls {...makeProps({ kind: "live", currentTime: 100, onSeek })} />);
+    currentFocusKey = "PLAYER_PLAY_PAUSE";
+
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }));
+      vi.advanceTimersByTime(2000);
+    });
+    expect(onSeek).not.toHaveBeenCalled();
+  });
+
+  it("holding an arrow off the transport row does not fire hold ticks", () => {
+    const onSeek = vi.fn() as Mock;
+    render(<PlayerControls {...makeProps({ kind: "vod", currentTime: 100, onSeek })} />);
+    currentFocusKey = "PLAYER_VOLUME";
+
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }));
+      vi.advanceTimersByTime(2000);
+    });
+    expect(onSeek).not.toHaveBeenCalled();
   });
 
   // ─── 6e: Prev/Next moved to top bar (UX option 1) ───────────────────────
