@@ -559,6 +559,7 @@ export function MoviesRoute() {
               @media (prefers-reduced-motion: reduce) {
                 [data-testid="movies-transitioning-dot"] { animation: none !important; }
               }
+              :root[data-tv="true"] [data-testid="movies-transitioning-dot"] { animation: none !important; }
             `}</style>
 
             <div

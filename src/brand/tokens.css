@@ -345,4 +345,31 @@
   @media (min-width: 1920px) {
     :root[data-tv="true"] { --poster-min-width: 195px; }
   }
+
+  /* TV perf — main-thread concessions for Fire TV Stick / low-RAM Silk class.
+     Backdrop-filter, continuous animations, and heavy transition chains chew
+     CPU that low-hardware TVs don't have. We keep them on desktop + mobile
+     where GPU compositing carries the cost. */
+  :root[data-tv="true"] * {
+    /* Backdrop-filter is the single biggest TV perf hazard — each painted
+       pixel blurs the composition buffer below. Disable globally on TV;
+       routes fall back to solid surface colors via existing tokens. */
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  /* Motion tokens: flatten to 0 (matches prefers-reduced-motion branch). */
+  :root[data-tv="true"] {
+    --motion-focus: 0ms;
+    --motion-page: 0ms;
+    --motion-dock: 0ms;
+    --motion-shimmer: 0ms;
+  }
+  /* Kill any `infinite` animation by default on TV. Specific dots
+     (movies/series transitioning-dot) already self-gate; this catches any
+     future `animation: ... infinite` added without TV review. */
+  :root[data-tv="true"] *,
+  :root[data-tv="true"] *::before,
+  :root[data-tv="true"] *::after {
+    animation-iteration-count: 1 !important;
+  }
 }

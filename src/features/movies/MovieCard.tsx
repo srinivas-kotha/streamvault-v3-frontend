@@ -216,6 +216,7 @@ export function MovieCard({
               src={stream.icon}
               alt=""
               loading="lazy"
+              decoding="async"
               style={{
                 position: "absolute",
                 inset: 0,

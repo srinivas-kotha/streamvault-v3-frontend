@@ -233,6 +233,7 @@ export function SeriesCard({
               src={item.icon}
               alt=""
               loading="lazy"
+              decoding="async"
               style={{
                 width: "100%",
                 height: "100%",
