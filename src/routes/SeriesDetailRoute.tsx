@@ -367,6 +367,7 @@ const EpisodeRow = memo(function EpisodeRow({
               src={episode.icon}
               alt=""
               loading="lazy"
+              decoding="async"
               style={{ width: "100%", height: "100%", objectFit: "cover" }}
             />
           ) : (
@@ -1170,6 +1171,7 @@ export function SeriesDetailRoute() {
                     <img
                       src={info.icon}
                       alt={info.name}
+                      decoding="async"
                       style={{ width: "100%", display: "block" }}
                     />
                   ) : (
