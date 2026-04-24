@@ -372,4 +372,15 @@
   :root[data-tv="true"] *::after {
     animation-iteration-count: 1 !important;
   }
+
+  /* Kill focused-card transforms on TV. MovieCard/SeriesCard apply
+     `transform: scale(1.03)` when focused to draw the eye on desktop —
+     harmless there, but on Fire TV the resulting GPU composite on every
+     D-pad key-press caused p95 frame spikes of 180+ms during grid
+     scroll (measured 2026-04-24 post-PR-#112). Border + box-shadow
+     focus indicators remain; those don't force a composite. */
+  :root[data-tv="true"] [data-card-focusable] {
+    transform: none !important;
+    will-change: auto !important;
+  }
 }

@@ -73,21 +73,18 @@ test("dock transitions: walk the whole dock under throttle", async ({
   for (const hop of HOPS) {
     const { transitionMs, longTasksDuringTransition } = await transition(
       async () => {
-        // Prefer clicking the dock link — matches how a mouse/touch user
-        // navigates. For D-pad nav see card-to-detail.spec.ts which uses
-        // keyboard.press. We're measuring route-transition cost, not focus-
-        // engine cost.
+        // BottomDock renders <button> tabs, not <a>. Target by aria-label
+        // on the dock button — matches how a mouse/touch user navigates AND
+        // how the SPA router resolves. The previous `nav ... a` selector
+        // never matched → click timed out → fallback `page.goto()` made
+        // every "transition" a hard-reload, which is why the first measured
+        // run showed a uniform 9-second cost.
         await perfPage
-          .locator(`nav[aria-label="Main navigation"] a`, {
-            has: perfPage.locator(`[aria-label="${capitalize(hop.to)}"]`),
-          })
+          .locator(
+            `nav[aria-label="Main navigation"] button[aria-label="${capitalize(hop.to)}"]`,
+          )
           .first()
-          .click({ timeout: 5000 })
-          .catch(async () => {
-            // Fallback: navigate directly. The click failure itself is a
-            // finding (dock link unclickable under throttle).
-            await perfPage.goto(`/${hop.to}`);
-          });
+          .click({ timeout: 10_000 });
       },
       { urlPattern: hop.urlPattern, sentinel: hop.sentinel },
     );

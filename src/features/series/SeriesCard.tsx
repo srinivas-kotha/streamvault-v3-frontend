@@ -185,6 +185,7 @@ export function SeriesCard({
 
   return (
     <div
+      data-card-focusable
       style={{
         position: "relative",
         transform: focused ? "scale(1.03)" : "scale(1)",
