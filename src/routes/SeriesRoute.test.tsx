@@ -70,6 +70,9 @@ const openPlayerMock = vi.hoisted(() => vi.fn());
 vi.mock("../player/usePlayerOpener", () => ({
   usePlayerOpener: () => ({ openPlayer: openPlayerMock }),
 }));
+vi.mock("../player/PlayerProvider", () => ({
+  usePlayerStore: () => ({ state: { status: "idle" } }),
+}));
 
 // Force "all" language so mock items pass the filter.
 const langRef = { current: "all" as "all" | "telugu" | "hindi" | "english" };

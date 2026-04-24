@@ -42,6 +42,7 @@ import {
   isFavorited,
 } from "../api/favorites";
 import { usePlayerOpener } from "../player/usePlayerOpener";
+import { usePlayerStore } from "../player/PlayerProvider";
 import type {
   SeriesInfo,
   EpisodeInfo,
@@ -718,6 +719,7 @@ export function SeriesDetailRoute() {
   const { id: seriesId } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { openPlayer } = usePlayerOpener();
+  const playerStatus = usePlayerStore().state.status;
 
   const { ref, focusKey } = useFocusable({
     focusKey: "CONTENT_AREA_SERIES_DETAIL",
@@ -1065,6 +1067,28 @@ export function SeriesDetailRoute() {
     if (!seriesId) return;
     setHistoryGeneration((g) => g + 1);
   }, [seriesId]);
+
+  // When the player closes, refetch history so episode in-progress badges
+  // and the series-level resume state pick up the position the player just
+  // wrote. The player is a global overlay (this route stays mounted while
+  // it's open), so without this the episode rows would show stale progress
+  // until the user navigates away and back. Series info itself doesn't
+  // change while the player is open, so we only refetch history here —
+  // not the full series fetch that lives in the effect above.
+  useEffect(() => {
+    if (playerStatus !== "idle") return;
+    let cancelled = false;
+    fetchHistory()
+      .then((hist) => {
+        if (!cancelled) setHistory(hist);
+      })
+      .catch(() => {
+        // silent — history is optional
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [playerStatus]);
 
   const activeEpisodes: EpisodeInfo[] = useMemo(() => {
     const raw = info?.episodes?.[String(activeSeasonNumber)] ?? [];
