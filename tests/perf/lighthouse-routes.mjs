@@ -22,8 +22,33 @@
 import lighthouse from "lighthouse";
 import * as chromeLauncher from "chrome-launcher";
 import { chromium } from "playwright";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { resolve, join } from "node:path";
+import { homedir } from "node:os";
+
+// chrome-launcher auto-discovers Chrome/Chromium on desktop installs but
+// can't find Playwright's bundled browser on headless VPSes. Point
+// CHROME_PATH at the newest Playwright-installed chromium binary if the
+// user hasn't set it explicitly.
+if (!process.env.CHROME_PATH) {
+  const pwCache = join(homedir(), ".cache/ms-playwright");
+  if (existsSync(pwCache)) {
+    const dirs = readdirSync(pwCache)
+      .filter((d) => d.startsWith("chromium-") && !d.includes("headless"))
+      .sort()
+      .reverse();
+    for (const dir of dirs) {
+      for (const sub of ["chrome-linux64/chrome", "chrome-linux/chrome"]) {
+        const p = join(pwCache, dir, sub);
+        if (existsSync(p)) {
+          process.env.CHROME_PATH = p;
+          break;
+        }
+      }
+      if (process.env.CHROME_PATH) break;
+    }
+  }
+}
 
 const BASE =
   process.env.STREAMVAULT_PROD_URL ?? "https://streamvault.srinivaskotha.uk";

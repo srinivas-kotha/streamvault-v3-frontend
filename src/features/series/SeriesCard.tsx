@@ -196,6 +196,7 @@ export function SeriesCard({
         type="button"
         aria-label={item.name}
         onClick={() => onClick(item.id)}
+        data-testid="series-card"
         className="focus-ring"
         style={{
           position: "relative",

@@ -13,7 +13,7 @@
  * --local fallback: use http://localhost:4173 after `npm run build && npm run preview`.
  */
 import { spawn } from "node:child_process";
-import { mkdirSync, rmSync, existsSync } from "node:fs";
+import { mkdirSync, rmSync, existsSync, unlinkSync } from "node:fs";
 import { resolve } from "node:path";
 
 const args = process.argv.slice(2);
@@ -81,10 +81,26 @@ async function main() {
   };
 
   log("Running Playwright perf specs …");
-  await run("npx", ["playwright", "test", "--config=playwright.perf.config.ts"], env);
+  try {
+    await run("npx", ["playwright", "test", "--config=playwright.perf.config.ts"], env);
+  } catch (err) {
+    log(`Playwright exited non-zero (${err.message}); continuing to Lighthouse + report so partial data still gets summarized.`);
+  }
 
   log("Running Lighthouse per-route …");
-  await run("node", ["tests/perf/lighthouse-routes.mjs"], env);
+  try {
+    await run("node", ["tests/perf/lighthouse-routes.mjs"], env);
+  } catch (err) {
+    log(`Lighthouse exited non-zero (${err.message}); continuing to report.`);
+  }
+
+  // Wipe the reusable storage state — it holds a JWT pair, no reason to
+  // keep it past the run.
+  const authPath = resolve(OUT, "auth.json");
+  if (existsSync(authPath)) {
+    unlinkSync(authPath);
+    log("wiped auth.json");
+  }
 
   log("Building report …");
   await run("node", ["scripts/build-perf-report.mjs"], env);

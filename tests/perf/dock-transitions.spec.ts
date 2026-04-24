@@ -1,5 +1,4 @@
 import { test, expect, type PerfMetrics } from "./fixtures";
-import { loginViaUI } from "../prod/helpers";
 
 /**
  * Dock tab transitions: press the dock tab, measure time to destination paint.
@@ -62,7 +61,8 @@ test("dock transitions: walk the whole dock under throttle", async ({
   harvest,
   cpuRate,
 }, testInfo) => {
-  await loginViaUI(perfPage);
+  // Auth pre-seeded via global-setup + storageState.
+  await perfPage.goto("/");
   await routeReady('[data-page="movies"]');
   // Settle: let the initial render + web-vitals observers fire before we
   // start measuring dock hops.
