@@ -512,6 +512,41 @@ describe("PlayerControls", () => {
     expect(onSeek).not.toHaveBeenCalled();
   });
 
+  // Regression for prod 2026-04-24: arrow-hold did nothing because the first
+  // seek flipped video status playing→seeking, which recreated togglePlayPause,
+  // which re-ran the keydown effect, whose cleanup called clearArrowHold —
+  // killing the 400ms timer before it could fire. Listener is now installed
+  // once with refs for the unstable callbacks so status churn can't tear it down.
+  it("arrow-hold ticks survive a status change between keydown and the first tick", () => {
+    const onSeek = vi.fn() as Mock;
+    const { rerender } = render(
+      <PlayerControls {...makeProps({ kind: "vod", currentTime: 100, status: "playing", onSeek })} />,
+    );
+    currentFocusKey = "PLAYER_PLAY_PAUSE";
+
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }));
+    });
+    // Simulate the video element flipping to "seeking" 100ms in (what really
+    // happens when an external seek call fires the seeking event). Pre-fix
+    // this re-render destroyed the hold timer.
+    act(() => {
+      vi.advanceTimersByTime(100);
+      rerender(
+        <PlayerControls {...makeProps({ kind: "vod", currentTime: 100, status: "seeking", onSeek })} />,
+      );
+    });
+    // 400ms hold delay then 500ms first interval tick = 900ms total.
+    act(() => {
+      vi.advanceTimersByTime(800);
+    });
+    expect(onSeek).toHaveBeenCalledWith(130);
+
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keyup", { key: "ArrowRight" }));
+    });
+  });
+
   // ─── 6e: Prev/Next moved to top bar (UX option 1) ───────────────────────
 
   it("Prev/Next render in the top bar, not the control bar", () => {

@@ -533,6 +533,30 @@ export function PlayerControls({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // The keydown listener needs the latest togglePlayPause/wake/openMenu/etc.,
+  // but if those go in the effect's dep array the listener is torn down on
+  // every status change. That destroyed in-flight hold timers (prod 2026-04-24:
+  // arrow-hold did nothing — pressing Right seeks, status flips to "seeking",
+  // togglePlayPause is recreated, effect tears down, clearArrowHold cancels
+  // the 400ms timer before it can fire). Stash everything that mutates in
+  // refs so the listener is installed exactly once.
+  const togglePlayPauseRef = useRef(togglePlayPause);
+  togglePlayPauseRef.current = togglePlayPause;
+  const wakeRef = useRef(wake);
+  wakeRef.current = wake;
+  const openMenuRef = useRef(openMenu);
+  openMenuRef.current = openMenu;
+  const onSeekRef = useRef(onSeek);
+  onSeekRef.current = onSeek;
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const onNextRef = useRef(onNext);
+  onNextRef.current = onNext;
+  const onPrevRef = useRef(onPrev);
+  onPrevRef.current = onPrev;
+  const isLiveRef = useRef(isLive);
+  isLiveRef.current = isLive;
+
   // Capture-phase key interceptor: wake-only on first arrow when hidden,
   // Enter short-circuits pause/play (spec §4.3). Also handles media keys
   // (TV remote) and Escape.
@@ -556,10 +580,10 @@ export function PlayerControls({
         kc === 4;
       if (isBack) {
         e.preventDefault();
-        if (openMenu) {
+        if (openMenuRef.current) {
           setOpenMenu(null);
         } else {
-          onClose();
+          onCloseRef.current();
         }
         return;
       }
@@ -575,41 +599,41 @@ export function PlayerControls({
         kc === 127;
       if (isPlayPauseKey) {
         e.preventDefault();
-        togglePlayPause();
-        wake();
+        togglePlayPauseRef.current();
+        wakeRef.current();
         return;
       }
 
       const isRewindKey = k === "MediaRewind" || k === "j" || kc === 89;
-      if (isRewindKey && !isLive) {
+      if (isRewindKey && !isLiveRef.current) {
         e.preventDefault();
-        onSeek(currentTimeRef.current - 10);
-        wake();
+        onSeekRef.current(currentTimeRef.current - 10);
+        wakeRef.current();
         return;
       }
 
       const isFfKey =
         k === "MediaFastForward" || k === "l" || kc === 90;
-      if (isFfKey && !isLive) {
+      if (isFfKey && !isLiveRef.current) {
         e.preventDefault();
-        onSeek(currentTimeRef.current + 10);
-        wake();
+        onSeekRef.current(currentTimeRef.current + 10);
+        wakeRef.current();
         return;
       }
 
       // Fire TV's ⏭ / ⏮ media keys map to prev/next episode if provided.
       const isMediaNext = k === "MediaTrackNext" || kc === 87;
-      if (isMediaNext && onNext) {
+      if (isMediaNext && onNextRef.current) {
         e.preventDefault();
-        onNext();
-        wake();
+        onNextRef.current();
+        wakeRef.current();
         return;
       }
       const isMediaPrev = k === "MediaTrackPrevious" || kc === 88;
-      if (isMediaPrev && onPrev) {
+      if (isMediaPrev && onPrevRef.current) {
         e.preventDefault();
-        onPrev();
-        wake();
+        onPrevRef.current();
+        wakeRef.current();
         return;
       }
 
@@ -624,18 +648,18 @@ export function PlayerControls({
         if (isArrow) {
           e.preventDefault();
           e.stopPropagation();
-          wake();
+          wakeRef.current();
           return;
         }
         if (isEnter) {
           e.preventDefault();
           e.stopPropagation();
-          togglePlayPause();
-          wake();
+          togglePlayPauseRef.current();
+          wakeRef.current();
           return;
         }
       } else {
-        if (isArrow || isEnter) wake();
+        if (isArrow || isEnter) wakeRef.current();
       }
 
       // Arm arrow-hold acceleration when ArrowLeft/Right is pressed on a
@@ -644,8 +668,8 @@ export function PlayerControls({
       // on the focused button — this effect only adds the ticking interval
       // that kicks in once the user has held the key past ARROW_HOLD_DELAY_MS.
       if (
-        !isLive &&
-        !openMenu &&
+        !isLiveRef.current &&
+        !openMenuRef.current &&
         visibleRef.current &&
         !e.repeat &&
         (k === "ArrowLeft" || k === "ArrowRight") &&
@@ -657,10 +681,10 @@ export function PlayerControls({
           arrowHoldKeyRef.current = k;
           arrowHoldStartTimerRef.current = setTimeout(() => {
             arrowHoldIntervalRef.current = setInterval(() => {
-              onSeek(
+              onSeekRef.current(
                 currentTimeRef.current + direction * HOLD_SEEK_STEP_S,
               );
-              wake();
+              wakeRef.current();
             }, HOLD_SEEK_TICK_MS);
           }, ARROW_HOLD_DELAY_MS);
         }
@@ -676,7 +700,7 @@ export function PlayerControls({
       }
     };
 
-    const onMouseMove = () => wake();
+    const onMouseMove = () => wakeRef.current();
 
     window.addEventListener("keydown", onKeyDown, true);
     window.addEventListener("keyup", onKeyUp, true);
@@ -687,17 +711,7 @@ export function PlayerControls({
       window.removeEventListener("keyup", onKeyUp, true);
       window.removeEventListener("mousemove", onMouseMove);
     };
-  }, [
-    onClose,
-    onSeek,
-    isLive,
-    openMenu,
-    togglePlayPause,
-    wake,
-    onNext,
-    onPrev,
-    clearArrowHold,
-  ]);
+  }, [clearArrowHold]);
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 
