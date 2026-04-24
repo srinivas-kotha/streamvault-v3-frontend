@@ -1,5 +1,4 @@
 import { test, expect } from "./fixtures";
-import { loginViaUI } from "../prod/helpers";
 
 /**
  * Card → detail: from /series list, open a series card and measure the cost
@@ -17,17 +16,24 @@ test("series card → /series/:id detail route under throttle", async ({
   harvest,
   cpuRate,
 }, testInfo) => {
-  await loginViaUI(perfPage);
+  // Auth pre-seeded via global-setup + storageState.
   await perfPage.goto("/series");
   await routeReady('[data-page="series"]');
   // Let virtuoso (or whatever list) paint and web-vitals settle.
   await perfPage.waitForTimeout(1500);
 
   // First Series card. Cards are anchors / buttons rendering each series.
-  // Use `a[href^="/series/"]` which is stable across the SeriesCard component
+  // Use `[data-testid="series-card"]` which is stable across the SeriesCard component
   // refactors we've been through.
-  const firstCard = perfPage.locator('a[href^="/series/"]').first();
-  await firstCard.waitFor({ state: "visible", timeout: 15_000 });
+  const firstCard = perfPage
+    .locator('[data-testid="series-card"]')
+    .or(
+      perfPage.locator(
+        '[data-page="series"] button[aria-label]:not([aria-pressed]):not([aria-checked]):not([data-resume-hero-button])',
+      ),
+    )
+    .first();
+  await firstCard.waitFor({ state: "visible", timeout: 60_000 });
 
   const heapBefore = await readHeap(perfPage);
 

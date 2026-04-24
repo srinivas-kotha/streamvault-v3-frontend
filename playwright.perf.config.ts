@@ -1,4 +1,9 @@
 import { defineConfig, devices } from "@playwright/test";
+import { fileURLToPath } from "node:url";
+import { resolve, dirname } from "node:path";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 /**
  * Fire TV performance suite against production.
@@ -28,6 +33,7 @@ export default defineConfig({
   retries: 0,
   workers: 1,
   timeout: 180_000,
+  globalSetup: resolve(__dirname, "tests/perf/global-setup.ts"),
   reporter: [
     ["list"],
     ["json", { outputFile: "perf-artifacts/playwright-metrics.json" }],
@@ -36,6 +42,7 @@ export default defineConfig({
     baseURL:
       process.env["STREAMVAULT_PROD_URL"] ??
       "https://streamvault.srinivaskotha.uk",
+    storageState: "perf-artifacts/auth.json",
     trace: "off",
     screenshot: "off",
     video: "off",

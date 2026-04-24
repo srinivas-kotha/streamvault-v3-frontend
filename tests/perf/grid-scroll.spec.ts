@@ -1,5 +1,4 @@
 import { test, expect, type PerfMetrics } from "./fixtures";
-import { loginViaUI } from "../prod/helpers";
 
 /**
  * D-pad grid scroll: press ArrowDown ×30 through Movies (virtualized via
@@ -19,7 +18,7 @@ for (const route of ["movies", "series"] as const) {
     harvest,
     cpuRate,
   }, testInfo) => {
-    await loginViaUI(perfPage);
+    // Auth pre-seeded via global-setup + storageState.
     await perfPage.goto(`/${route}`);
     await routeReady(`[data-page="${route}"]`);
     await perfPage.waitForTimeout(2000); // Let list fully paint + initial scroll settle.
@@ -30,10 +29,10 @@ for (const route of ["movies", "series"] as const) {
       .locator(
         route === "movies"
           ? '[data-page="movies"] button, [data-page="movies"] a'
-          : '[data-page="series"] a[href^="/series/"]',
+          : '[data-page="series"] [data-testid="series-card"], [data-page="series"] button[aria-label]:not([aria-pressed]):not([aria-checked]):not([data-resume-hero-button])',
       )
       .first();
-    await firstCard.waitFor({ state: "visible", timeout: 15_000 });
+    await firstCard.waitFor({ state: "visible", timeout: 60_000 });
     await firstCard.focus();
 
     // Clear sampler so we only capture during-scroll frames.

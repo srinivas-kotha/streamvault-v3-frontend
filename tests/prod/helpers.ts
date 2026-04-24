@@ -25,10 +25,12 @@ export async function loginViaUI(page: Page): Promise<void> {
   await page.fill("input#password", password);
   await page.click('button[type="submit"]');
 
-  // Post-login: dock should appear within 5s. If this times out, login
-  // failed silently — check credentials or the /api/auth/login response.
+  // Post-login: dock should appear. Wait generously — the perf suite runs
+  // with CDP 6× CPU throttling where the post-login render itself exceeds
+  // 10s (actual measured signal, not flake). Normal smoke runs resolve in
+  // <2s so the bump doesn't slow the happy path, only the tail.
   await page.waitForSelector('nav[aria-label="Main navigation"]', {
-    timeout: 10_000,
+    timeout: 45_000,
   });
 }
 

@@ -97,7 +97,24 @@ export const test = base.extend<PerfFixture>({
     // src/main.tsx sees Silk on the very first evaluation.
     await cdp.send("Emulation.setUserAgentOverride", { userAgent: SILK_UA });
 
-    // Throttling BEFORE first navigation. Baseline mode (rate 1) intentionally
+    // Stub /api/auth/refresh to return 200 without hitting the backend.
+    // Why: the real backend ROTATES the refresh token on every call (security
+    // best practice). Global-setup logs in and saves one set of cookies; each
+    // spec loads those cookies into a fresh context and the app's boot-refresh
+    // call would rotate the token for ITS context only — invalidating the
+    // shared refresh_token that every other test relies on. Stubbing keeps the
+    // app in the "authenticated" code path while preserving the valid
+    // access_token cookie for real API reads (catalog, history, etc.). Same
+    // pattern as tests/e2e/helpers.ts:seedFakeAuth.
+    await page.route("**/api/auth/refresh", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ message: "Tokens refreshed" }),
+      });
+    });
+
+    // Throttling AFTER route setup. Baseline mode (rate 1) intentionally
     // skips network emulation — we want a clean upper bound.
     if (cpuRate > 1) {
       await cdp.send("Emulation.setCPUThrottlingRate", { rate: cpuRate });
@@ -260,7 +277,12 @@ export const test = base.extend<PerfFixture>({
       action: () => Promise<void>,
       dest: { urlPattern: RegExp; sentinel: string },
     ) => {
-      const t0 = await page.evaluate(() => performance.now());
+      // Use Date.now() — wall-clock, immune to document-origin resets. When
+      // the action falls back to a hard goto (SPA nav failed under throttle),
+      // the destination document has a NEW `performance.timeOrigin` and
+      // performance.now() resets, producing negative deltas. Date.now() is
+      // monotonic across full navigations.
+      const t0 = await page.evaluate(() => Date.now());
       const longBefore = await page.evaluate(() => {
         const g = window as unknown as { __svLong: Array<{ start: number }> };
         return g.__svLong.length;
@@ -268,7 +290,7 @@ export const test = base.extend<PerfFixture>({
       await action();
       await page.waitForURL(dest.urlPattern, { timeout: 30_000 });
       await page.waitForSelector(dest.sentinel, { timeout: 30_000 });
-      const t1 = await page.evaluate(() => performance.now());
+      const t1 = await page.evaluate(() => Date.now());
       const longDuring = await page.evaluate((before) => {
         const g = window as unknown as {
           __svLong: Array<{ dur: number; start: number }>;

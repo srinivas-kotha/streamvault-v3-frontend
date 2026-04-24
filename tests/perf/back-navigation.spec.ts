@@ -1,5 +1,4 @@
 import { test, expect } from "./fixtures";
-import { loginViaUI } from "../prod/helpers";
 
 /**
  * Detail → Back: press the browser Back key from /series/:id and measure the
@@ -18,14 +17,21 @@ test("series detail → Back → /series list under throttle", async ({
   harvest,
   cpuRate,
 }, testInfo) => {
-  await loginViaUI(perfPage);
+  // Auth pre-seeded via global-setup + storageState.
   await perfPage.goto("/series");
   await routeReady('[data-page="series"]');
   await perfPage.waitForTimeout(1500);
 
   // Enter a series detail first.
-  const firstCard = perfPage.locator('a[href^="/series/"]').first();
-  await firstCard.waitFor({ state: "visible", timeout: 15_000 });
+  const firstCard = perfPage
+    .locator('[data-testid="series-card"]')
+    .or(
+      perfPage.locator(
+        '[data-page="series"] button[aria-label]:not([aria-pressed]):not([aria-checked]):not([data-resume-hero-button])',
+      ),
+    )
+    .first();
+  await firstCard.waitFor({ state: "visible", timeout: 60_000 });
   await firstCard.click({ timeout: 10_000 });
   await perfPage.waitForURL(/\/series\/[^/]+/);
   await routeReady('[data-page="series-detail"]');
