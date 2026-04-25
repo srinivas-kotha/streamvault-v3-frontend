@@ -17,9 +17,7 @@ import {
   useFocusable,
   FocusContext,
   setFocus,
-  getCurrentFocusKey,
 } from "@noriginmedia/norigin-spatial-navigation";
-import type { KeyPressDetails } from "@noriginmedia/norigin-spatial-navigation";
 import type {
   HlsLevel,
   HlsAudioTrack,
@@ -48,20 +46,25 @@ export const FK = {
 
 const AUTO_HIDE_MS = 3000;
 const FADE_MS = 300;
-const HOLD_SEEK_STEP_S = 30;
-const HOLD_SEEK_TICK_MS = 500;
-// Delay before the first accelerated tick fires after the user starts
-// holding an arrow key. Short enough that "held down" feels responsive;
-// long enough that a single tap doesn't double-count with the norigin
-// single-press seek (which fires instantly via arrowOverrides).
-const ARROW_HOLD_DELAY_MS = 400;
-const TRANSPORT_FOCUS_KEYS: ReadonlySet<string> = new Set([
-  "PLAYER_PLAY_PAUSE",
-  "PLAYER_SEEK_BACK",
-  "PLAYER_SEEK_FORWARD",
-]);
 const VOLUME_STEP = 0.05;
 const VOLUME_SLIDER_IDLE_MS = 2000;
+
+// Tap-rate accelerator (spec §3.2). Each seek-press is appended to a rolling
+// window; the per-tap delta grows with tap density:
+//   1–2 taps/window → ±10s
+//   3–5 taps/window → ±30s
+//   6+  taps/window → ±60s
+// Direction reset (Right→Left or Left→Right) clears the window so a single
+// over-shoot doesn't snap back N×. The badge over the scrubber visualizes
+// the multiplier so the user feels the gear shift.
+const TAP_WINDOW_MS = 1000;
+const TAP_BADGE_FADE_MS = 1200;
+
+function seekStepFromTaps(taps: number): 10 | 30 | 60 {
+  if (taps >= 6) return 60;
+  if (taps >= 3) return 30;
+  return 10;
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -197,7 +200,6 @@ interface ControlButtonProps {
   ariaExpanded?: boolean;
   ariaHasPopup?: boolean;
   extraStyle?: CSSProperties;
-  onHoldTick?: () => void;
   /**
    * Per-direction arrow overrides. When set, the override runs and norigin
    * nav is blocked. Used by transport buttons (Play/Pause + ±10s) for
@@ -224,31 +226,13 @@ function ControlButton({
   ariaExpanded,
   ariaHasPopup,
   extraStyle,
-  onHoldTick,
   arrowOverrides,
   upTarget = FK.BACK,
 }: ControlButtonProps) {
-  const holdIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const clearHold = useCallback(() => {
-    if (holdIntervalRef.current) {
-      clearInterval(holdIntervalRef.current);
-      holdIntervalRef.current = null;
-    }
-  }, []);
-
   const { ref, focused } = useFocusable({
     focusKey,
     focusable,
-    onEnterPress: (_: unknown, details: KeyPressDetails) => {
-      if ((details.pressedKeys?.enter ?? 0) > 1) return;
-      onPress();
-      if (onHoldTick) {
-        clearHold();
-        holdIntervalRef.current = setInterval(onHoldTick, HOLD_SEEK_TICK_MS);
-      }
-    },
-    onEnterRelease: clearHold,
+    onEnterPress: onPress,
     onArrowPress: (direction) => {
       const dir = direction as "left" | "right" | "up" | "down";
       const override = arrowOverrides?.[dir];
@@ -266,12 +250,6 @@ function ControlButton({
       return true;
     },
   });
-
-  // Clear any in-flight hold on unmount / focusable-flip to avoid zombie
-  // intervals. (If the user clicks away to another control, onEnterRelease
-  // fires via keyup, but blur without keyup — e.g., programmatic setFocus —
-  // would otherwise leak.)
-  useEffect(() => clearHold, [clearHold]);
 
   return (
     <button
@@ -458,34 +436,23 @@ export function PlayerControls({
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
 
-  // Keep a ref to currentTime so hold-to-scrub ticks can seek from the
-  // latest position instead of the one captured when hold started.
+  // Keep a ref to currentTime so each tap-rate seek reads the latest position
+  // instead of the one captured when the rate window opened.
   const currentTimeRef = useRef(currentTime);
   currentTimeRef.current = currentTime;
 
-  // Arrow-hold acceleration state. norigin fires a single ±10s seek on
-  // first press via arrowOverrides; if the user continues holding the key
-  // past ARROW_HOLD_DELAY_MS, we tick ±HOLD_SEEK_STEP_S every
-  // HOLD_SEEK_TICK_MS until keyup. Fire TV remotes don't emit OS key-repeat,
-  // so we must drive the ticks ourselves.
-  const arrowHoldKeyRef = useRef<"ArrowLeft" | "ArrowRight" | null>(null);
-  const arrowHoldStartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
-  const arrowHoldIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
-    null,
-  );
-  const clearArrowHold = useCallback(() => {
-    if (arrowHoldStartTimerRef.current) {
-      clearTimeout(arrowHoldStartTimerRef.current);
-      arrowHoldStartTimerRef.current = null;
-    }
-    if (arrowHoldIntervalRef.current) {
-      clearInterval(arrowHoldIntervalRef.current);
-      arrowHoldIntervalRef.current = null;
-    }
-    arrowHoldKeyRef.current = null;
-  }, []);
+  // Tap-rate accelerator (spec §3.2). Replaced the hold-timer model after
+  // prod 2026-04-24 evidence that Silk on Fire TV emits held d-pad as rapid
+  // keydown+keyup pairs, not a sustained keydown — the user described it as
+  // "click click click for every 10 seconds." Tap density now drives the
+  // per-tap delta: 10s → 30s → 60s. Direction reset (Right→Left) clears the
+  // window so an over-shoot doesn't snap back N×.
+  const recentTapsRef = useRef<{ time: number; dir: -1 | 1 }[]>([]);
+  const [seekBadge, setSeekBadge] = useState<{
+    dir: -1 | 1;
+    multiplier: 1 | 3 | 6;
+  } | null>(null);
+  const seekBadgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { ref: containerRef, focusKey: containerFocusKey } = useFocusable({
     focusKey: "PLAYER_CONTROLS",
@@ -515,6 +482,46 @@ export function PlayerControls({
       onPlay();
     }
   }, [isPlaying, onPlay, onPause]);
+
+  // Single entry point for every seek-press (Enter on ◀◀/▶▶, Left/Right on
+  // any transport-row button, Fire TV media Rewind/FastForward keys). Each
+  // call appends a tap to the rolling window and seeks by the rate-aware
+  // delta — see the seekStepFromTaps comment block for the schedule.
+  const seekWithRate = useCallback(
+    (direction: -1 | 1) => {
+      const now =
+        typeof performance !== "undefined" ? performance.now() : Date.now();
+      const lastDir = recentTapsRef.current.length
+        ? recentTapsRef.current[recentTapsRef.current.length - 1]!.dir
+        : direction;
+      const sameDirection = lastDir === direction;
+      const trimmed = sameDirection
+        ? recentTapsRef.current.filter((t) => now - t.time < TAP_WINDOW_MS)
+        : [];
+      trimmed.push({ time: now, dir: direction });
+      recentTapsRef.current = trimmed;
+      const step = seekStepFromTaps(trimmed.length);
+      onSeek(currentTimeRef.current + direction * step);
+      const multiplier: 1 | 3 | 6 = step === 60 ? 6 : step === 30 ? 3 : 1;
+      setSeekBadge({ dir: direction, multiplier });
+    },
+    [onSeek],
+  );
+
+  // Auto-clear the badge so a brief over-seek doesn't leave "▶▶ 6×" pinned.
+  // Uses TAP_WINDOW_MS + a 200ms grace so the badge outlives the rolling
+  // window the rate accelerator looks at.
+  useEffect(() => {
+    if (!seekBadge) return;
+    if (seekBadgeTimerRef.current) clearTimeout(seekBadgeTimerRef.current);
+    seekBadgeTimerRef.current = setTimeout(
+      () => setSeekBadge(null),
+      TAP_BADGE_FADE_MS,
+    );
+    return () => {
+      if (seekBadgeTimerRef.current) clearTimeout(seekBadgeTimerRef.current);
+    };
+  }, [seekBadge]);
 
   // Initial focus on Play/Pause when the player opens (spec §4.1).
   // Fire twice: once synchronously for the fast path, then again after a
@@ -546,8 +553,8 @@ export function PlayerControls({
   wakeRef.current = wake;
   const openMenuRef = useRef(openMenu);
   openMenuRef.current = openMenu;
-  const onSeekRef = useRef(onSeek);
-  onSeekRef.current = onSeek;
+  const seekWithRateRef = useRef(seekWithRate);
+  seekWithRateRef.current = seekWithRate;
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const onNextRef = useRef(onNext);
@@ -607,7 +614,7 @@ export function PlayerControls({
       const isRewindKey = k === "MediaRewind" || k === "j" || kc === 89;
       if (isRewindKey && !isLiveRef.current) {
         e.preventDefault();
-        onSeekRef.current(currentTimeRef.current - 10);
+        seekWithRateRef.current(-1);
         wakeRef.current();
         return;
       }
@@ -616,7 +623,7 @@ export function PlayerControls({
         k === "MediaFastForward" || k === "l" || kc === 90;
       if (isFfKey && !isLiveRef.current) {
         e.preventDefault();
-        onSeekRef.current(currentTimeRef.current + 10);
+        seekWithRateRef.current(1);
         wakeRef.current();
         return;
       }
@@ -661,57 +668,17 @@ export function PlayerControls({
       } else {
         if (isArrow || isEnter) wakeRef.current();
       }
-
-      // Arm arrow-hold acceleration when ArrowLeft/Right is pressed on a
-      // transport control (Play/Pause, ±10s buttons) on a seekable surface.
-      // The initial ±10s seek is still delivered by norigin's arrowOverrides
-      // on the focused button — this effect only adds the ticking interval
-      // that kicks in once the user has held the key past ARROW_HOLD_DELAY_MS.
-      if (
-        !isLiveRef.current &&
-        !openMenuRef.current &&
-        visibleRef.current &&
-        !e.repeat &&
-        (k === "ArrowLeft" || k === "ArrowRight") &&
-        arrowHoldKeyRef.current === null
-      ) {
-        const focusedKey = getCurrentFocusKey();
-        if (focusedKey && TRANSPORT_FOCUS_KEYS.has(focusedKey)) {
-          const direction = k === "ArrowLeft" ? -1 : 1;
-          arrowHoldKeyRef.current = k;
-          arrowHoldStartTimerRef.current = setTimeout(() => {
-            arrowHoldIntervalRef.current = setInterval(() => {
-              onSeekRef.current(
-                currentTimeRef.current + direction * HOLD_SEEK_STEP_S,
-              );
-              wakeRef.current();
-            }, HOLD_SEEK_TICK_MS);
-          }, ARROW_HOLD_DELAY_MS);
-        }
-      }
-    };
-
-    const onKeyUp = (e: KeyboardEvent) => {
-      if (
-        (e.key === "ArrowLeft" || e.key === "ArrowRight") &&
-        arrowHoldKeyRef.current !== null
-      ) {
-        clearArrowHold();
-      }
     };
 
     const onMouseMove = () => wakeRef.current();
 
     window.addEventListener("keydown", onKeyDown, true);
-    window.addEventListener("keyup", onKeyUp, true);
     window.addEventListener("mousemove", onMouseMove);
     return () => {
-      clearArrowHold();
       window.removeEventListener("keydown", onKeyDown, true);
-      window.removeEventListener("keyup", onKeyUp, true);
       window.removeEventListener("mousemove", onMouseMove);
     };
-  }, [clearArrowHold]);
+  }, []);
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 
@@ -780,22 +747,8 @@ export function PlayerControls({
 
   // ── Control bar wire-up ────────────────────────────────────────────────────
 
-  const handleSeekBack = useCallback(
-    () => onSeek(currentTimeRef.current - 10),
-    [onSeek],
-  );
-  const handleSeekForward = useCallback(
-    () => onSeek(currentTimeRef.current + 10),
-    [onSeek],
-  );
-  const holdSeekBack = useCallback(
-    () => onSeek(currentTimeRef.current - HOLD_SEEK_STEP_S),
-    [onSeek],
-  );
-  const holdSeekForward = useCallback(
-    () => onSeek(currentTimeRef.current + HOLD_SEEK_STEP_S),
-    [onSeek],
-  );
+  const handleSeekBack = useCallback(() => seekWithRate(-1), [seekWithRate]);
+  const handleSeekForward = useCallback(() => seekWithRate(1), [seekWithRate]);
 
   const openAudio = useCallback(
     () => setOpenMenu((m) => (m === "audio" ? null : "audio")),
@@ -848,15 +801,16 @@ export function PlayerControls({
   const firstRightSideKey = orderedKeys.find((k) => RIGHT_SIDE_KEYS.includes(k));
 
   // 6d — prod feedback: users expect ArrowLeft/Right to seek (Netflix
-  // convention), not walk the bar. Applied to Play/Pause + ±10s buttons
-  // on VOD/series-episode. Live has no seekable window so arrows fall
-  // through to default nav.
+  // convention), not walk the bar. Both directions route through the
+  // tap-rate accelerator (spec §3.2) so rapid taps escalate from ±10s →
+  // ±30s → ±60s. Live has no seekable window so arrows fall through to
+  // default nav.
   const transportArrowOverrides: Partial<
     Record<"left" | "right" | "up" | "down", () => void>
   > = {};
   if (!isLive) {
-    transportArrowOverrides.left = () => onSeek(currentTimeRef.current - 10);
-    transportArrowOverrides.right = () => onSeek(currentTimeRef.current + 10);
+    transportArrowOverrides.left = () => seekWithRate(-1);
+    transportArrowOverrides.right = () => seekWithRate(1);
   }
   if (firstRightSideKey) {
     transportArrowOverrides.down = () => setFocus(firstRightSideKey);
@@ -1075,44 +1029,69 @@ export function PlayerControls({
           }}
         >
           {!isLive && (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "var(--space-3)",
-                fontSize: "var(--text-label-size)",
-                color: "var(--text-secondary)",
-                fontVariantNumeric: "tabular-nums",
-              }}
-            >
-              <span>{formatTime(currentTime)}</span>
-              <div
-                role="progressbar"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={Math.round(progress)}
-                aria-label="Video progress"
-                style={{
-                  flex: 1,
-                  height: "4px",
-                  background: "rgba(255,255,255,0.2)",
-                  borderRadius: "2px",
-                  position: "relative",
-                }}
-              >
+            <div style={{ position: "relative" }}>
+              {seekBadge && seekBadge.multiplier > 1 && (
                 <div
+                  data-testid="seek-rate-badge"
+                  aria-live="polite"
                   style={{
                     position: "absolute",
-                    left: 0,
-                    top: 0,
-                    height: "100%",
-                    width: `${progress}%`,
+                    bottom: "calc(100% + var(--space-2))",
+                    left: "50%",
+                    transform: "translateX(-50%)",
                     background: "var(--accent-copper)",
-                    borderRadius: "2px",
+                    color: "var(--bg-base)",
+                    padding: "var(--space-1) var(--space-3)",
+                    borderRadius: "var(--radius-sm)",
+                    fontSize: "var(--text-label-size)",
+                    fontWeight: 700,
+                    letterSpacing: "var(--text-label-tracking)",
+                    whiteSpace: "nowrap",
+                    pointerEvents: "none",
                   }}
-                />
+                >
+                  {seekBadge.dir > 0 ? "▶▶" : "◀◀"} {seekBadge.multiplier}×
+                </div>
+              )}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "var(--space-3)",
+                  fontSize: "var(--text-label-size)",
+                  color: "var(--text-secondary)",
+                  fontVariantNumeric: "tabular-nums",
+                }}
+              >
+                <span>{formatTime(currentTime)}</span>
+                <div
+                  role="progressbar"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.round(progress)}
+                  aria-label="Video progress"
+                  style={{
+                    flex: 1,
+                    height: "4px",
+                    background: "rgba(255,255,255,0.2)",
+                    borderRadius: "2px",
+                    position: "relative",
+                  }}
+                >
+                  <div
+                    style={{
+                      position: "absolute",
+                      left: 0,
+                      top: 0,
+                      height: "100%",
+                      width: `${progress}%`,
+                      background: "var(--accent-copper)",
+                      borderRadius: "2px",
+                    }}
+                  />
+                </div>
+                <span>{duration > 0 ? formatTime(duration) : "—"}</span>
               </div>
-              <span>{duration > 0 ? formatTime(duration) : "—"}</span>
             </div>
           )}
 
@@ -1140,7 +1119,6 @@ export function PlayerControls({
               icon="◀◀"
               focusable={seekable}
               onPress={handleSeekBack}
-              onHoldTick={holdSeekBack}
               isEdgeLeft={leftEdgeKey === FK.SEEK_BACK}
               isEdgeRight={rightEdgeKey === FK.SEEK_BACK}
               arrowOverrides={transportArrowOverrides}
@@ -1151,7 +1129,6 @@ export function PlayerControls({
               icon="▶▶"
               focusable={seekable}
               onPress={handleSeekForward}
-              onHoldTick={holdSeekForward}
               isEdgeLeft={leftEdgeKey === FK.SEEK_FORWARD}
               isEdgeRight={rightEdgeKey === FK.SEEK_FORWARD}
               arrowOverrides={transportArrowOverrides}

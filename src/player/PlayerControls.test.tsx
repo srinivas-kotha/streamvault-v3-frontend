@@ -235,43 +235,19 @@ describe("PlayerControls", () => {
 
   // ─── 6b: hold-to-scrub ──────────────────────────────────────────────────
 
-  it("first Enter on seek fires single ±10s; held Enter starts 30s interval", () => {
+  it("first Enter on seek button fires single ±10s (tap-rate base step)", () => {
     const onSeek = vi.fn() as Mock;
-    const props = makeProps({ currentTime: 120, onSeek });
-    render(<PlayerControls {...props} />);
+    render(<PlayerControls {...makeProps({ currentTime: 120, onSeek })} />);
 
     act(() => pressEnter("PLAYER_SEEK_BACK", 1));
-    expect(onSeek).toHaveBeenNthCalledWith(1, 110);
-
-    act(() => {
-      vi.advanceTimersByTime(500);
-    });
-    expect(onSeek).toHaveBeenNthCalledWith(2, 90);
-
-    act(() => {
-      vi.advanceTimersByTime(500);
-    });
-    expect(onSeek).toHaveBeenNthCalledWith(3, 90);
+    expect(onSeek).toHaveBeenCalledTimes(1);
+    expect(onSeek).toHaveBeenLastCalledWith(110);
 
     act(() => releaseEnter("PLAYER_SEEK_BACK"));
     act(() => {
       vi.advanceTimersByTime(2000);
     });
-    expect(onSeek).toHaveBeenCalledTimes(3);
-  });
-
-  it("Enter auto-repeat (pressedKeys.enter > 1) does NOT double-fire the initial seek", () => {
-    const onSeek = vi.fn() as Mock;
-    render(<PlayerControls {...makeProps({ currentTime: 60, onSeek })} />);
-
-    act(() => pressEnter("PLAYER_SEEK_FORWARD", 1));
     expect(onSeek).toHaveBeenCalledTimes(1);
-
-    act(() => pressEnter("PLAYER_SEEK_FORWARD", 2));
-    act(() => pressEnter("PLAYER_SEEK_FORWARD", 3));
-    expect(onSeek).toHaveBeenCalledTimes(1);
-
-    act(() => releaseEnter("PLAYER_SEEK_FORWARD"));
   });
 
   // ─── 6b: volume slider ──────────────────────────────────────────────────
@@ -432,119 +408,112 @@ describe("PlayerControls", () => {
     expect(onSeek).toHaveBeenCalledWith(190);
   });
 
-  // ─── Arrow-hold acceleration ────────────────────────────────────────────
+  // ─── Tap-rate accelerator (spec §3.2) ────────────────────────────────────
+  //
+  // After two failed attempts (PRs #110 / #115) at hold-timer FF, prod
+  // feedback 2026-04-25: "click click click for every 10 seconds." Silk on
+  // Fire TV emits held d-pad as rapid keydown+keyup pairs; the timer-based
+  // model never fires reliably. Replaced with rate-aware delta on each tap:
+  // 1–2 taps in 1s → ±10s, 3–5 → ±30s, 6+ → ±60s. Direction reset clears
+  // the window so an over-shoot doesn't snap back N×.
 
-  it("holding ArrowRight on Play/Pause ticks +30s every 500ms until keyup", () => {
+  it("first ArrowRight tap on Play/Pause seeks +10s (1× rate)", () => {
     const onSeek = vi.fn() as Mock;
     render(<PlayerControls {...makeProps({ kind: "vod", currentTime: 100, onSeek })} />);
-    currentFocusKey = "PLAYER_PLAY_PAUSE";
-
-    act(() => {
-      window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }));
-    });
-    // No tick before the hold delay.
-    act(() => {
-      vi.advanceTimersByTime(300);
-    });
-    expect(onSeek).not.toHaveBeenCalled();
-
-    // Hold delay (400ms) elapses → first tick fires; each subsequent tick
-    // every 500ms. currentTime prop doesn't update in the test harness, so
-    // every tick sees currentTimeRef=100 and seeks to 130 — in production
-    // the player's timeupdate handler advances the prop between ticks.
-    act(() => {
-      vi.advanceTimersByTime(100 + 500);
-    });
-    expect(onSeek).toHaveBeenCalledTimes(1);
-    expect(onSeek).toHaveBeenLastCalledWith(130);
-
-    act(() => {
-      vi.advanceTimersByTime(500);
-    });
-    expect(onSeek).toHaveBeenCalledTimes(2);
-
-    act(() => {
-      window.dispatchEvent(new KeyboardEvent("keyup", { key: "ArrowRight" }));
-    });
-    act(() => {
-      vi.advanceTimersByTime(2000);
-    });
-    expect(onSeek).toHaveBeenCalledTimes(2);
+    act(() => pressArrow("PLAYER_PLAY_PAUSE", "right"));
+    expect(onSeek).toHaveBeenCalledWith(110);
   });
 
-  it("holding ArrowLeft on Play/Pause ticks -30s", () => {
+  // currentTime prop is frozen at 100 across all taps in these tests (the
+  // production player would advance it via the timeupdate handler between
+  // taps); the assertions below check ONLY the per-tap delta the rate
+  // accelerator chose, not the cumulative position.
+  it("3 rapid ArrowRight taps escalate the third to +30s (3× rate)", () => {
     const onSeek = vi.fn() as Mock;
-    render(<PlayerControls {...makeProps({ kind: "vod", currentTime: 200, onSeek })} />);
-    currentFocusKey = "PLAYER_PLAY_PAUSE";
-
-    act(() => {
-      window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft" }));
-      vi.advanceTimersByTime(400 + 500);
-    });
-    expect(onSeek).toHaveBeenLastCalledWith(170);
-
-    act(() => {
-      window.dispatchEvent(new KeyboardEvent("keyup", { key: "ArrowLeft" }));
-    });
+    render(<PlayerControls {...makeProps({ kind: "vod", currentTime: 100, onSeek })} />);
+    act(() => pressArrow("PLAYER_PLAY_PAUSE", "right"));
+    expect(onSeek).toHaveBeenLastCalledWith(110); // 1× = +10
+    act(() => pressArrow("PLAYER_PLAY_PAUSE", "right"));
+    expect(onSeek).toHaveBeenLastCalledWith(110); // still 1× (2 taps in window) = +10
+    act(() => pressArrow("PLAYER_PLAY_PAUSE", "right"));
+    expect(onSeek).toHaveBeenLastCalledWith(130); // 3 taps in window → 3× = +30
   });
 
-  it("holding an arrow does not fire hold ticks on Live (no seekable window)", () => {
+  it("6 rapid ArrowRight taps escalate the sixth to +60s (6× rate)", () => {
+    const onSeek = vi.fn() as Mock;
+    render(<PlayerControls {...makeProps({ kind: "vod", currentTime: 100, onSeek })} />);
+    for (let i = 0; i < 5; i += 1) act(() => pressArrow("PLAYER_PLAY_PAUSE", "right"));
+    act(() => pressArrow("PLAYER_PLAY_PAUSE", "right"));
+    expect(onSeek).toHaveBeenLastCalledWith(160); // 6 taps → 6× = +60
+  });
+
+  it("changing direction (Right→Left) resets the rate to 1× / -10s", () => {
+    const onSeek = vi.fn() as Mock;
+    render(<PlayerControls {...makeProps({ kind: "vod", currentTime: 100, onSeek })} />);
+    for (let i = 0; i < 4; i += 1) act(() => pressArrow("PLAYER_PLAY_PAUSE", "right"));
+    expect(onSeek).toHaveBeenLastCalledWith(130); // 4th tap still 3× = +30
+    act(() => pressArrow("PLAYER_PLAY_PAUSE", "left"));
+    expect(onSeek).toHaveBeenLastCalledWith(90); // direction flip → window cleared, -10
+  });
+
+  it("pause >TAP_WINDOW_MS between taps resets the rate", () => {
+    const onSeek = vi.fn() as Mock;
+    render(<PlayerControls {...makeProps({ kind: "vod", currentTime: 100, onSeek })} />);
+    for (let i = 0; i < 3; i += 1) act(() => pressArrow("PLAYER_PLAY_PAUSE", "right"));
+    expect(onSeek).toHaveBeenLastCalledWith(130); // 3× by the third tap
+    act(() => {
+      vi.advanceTimersByTime(1500); // > 1000ms TAP_WINDOW_MS
+    });
+    act(() => pressArrow("PLAYER_PLAY_PAUSE", "right"));
+    expect(onSeek).toHaveBeenLastCalledWith(110); // back to +10s
+  });
+
+  it("ArrowRight on Live falls through (no seek)", () => {
     const onSeek = vi.fn() as Mock;
     render(<PlayerControls {...makeProps({ kind: "live", currentTime: 100, onSeek })} />);
-    currentFocusKey = "PLAYER_PLAY_PAUSE";
-
-    act(() => {
-      window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }));
-      vi.advanceTimersByTime(2000);
-    });
+    // On live, transportArrowOverrides is empty, so pressArrow returns true
+    // (norigin handles it). We assert no seek fired.
+    pressArrow("PLAYER_PLAY_PAUSE", "right");
     expect(onSeek).not.toHaveBeenCalled();
   });
 
-  it("holding an arrow off the transport row does not fire hold ticks", () => {
+  it("Enter on ▶▶ button feeds the same tap-rate accelerator", () => {
     const onSeek = vi.fn() as Mock;
     render(<PlayerControls {...makeProps({ kind: "vod", currentTime: 100, onSeek })} />);
-    currentFocusKey = "PLAYER_VOLUME";
-
-    act(() => {
-      window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }));
-      vi.advanceTimersByTime(2000);
-    });
-    expect(onSeek).not.toHaveBeenCalled();
+    for (let i = 0; i < 3; i += 1) act(() => pressEnter("PLAYER_SEEK_FORWARD"));
+    expect(onSeek).toHaveBeenLastCalledWith(130);
   });
 
-  // Regression for prod 2026-04-24: arrow-hold did nothing because the first
-  // seek flipped video status playing→seeking, which recreated togglePlayPause,
-  // which re-ran the keydown effect, whose cleanup called clearArrowHold —
-  // killing the 400ms timer before it could fire. Listener is now installed
-  // once with refs for the unstable callbacks so status churn can't tear it down.
-  it("arrow-hold ticks survive a status change between keydown and the first tick", () => {
+  it("rate badge appears at 3× and is hidden at 1×", () => {
+    const onSeek = vi.fn() as Mock;
+    const { queryByTestId } = render(
+      <PlayerControls {...makeProps({ kind: "vod", currentTime: 100, onSeek })} />,
+    );
+    expect(queryByTestId("seek-rate-badge")).toBeNull();
+    act(() => pressArrow("PLAYER_PLAY_PAUSE", "right"));
+    // 1× → badge stays hidden (multiplier === 1)
+    expect(queryByTestId("seek-rate-badge")).toBeNull();
+    act(() => pressArrow("PLAYER_PLAY_PAUSE", "right"));
+    act(() => pressArrow("PLAYER_PLAY_PAUSE", "right"));
+    expect(queryByTestId("seek-rate-badge")?.textContent).toContain("3×");
+  });
+
+  it("rate seek survives a status change mid-burst (no listener teardown)", () => {
     const onSeek = vi.fn() as Mock;
     const { rerender } = render(
       <PlayerControls {...makeProps({ kind: "vod", currentTime: 100, status: "playing", onSeek })} />,
     );
-    currentFocusKey = "PLAYER_PLAY_PAUSE";
-
-    act(() => {
-      window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }));
-    });
-    // Simulate the video element flipping to "seeking" 100ms in (what really
-    // happens when an external seek call fires the seeking event). Pre-fix
-    // this re-render destroyed the hold timer.
-    act(() => {
-      vi.advanceTimersByTime(100);
-      rerender(
-        <PlayerControls {...makeProps({ kind: "vod", currentTime: 100, status: "seeking", onSeek })} />,
-      );
-    });
-    // 400ms hold delay then 500ms first interval tick = 900ms total.
-    act(() => {
-      vi.advanceTimersByTime(800);
-    });
-    expect(onSeek).toHaveBeenCalledWith(130);
-
-    act(() => {
-      window.dispatchEvent(new KeyboardEvent("keyup", { key: "ArrowRight" }));
-    });
+    act(() => pressArrow("PLAYER_PLAY_PAUSE", "right"));
+    rerender(
+      <PlayerControls {...makeProps({ kind: "vod", currentTime: 100, status: "seeking", onSeek })} />,
+    );
+    act(() => pressArrow("PLAYER_PLAY_PAUSE", "right"));
+    rerender(
+      <PlayerControls {...makeProps({ kind: "vod", currentTime: 100, status: "playing", onSeek })} />,
+    );
+    act(() => pressArrow("PLAYER_PLAY_PAUSE", "right"));
+    // 3rd tap should escalate to 30 even with status churn between taps.
+    expect(onSeek).toHaveBeenLastCalledWith(130);
   });
 
   // ─── 6e: Prev/Next moved to top bar (UX option 1) ───────────────────────
