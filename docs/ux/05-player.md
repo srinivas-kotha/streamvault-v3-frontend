@@ -85,11 +85,19 @@ When a control is disabled (e.g. Seek on Live, Next-episode on a movie), D-pad *
 
 This keeps the control count adaptive: Live shows 7 buttons (no ±10s), Movies show 8 (no prev/next episode), Series show 9 (all of them).
 
-### 3.2 Long-press on ±10s → variable seek
+### 3.2 Tap-rate accelerator on ±10s
 
-`ArrowLeft` or `ArrowRight` held down while focused on ⏮ or ⏭ seeks in **30-second jumps** every 500ms. Release to stop. No second button; the primary button serves both.
+Each press of ◀◀ or ▶▶ — `Enter` on the focused button OR `ArrowLeft`/`ArrowRight` on any transport-row button (Play/Pause, ◀◀, ▶▶) — feeds a single rate accelerator. The per-tap delta scales with tap density:
 
-Rationale: fast-forward/rewind on D-pad is traditionally "hold to scrub." We honor the muscle memory.
+| Taps in last 1s | Per-tap delta |
+|---|---|
+| 1–2 | ±10 s |
+| 3–5 | ±30 s |
+| 6+  | ±60 s |
+
+Direction reset (Right→Left or Left→Right) clears the window so an over-shoot doesn't snap back N×. A copper "▶▶ 3×" / "◀◀ 6×" badge appears above the scrubber while the multiplier is above 1× and fades 1.2 s after the last tap.
+
+**Rationale (revised 2026-04-25 after two failed hold-timer attempts in PRs #110 / #115):** Silk on Fire TV emits held d-pad as rapid keydown+keyup pairs, not a sustained keydown. The user described it as "click click click for every 10 seconds." A timer-based hold model never armed reliably; a rate-based model treats both *held arrows* and *fast taps* identically because the only signal we measure is *seek-action frequency*. The user does not need to learn anything new — keep tapping, the jumps grow.
 
 ---
 
@@ -316,7 +324,7 @@ No "Try again" button (won't help) — just "Back to browse".
 | 3 | First wake press shows controls only; doesn't trigger action | Wake + action in one press (too many accidental skips) |
 | 4 | `Enter` short-circuits pause/play even when controls hidden | Require wake first (too slow for the #1 user action) |
 | 5 | Disabled controls are `focusable:false`, not dimmed | Dimmed-but-focusable (lands on dead targets) |
-| 6 | Hold ±10s button = 30s jumps | Separate fast-forward button (scarce control bar space) |
+| 6 | Tap-rate accelerator on ±10s (10s → 30s → 60s by tap density) | Hold-timer (PRs #110/#115 — Silk on Fire TV emits hold as auto-tap pairs, timer never armed reliably in prod) |
 | 7 | Quality popover orders highest-first | Lowest-first (open-intent is "lower it") |
 | 8 | Volume is in-app (stream gain), remote volume keys affect TV | In-app intercepts remote (breaks Fire TV norm) |
 | 9 | Popovers close on Left/Right + advance to next control | Popovers require Back to close (slower to walk all three) |
