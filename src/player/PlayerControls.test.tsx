@@ -71,14 +71,8 @@ vi.mock("@noriginmedia/norigin-spatial-navigation", () => {
       Provider: ({ children }: { children: ReactNode }) => children,
     },
     setFocus: vi.fn(),
-    getCurrentFocusKey: () => currentFocusKey,
   };
 });
-
-// The window-level arrow-hold logic calls getCurrentFocusKey to gate on
-// the transport row. Tests that need hold behavior set this before firing
-// the keydown; default is null (off the transport row → hold no-ops).
-let currentFocusKey: string | null = null;
 
 function pressEnter(focusKey: string, count = 1) {
   const h = handlersByKey[focusKey];
