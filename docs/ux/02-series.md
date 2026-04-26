@@ -248,6 +248,8 @@ GET /api/series/info/:seriesId
 
 Backend already delivers this ([xtream.adapters.ts:89-137](../../streamvault-backend/src/providers/xtream/xtream.adapters.ts#L89)). Frontend only job: render it.
 
+Frontend tolerates empty `seasons[]` from upstream by deriving the season list from `episodes` keys (union with any provided `seasons[]` for name/icon enrichment).
+
 ### 6.3 Resume derivation
 
 Until `sv_watch_history.series_id` exists (issue #53):

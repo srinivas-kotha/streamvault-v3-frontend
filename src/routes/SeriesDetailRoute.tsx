@@ -43,6 +43,7 @@ import {
 } from "../api/favorites";
 import { usePlayerOpener } from "../player/usePlayerOpener";
 import { usePlayerStore } from "../player/PlayerProvider";
+import { deriveSortedSeasons } from "../features/series/deriveSortedSeasons";
 import type {
   SeriesInfo,
   EpisodeInfo,
@@ -76,13 +77,9 @@ function formatProgress(progress: number, duration: number): string {
   return `${formatDuration(progress)} / ${formatDuration(duration)}`;
 }
 
-function sortSeasons(seasons: SeasonInfo[]): SeasonInfo[] {
-  return [...seasons].sort((a, b) => {
-    if (a.seasonNumber === 0) return 1;
-    if (b.seasonNumber === 0) return -1;
-    return a.seasonNumber - b.seasonNumber;
-  });
-}
+// Season rail derivation (union of `info.episodes` keys + `info.seasons[]`)
+// lives in `features/series/deriveSortedSeasons.ts` so it can be unit-tested
+// and re-used outside this large component file.
 
 function seasonLabel(s: SeasonInfo): string {
   if (s.seasonNumber === 0) return "Specials";
@@ -770,7 +767,10 @@ export function SeriesDetailRoute() {
         setHistory(hist);
 
         // Seed active season: stored pref → in-progress season → first sorted.
-        const sorted = sortSeasons(seriesInfo.seasons ?? []);
+        // Use the union helper (not raw `seriesInfo.seasons`) so we still
+        // seed correctly when upstream returns `seasons: []` but populates
+        // `episodes` — see deriveSortedSeasons() docstring.
+        const sorted = deriveSortedSeasons(seriesInfo);
         const defaultSeason = sorted[0]?.seasonNumber ?? 1;
         const stored = readLastSeason(seriesId);
         if (
@@ -824,10 +824,9 @@ export function SeriesDetailRoute() {
   }, [seriesId, historyGeneration]);
 
   // ─── Derived ────────────────────────────────────────────────────────────
-  const sortedSeasons = useMemo(
-    () => sortSeasons(info?.seasons ?? []),
-    [info],
-  );
+  // Union of `info.episodes` keys and `info.seasons[]` — see
+  // deriveSortedSeasons() at module scope.
+  const sortedSeasons = useMemo(() => deriveSortedSeasons(info), [info]);
 
   const allEpisodes = useMemo<{ season: number; ep: EpisodeInfo }[]>(() => {
     if (!info?.episodes) return [];
