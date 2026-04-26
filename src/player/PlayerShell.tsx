@@ -18,10 +18,10 @@ import {
   setFocus,
 } from "@noriginmedia/norigin-spatial-navigation";
 import { usePlayerStore } from "./PlayerProvider";
-import type { PlayerKind } from "./PlayerProvider";
 import { useHlsPlayer } from "./useHlsPlayer";
 import { PlayerControls } from "./PlayerControls";
 import { useReducedMotion } from "./useReducedMotion";
+import { classifyFailure, type FailureClass } from "./classifyFailure";
 import { markTierLocked } from "../features/movies/tierLockCache";
 import { recordHistory } from "../api/history";
 import { getLangPref } from "../lib/langPref";
@@ -30,26 +30,6 @@ import { pickAudioTrackForLang } from "../lib/inferLanguage";
 // Failure-overlay focus keys — kept local, only the overlay reads them.
 const FK_RETRY = "PLAYER_FAIL_RETRY";
 const FK_BACK = "PLAYER_FAIL_BACK";
-
-/**
- * Classify a playback error so the overlay can render the right copy and
- * decide whether to memo a tier-lock hit (spec §9.2 / §9.3).
- *
- * Heuristic: VOD/series-episode that errors with zero duration + zero
- * playhead — before any frame ever arrived — is almost always the Xtream
- * account plan refusing the container extension. Live errors are treated
- * as generic (tier-lock doesn't apply to Live channels).
- */
-function classifyFailure(
-  kind: PlayerKind,
-  duration: number,
-  currentTime: number,
-): "tier-lock" | "generic" {
-  if (kind !== "live" && duration === 0 && currentTime === 0) {
-    return "tier-lock";
-  }
-  return "generic";
-}
 
 export function PlayerShell() {
   const { state, close } = usePlayerStore();
@@ -65,6 +45,7 @@ export function PlayerShell() {
 
   const {
     status,
+    error,
     duration,
     currentTime,
     levels,
@@ -165,7 +146,9 @@ export function PlayerShell() {
   );
 
   const failureClass =
-    status === "error" ? classifyFailure(kind, duration, currentTime) : null;
+    status === "error"
+      ? classifyFailure(kind, duration, currentTime, error?.message)
+      : null;
 
   // Memo the tier-lock so MovieCard/EpisodeRow can badge the card on return.
   useEffect(() => {
@@ -275,7 +258,7 @@ export function PlayerShell() {
 
         {showFailure && (
           <FailureOverlay
-            kind={failureClass === "tier-lock" ? "tier-lock" : "generic"}
+            kind={failureClass ?? "generic"}
             onRetry={retry}
             onClose={close}
           />
@@ -325,7 +308,7 @@ export function PlayerShell() {
 // ─── FailureOverlay ──────────────────────────────────────────────────────────
 
 interface FailureOverlayProps {
-  kind: "tier-lock" | "generic";
+  kind: FailureClass;
   onRetry: () => void;
   onClose: () => void;
 }
@@ -333,15 +316,18 @@ interface FailureOverlayProps {
 /**
  * Amber glass overlay per spec §9. Never red, never auto-retry.
  *
- *   tier-lock → specific "format not supported by plan" copy, no Try again
- *   generic   → Try again + Back to browse
+ *   tier-lock     → "format not supported by plan", no Try again button
+ *   live-offline  → "Channel offline", Try again still available (provider
+ *                   may come back; user can retry)
+ *   generic       → Try again + Back to browse
  *
  * Focus: auto-seeds on the most-useful action for the class.
  */
 function FailureOverlay({ kind, onRetry, onClose }: FailureOverlayProps) {
+  const showRetry = kind !== "tier-lock";
   const { ref: retryRef, focused: retryFocused } = useFocusable({
     focusKey: FK_RETRY,
-    focusable: kind !== "tier-lock",
+    focusable: showRetry,
     onEnterPress: onRetry,
     onArrowPress: (direction) => {
       if (direction === "right") {
@@ -356,7 +342,7 @@ function FailureOverlay({ kind, onRetry, onClose }: FailureOverlayProps) {
     focusKey: FK_BACK,
     onEnterPress: onClose,
     onArrowPress: (direction) => {
-      if (direction === "left" && kind !== "tier-lock") {
+      if (direction === "left" && showRetry) {
         setFocus(FK_RETRY);
         return false;
       }
@@ -415,7 +401,7 @@ function FailureOverlay({ kind, onRetry, onClose }: FailureOverlayProps) {
       >
         <span style={{ fontSize: "32px" }} aria-hidden="true">⚠</span>
         <p style={{ fontSize: "var(--text-title-size)", fontWeight: 600, margin: 0 }}>
-          Playback failed
+          {kind === "live-offline" ? "Channel offline" : "Playback failed"}
         </p>
         <p
           style={{
@@ -427,6 +413,8 @@ function FailureOverlay({ kind, onRetry, onClose }: FailureOverlayProps) {
         >
           {kind === "tier-lock"
             ? "This title is delivered in a format your Xtream plan doesn't support. Try a different title or see if a similar one is available."
+            : kind === "live-offline"
+            ? "This channel is offline upstream right now. Try a different channel, or hit Try again in a moment."
             : "This title couldn't be played right now. It may be a format your plan doesn't support, or the provider is temporarily unavailable."}
         </p>
         <div
