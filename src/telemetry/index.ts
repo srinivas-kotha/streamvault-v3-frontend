@@ -14,7 +14,12 @@ export type TelemetryEventName =
   | "nav_originator_restored"
   | "dock_navigated"
   | "search_lang_filter_change"
-  | "search_results_lang_zero";
+  | "search_results_lang_zero"
+  | "favorites_delete_all_triggered"
+  | "favorites_delete_all_confirmed"
+  | "favorites_delete_all_cancelled"
+  | "favorites_delete_all_undone"
+  | "favorites_delete_all_committed";
 
 export interface TelemetryEventProps {
   [key: string]: string | number | boolean | null | undefined;

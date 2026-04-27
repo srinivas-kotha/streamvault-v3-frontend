@@ -15,13 +15,16 @@
  * for BottomDock's setFocus("CONTENT_AREA_FAVORITES") on Esc routing.
  */
 import type { RefObject } from "react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   useFocusable,
   FocusContext,
+  setFocus,
 } from "@noriginmedia/norigin-spatial-navigation";
 import { useFavorites } from "../features/favorites/useFavorites";
 import { FavoritePosterCard } from "../features/favorites/FavoritePosterCard";
+import { ConfirmDeleteAllModal } from "../features/favorites/ConfirmDeleteAllModal";
+import { FavoritesUndoToast } from "../features/favorites/FavoritesUndoToast";
 import { MovieDetailSheet } from "../features/movies/MovieDetailSheet";
 import { usePlayerOpener } from "../player";
 import {
@@ -32,6 +35,7 @@ import {
 } from "../features/favorites/sortFavorites";
 import { Skeleton } from "../primitives/Skeleton";
 import { ErrorShell } from "../primitives/ErrorShell";
+import { logEvent } from "../telemetry";
 import type { FavoriteItem, ContentType, VodStream } from "../api/schemas";
 
 const SORT_OPTIONS: { id: FavoriteSortKey; label: string }[] = [
@@ -178,10 +182,14 @@ export function FavoritesRoute() {
     focusBoundaryDirections: ["left", "right", "up"],
   });
 
-  const { favorites, loading, error, toggle, reload } = useFavorites();
+  const { favorites, loading, error, toggle, reload, clearAll, restoreAll } =
+    useFavorites();
   const { openPlayer } = usePlayerOpener();
   const [sort, setSort] = useState<FavoriteSortKey>(() => getFavoriteSortPref());
   const [sheetItem, setSheetItem] = useState<FavoriteItem | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [undoSnapshot, setUndoSnapshot] = useState<FavoriteItem[] | null>(null);
+  const deleteAtRef = useRef<number>(0);
 
   const handleRemove = useCallback(
     async (id: number, type: ContentType) => {
@@ -199,6 +207,46 @@ export function FavoritesRoute() {
     if (item.content_type !== "vod") return;
     setSheetItem(item);
   }, []);
+
+  const handleDeleteAllTrigger = useCallback(() => {
+    logEvent("favorites_delete_all_triggered", { count: favorites.length });
+    setConfirmOpen(true);
+  }, [favorites.length]);
+
+  const handleConfirmDelete = useCallback(async () => {
+    const count = favorites.length;
+    logEvent("favorites_delete_all_confirmed", { count });
+    setConfirmOpen(false);
+    deleteAtRef.current = Date.now();
+    const snapshot = await clearAll();
+    setUndoSnapshot(snapshot);
+    setFocus("FAV_UNDO_TOAST");
+  }, [favorites.length, clearAll]);
+
+  const handleCancelDelete = useCallback((trigger: "button" | "back") => {
+    logEvent("favorites_delete_all_cancelled", { trigger });
+    setConfirmOpen(false);
+    setFocus("FAV_DELETE_ALL_TRIGGER");
+  }, []);
+
+  const handleUndo = useCallback(async () => {
+    if (!undoSnapshot) return;
+    const elapsed = Date.now() - deleteAtRef.current;
+    logEvent("favorites_delete_all_undone", {
+      count: undoSnapshot.length,
+      elapsed_ms: elapsed,
+    });
+    await restoreAll(undoSnapshot);
+    setUndoSnapshot(null);
+    setFocus("FAV_DELETE_ALL_TRIGGER");
+  }, [undoSnapshot, restoreAll]);
+
+  const handleUndoExpire = useCallback(() => {
+    if (!undoSnapshot) return;
+    logEvent("favorites_delete_all_committed", { count: undoSnapshot.length });
+    setUndoSnapshot(null);
+    setFocus("CONTENT_AREA_FAVORITES");
+  }, [undoSnapshot]);
 
   const { channels, movies, series } = useMemo(() => {
     const sorted = sortFavorites(favorites, sort);
@@ -279,6 +327,8 @@ export function FavoritesRoute() {
                 onSelect={() => handleSortChange(opt.id)}
               />
             ))}
+            <span style={{ flex: 1 }} />
+            <DeleteAllTrigger onSelect={handleDeleteAllTrigger} />
           </div>
         )}
 
@@ -349,8 +399,53 @@ export function FavoritesRoute() {
             }}
           />
         ) : null}
+
+        {confirmOpen && (
+          <ConfirmDeleteAllModal
+            count={favorites.length}
+            onConfirm={() => void handleConfirmDelete()}
+            onCancel={handleCancelDelete}
+          />
+        )}
+
+        {undoSnapshot !== null && (
+          <FavoritesUndoToast
+            onUndo={() => void handleUndo()}
+            onExpire={handleUndoExpire}
+          />
+        )}
       </main>
     </FocusContext.Provider>
+  );
+}
+
+function DeleteAllTrigger({ onSelect }: { onSelect: () => void }) {
+  const { ref, focused } = useFocusable<HTMLButtonElement>({
+    focusKey: "FAV_DELETE_ALL_TRIGGER",
+    onEnterPress: onSelect,
+  });
+  return (
+    <button
+      ref={ref as RefObject<HTMLButtonElement>}
+      type="button"
+      onClick={onSelect}
+      className="focus-ring"
+      style={{
+        padding: "var(--space-2) var(--space-4)",
+        borderRadius: "var(--radius-sm)",
+        border: focused ? "1px solid var(--accent-copper)" : "1px solid transparent",
+        background: "transparent",
+        color: focused ? "var(--text-primary)" : "var(--text-secondary)",
+        fontSize: "var(--text-label-size)",
+        letterSpacing: "var(--text-label-tracking)",
+        textTransform: "uppercase",
+        cursor: "pointer",
+        transition:
+          "color var(--motion-focus), border-color var(--motion-focus)",
+      }}
+    >
+      Delete all
+    </button>
   );
 }
 

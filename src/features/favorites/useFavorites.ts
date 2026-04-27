@@ -14,6 +14,8 @@ import {
   addFavorite,
   removeFavorite,
   isFavorited,
+  clearAllFavorites,
+  restoreAllFavorites,
 } from "../../api/favorites";
 import type { FavoriteItem, AddFavoriteBody, ContentType } from "../../api/schemas";
 
@@ -28,6 +30,8 @@ export interface UseFavoritesReturn {
     meta: Omit<AddFavoriteBody, "content_type">,
   ) => Promise<void>;
   reload: () => Promise<void>;
+  clearAll: () => Promise<FavoriteItem[]>;
+  restoreAll: (snapshot: FavoriteItem[]) => Promise<void>;
 }
 
 export function useFavorites(): UseFavoritesReturn {
@@ -109,5 +113,24 @@ export function useFavorites(): UseFavoritesReturn {
     [favorites, isFav],
   );
 
-  return { favorites, loading, error, isFav, toggle, reload };
+  const clearAll = useCallback(async (): Promise<FavoriteItem[]> => {
+    const snapshot = favorites;
+    setFavorites([]);
+    void clearAllFavorites().catch(() => {
+      // Best-effort; localStorage is already empty. Server may lag.
+    });
+    return snapshot;
+  }, [favorites]);
+
+  const restoreAll = useCallback(
+    async (snapshot: FavoriteItem[]): Promise<void> => {
+      setFavorites(snapshot);
+      void restoreAllFavorites(snapshot).catch(() => {
+        // Best-effort; localStorage already restored.
+      });
+    },
+    [],
+  );
+
+  return { favorites, loading, error, isFav, toggle, reload, clearAll, restoreAll };
 }
