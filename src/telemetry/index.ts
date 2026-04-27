@@ -12,7 +12,9 @@
 export type TelemetryEventName =
   | "back_pressed"
   | "nav_originator_restored"
-  | "dock_navigated";
+  | "dock_navigated"
+  | "search_lang_filter_change"
+  | "search_results_lang_zero";
 
 export interface TelemetryEventProps {
   [key: string]: string | number | boolean | null | undefined;

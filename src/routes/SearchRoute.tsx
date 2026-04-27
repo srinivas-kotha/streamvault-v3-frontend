@@ -33,12 +33,15 @@ import {
 } from "@noriginmedia/norigin-spatial-navigation";
 import { Skeleton } from "../primitives/Skeleton";
 import { fetchSearch } from "../api/search";
-import type { SearchResults } from "../api/schemas";
+import type { CatalogItem, SearchResults } from "../api/schemas";
 import { SearchInput } from "../features/search/SearchInput";
 import { SearchResultsSection } from "../features/search/SearchResultsSection";
 import { SearchKindChips, type SearchKind } from "../features/search/SearchKindChips";
 import { useDebounce } from "../features/search/useDebounce";
 import { consumeOriginator } from "../nav/backStack";
+import { LanguageRail } from "../components/LanguageRail";
+import { useLangPref } from "../lib/useLangPref";
+import type { LangId } from "../lib/langPref";
 import { logEvent } from "../telemetry";
 
 // ─── useSearchQuery — encapsulates fetch + state management ─────────────────
@@ -137,10 +140,40 @@ export function SearchRoute() {
 
   const [query, setQuery] = useState(initialQuery);
   const [kind, setKind] = useState<SearchKind>("all");
+  const [lang, setLang] = useLangPref({ excludeSports: true });
   const debouncedQuery = useDebounce(query, 250);
 
   const { results, loading, error, lastSearchedQuery, clearResults, runSearch } =
     useSearchQuery(debouncedQuery);
+
+  // Apply the current language filter to each bucket. When `lang === "all"`,
+  // no filtering — return the raw results. When a specific language is
+  // active, include only items whose server-annotated `inferredLang` matches.
+  // Items with `inferredLang === null/undefined` (e.g. multi-language OTT
+  // categories) are excluded from any specific language and surface only
+  // under "All" — same safe-degradation behavior as Live/Movies/Series.
+  const filteredResults = useMemo<SearchResults | null>(() => {
+    if (results === null) return null;
+    if (lang === "all") return results;
+    const filterByLang = (items: CatalogItem[]): CatalogItem[] =>
+      items.filter((it) => it.inferredLang === lang);
+    return {
+      live: filterByLang(results.live),
+      vod: filterByLang(results.vod),
+      series: filterByLang(results.series),
+    };
+  }, [results, lang]);
+
+  const totalRawHits =
+    results === null
+      ? 0
+      : results.live.length + results.vod.length + results.series.length;
+  const totalFilteredHits =
+    filteredResults === null
+      ? 0
+      : filteredResults.live.length +
+        filteredResults.vod.length +
+        filteredResults.series.length;
 
   const handleQueryChange = useCallback(
     (value: string) => {
@@ -155,6 +188,36 @@ export function SearchRoute() {
   const handleSubmit = useCallback(() => {
     runSearch(query);
   }, [query, runSearch]);
+
+  const handleLangChange = useCallback(
+    (next: LangId) => {
+      setLang(next);
+      logEvent("search_lang_filter_change", {
+        lang: next,
+        query: lastSearchedQuery,
+        total_hits: totalRawHits,
+      });
+    },
+    [setLang, lastSearchedQuery, totalRawHits],
+  );
+
+  // Fire `search_results_lang_zero` exactly when the active filter has
+  // hidden every hit. Guarded so it only fires on transition into zero,
+  // not on every render of the same zero state.
+  useEffect(() => {
+    if (
+      lang !== "all" &&
+      results !== null &&
+      totalRawHits > 0 &&
+      totalFilteredHits === 0
+    ) {
+      logEvent("search_results_lang_zero", {
+        lang,
+        query: lastSearchedQuery,
+        total_hits: totalRawHits,
+      });
+    }
+  }, [lang, results, totalRawHits, totalFilteredHits, lastSearchedQuery]);
 
   useEffect(() => {
     // If the user is returning from a detail route they opened from a
@@ -173,11 +236,8 @@ export function SearchRoute() {
     setFocus("SEARCH_INPUT");
   }, []);
 
-  const hasResults =
-    results !== null &&
-    (results.live.length > 0 ||
-      results.vod.length > 0 ||
-      results.series.length > 0);
+  const hasResults = results !== null && totalRawHits > 0;
+  const hasFilteredResults = filteredResults !== null && totalFilteredHits > 0;
 
   const showHelp = query.length > 0 && query.length < 2;
   const showEmpty =
@@ -187,9 +247,31 @@ export function SearchRoute() {
     !hasResults &&
     lastSearchedQuery.length >= 2;
 
+  const showLangZeroEmpty =
+    !loading &&
+    !error &&
+    hasResults &&
+    !hasFilteredResults &&
+    lang !== "all";
+
   const showMovies = kind === "all" || kind === "vod";
   const showSeries = kind === "all" || kind === "series";
   const showLive = kind === "all" || kind === "live";
+
+  const handleShowAllLanguages = useCallback(() => {
+    handleLangChange("all");
+  }, [handleLangChange]);
+
+  const langLabel =
+    lang === "telugu"
+      ? "Telugu"
+      : lang === "hindi"
+        ? "Hindi"
+        : lang === "english"
+          ? "English"
+          : lang === "sports"
+            ? "Sports"
+            : "";
 
   return (
     <FocusContext.Provider value={focusKey}>
@@ -231,6 +313,10 @@ export function SearchRoute() {
               library, use FIND on Movies or Series instead.
             </p>
           </div>
+        )}
+
+        {hasResults && !loading && !error && (
+          <LanguageRail value={lang} onChange={handleLangChange} />
         )}
 
         {hasResults && !loading && !error && (
@@ -284,16 +370,45 @@ export function SearchRoute() {
           </p>
         )}
 
-        {!loading && hasResults && results !== null && (
+        {showLangZeroEmpty && (
+          <p
+            role="status"
+            style={{
+              color: "var(--text-secondary)",
+              fontSize: "var(--text-body-size)",
+              padding: "var(--space-4) var(--space-6)",
+            }}
+          >
+            No {langLabel} results for &ldquo;{lastSearchedQuery}&rdquo;.{" "}
+            <button
+              type="button"
+              onClick={handleShowAllLanguages}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: "var(--accent-copper)",
+                cursor: "pointer",
+                font: "inherit",
+                padding: 0,
+                textDecoration: "underline",
+              }}
+            >
+              Show all {totalRawHits} result{totalRawHits === 1 ? "" : "s"}
+            </button>
+            .
+          </p>
+        )}
+
+        {!loading && hasFilteredResults && filteredResults !== null && (
           <div>
             {showMovies && (
-              <SearchResultsSection title="Movies" items={results.vod} />
+              <SearchResultsSection title="Movies" items={filteredResults.vod} />
             )}
             {showSeries && (
-              <SearchResultsSection title="Series" items={results.series} />
+              <SearchResultsSection title="Series" items={filteredResults.series} />
             )}
             {showLive && (
-              <SearchResultsSection title="Live" items={results.live} />
+              <SearchResultsSection title="Live" items={filteredResults.live} />
             )}
           </div>
         )}

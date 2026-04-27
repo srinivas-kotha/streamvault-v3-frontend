@@ -115,6 +115,10 @@ describe("SearchRoute", () => {
     useFocusableSpy.mockClear();
     fetchSearchMock.mockReset();
     navigateMock.mockReset();
+    // Default lang pref is "telugu"; pin to "all" so the existing
+    // result-render tests don't get filtered out by the LanguageRail.
+    // Per-test cases override this localStorage key as needed.
+    window.localStorage.setItem("sv_lang_pref", "all");
   });
 
   it("registers CONTENT_AREA_SEARCH and SEARCH_INPUT with useFocusable", () => {
@@ -268,5 +272,141 @@ describe("SearchRoute", () => {
     expect(keys).toContain("SEARCH_RESULT_LIVE_l1");
     expect(keys).toContain("SEARCH_RESULT_VOD_v1");
     expect(keys).toContain("SEARCH_RESULT_SERIES_s1");
+  });
+
+  // ─── LanguageRail (PR — Search §5) ────────────────────────────────────────
+
+  describe("LanguageRail", () => {
+    const langTaggedResults: SearchResults = {
+      live: [
+        {
+          id: "l1",
+          name: "CNN Live",
+          type: "live",
+          categoryId: "news",
+          icon: null,
+          added: null,
+          isAdult: false,
+          inferredLang: "english",
+        },
+      ],
+      vod: [
+        {
+          id: "v1",
+          name: "Inception",
+          type: "vod",
+          categoryId: "movies",
+          icon: null,
+          added: null,
+          isAdult: false,
+          inferredLang: "english",
+        },
+        {
+          id: "v2",
+          name: "Vikram",
+          type: "vod",
+          categoryId: "telugu-movies",
+          icon: null,
+          added: null,
+          isAdult: false,
+          inferredLang: "telugu",
+        },
+      ],
+      series: [
+        {
+          id: "s1",
+          name: "Breaking Bad",
+          type: "series",
+          categoryId: "drama",
+          icon: null,
+          added: null,
+          isAdult: false,
+          inferredLang: "english",
+        },
+      ],
+    };
+
+    it("renders LANG_TELUGU/HINDI/ENGLISH/ALL chip focus keys after results land", async () => {
+      fetchSearchMock.mockResolvedValue(langTaggedResults);
+      render(<SearchRoute />);
+      const input = screen.getByRole("searchbox");
+      await user.type(input, "vk");
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: "Inception" })).toBeInTheDocument();
+      });
+
+      const keys = useFocusableSpy.mock.calls
+        .map((call) => call[0]?.focusKey)
+        .filter(Boolean);
+      expect(keys).toContain("LANG_TELUGU");
+      expect(keys).toContain("LANG_HINDI");
+      expect(keys).toContain("LANG_ENGLISH");
+      expect(keys).toContain("LANG_ALL");
+    });
+
+    it("does NOT render the rail before any results have landed", () => {
+      fetchSearchMock.mockResolvedValue(emptyResults);
+      render(<SearchRoute />);
+
+      const keys = useFocusableSpy.mock.calls
+        .map((call) => call[0]?.focusKey)
+        .filter(Boolean);
+      expect(keys).not.toContain("LANG_TELUGU");
+    });
+
+    it("filters result cards by inferredLang when a language is active", async () => {
+      // Persist Telugu pref before mount so the rail starts there.
+      window.localStorage.setItem("sv_lang_pref", "telugu");
+      fetchSearchMock.mockResolvedValue(langTaggedResults);
+      render(<SearchRoute />);
+      const input = screen.getByRole("searchbox");
+      await user.type(input, "vk");
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: "Vikram" })).toBeInTheDocument();
+      });
+
+      // Telugu items present, English items hidden.
+      expect(screen.queryByRole("button", { name: "Inception" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "CNN Live" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Breaking Bad" })).not.toBeInTheDocument();
+    });
+
+    it("renders the lang-zero empty state with a Show all button when filter hides every hit", async () => {
+      window.localStorage.setItem("sv_lang_pref", "hindi");
+      fetchSearchMock.mockResolvedValue(langTaggedResults);
+      render(<SearchRoute />);
+      const input = screen.getByRole("searchbox");
+      await user.type(input, "vk");
+
+      await waitFor(() => {
+        expect(screen.getByText(/No Hindi results for/i)).toBeInTheDocument();
+      });
+      expect(
+        screen.getByRole("button", { name: /Show all 4 results/i }),
+      ).toBeInTheDocument();
+    });
+
+    it("Show all button switches lang back to All and re-reveals results", async () => {
+      window.localStorage.setItem("sv_lang_pref", "hindi");
+      fetchSearchMock.mockResolvedValue(langTaggedResults);
+      render(<SearchRoute />);
+      const input = screen.getByRole("searchbox");
+      await user.type(input, "vk");
+
+      await waitFor(() => {
+        expect(screen.getByText(/No Hindi results for/i)).toBeInTheDocument();
+      });
+
+      const showAll = screen.getByRole("button", { name: /Show all 4 results/i });
+      await user.click(showAll);
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: "Inception" })).toBeInTheDocument();
+      });
+      expect(screen.getByRole("button", { name: "Vikram" })).toBeInTheDocument();
+      expect(screen.queryByText(/No Hindi results for/i)).not.toBeInTheDocument();
+    });
   });
 });
