@@ -9,7 +9,7 @@
  *  - Sort toolbar renders when not empty
  *  - Remove-from-favorites path fires toggle
  */
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, within } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import React from "react";
 import type { FavoriteItem } from "../api/schemas";
@@ -35,6 +35,8 @@ vi.mock("@noriginmedia/norigin-spatial-navigation", () => ({
 }));
 
 const mockToggle = vi.hoisted(() => vi.fn());
+const mockClearAll = vi.hoisted(() => vi.fn());
+const mockRestoreAll = vi.hoisted(() => vi.fn());
 const mockUseFavorites = vi.hoisted(() =>
   vi.fn(() => ({
     favorites: [] as FavoriteItem[],
@@ -43,6 +45,8 @@ const mockUseFavorites = vi.hoisted(() =>
     isFav: vi.fn(() => true),
     toggle: mockToggle,
     reload: vi.fn(),
+    clearAll: mockClearAll,
+    restoreAll: mockRestoreAll,
   })),
 );
 
@@ -94,6 +98,8 @@ describe("FavoritesRoute", () => {
       isFav: vi.fn(() => true),
       toggle: mockToggle,
       reload: vi.fn(),
+      clearAll: mockClearAll,
+      restoreAll: mockRestoreAll,
     });
   });
 
@@ -105,6 +111,8 @@ describe("FavoritesRoute", () => {
       isFav: vi.fn(() => false),
       toggle: mockToggle,
       reload: vi.fn(),
+      clearAll: mockClearAll,
+      restoreAll: mockRestoreAll,
     });
 
     render(<FavoritesRoute />);
@@ -126,6 +134,8 @@ describe("FavoritesRoute", () => {
       isFav: vi.fn(() => true),
       toggle: mockToggle,
       reload: vi.fn(),
+      clearAll: mockClearAll,
+      restoreAll: mockRestoreAll,
     });
 
     render(<FavoritesRoute />);
@@ -147,6 +157,8 @@ describe("FavoritesRoute", () => {
       isFav: vi.fn(() => true),
       toggle: mockToggle,
       reload: vi.fn(),
+      clearAll: mockClearAll,
+      restoreAll: mockRestoreAll,
     });
 
     render(<FavoritesRoute />);
@@ -170,6 +182,8 @@ describe("FavoritesRoute", () => {
       isFav: vi.fn(() => true),
       toggle: mockToggle,
       reload: vi.fn(),
+      clearAll: mockClearAll,
+      restoreAll: mockRestoreAll,
     });
 
     render(<FavoritesRoute />);
@@ -202,11 +216,128 @@ describe("FavoritesRoute", () => {
       isFav: vi.fn(() => true),
       toggle: mockToggle,
       reload: vi.fn(),
+      clearAll: mockClearAll,
+      restoreAll: mockRestoreAll,
     });
 
     render(<FavoritesRoute />);
     const azBtn = screen.getByRole("button", { name: /a–z/i });
     fireEvent.click(azBtn);
     expect(azBtn.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  // ─── Delete all ───────────────────────────────────────────────────────────
+
+  describe("Delete all", () => {
+    beforeEach(() => {
+      mockClearAll.mockReset();
+      mockRestoreAll.mockReset();
+    });
+
+    it("Delete all button renders in toolbar when not empty", () => {
+      mockUseFavorites.mockReturnValue({
+        favorites: [mockMovie],
+        loading: false,
+        error: null,
+        isFav: vi.fn(() => true),
+        toggle: mockToggle,
+        reload: vi.fn(),
+        clearAll: mockClearAll,
+        restoreAll: mockRestoreAll,
+      });
+      render(<FavoritesRoute />);
+      expect(screen.getByRole("button", { name: /delete all/i })).toBeInTheDocument();
+    });
+
+    it("Delete all button is absent on whole-page empty state", () => {
+      render(<FavoritesRoute />);
+      expect(screen.queryByRole("button", { name: /delete all/i })).not.toBeInTheDocument();
+    });
+
+    it("clicking Delete all opens the confirm modal", () => {
+      mockUseFavorites.mockReturnValue({
+        favorites: [mockChannel, mockMovie],
+        loading: false,
+        error: null,
+        isFav: vi.fn(() => true),
+        toggle: mockToggle,
+        reload: vi.fn(),
+        clearAll: mockClearAll,
+        restoreAll: mockRestoreAll,
+      });
+      render(<FavoritesRoute />);
+      fireEvent.click(screen.getByRole("button", { name: /delete all/i }));
+      expect(screen.getByRole("dialog", { name: /delete all favorites/i })).toBeInTheDocument();
+      expect(screen.getByText(/2 items/i)).toBeInTheDocument();
+    });
+
+    it("Cancel closes the modal without calling clearAll", () => {
+      mockUseFavorites.mockReturnValue({
+        favorites: [mockMovie],
+        loading: false,
+        error: null,
+        isFav: vi.fn(() => true),
+        toggle: mockToggle,
+        reload: vi.fn(),
+        clearAll: mockClearAll,
+        restoreAll: mockRestoreAll,
+      });
+      render(<FavoritesRoute />);
+      fireEvent.click(screen.getByRole("button", { name: /delete all/i }));
+      fireEvent.click(screen.getByRole("button", { name: /^cancel$/i }));
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(mockClearAll).not.toHaveBeenCalled();
+    });
+
+    it("Confirm fires clearAll and shows the undo toast", async () => {
+      mockClearAll.mockResolvedValue([mockMovie]);
+      mockUseFavorites.mockReturnValue({
+        favorites: [mockMovie],
+        loading: false,
+        error: null,
+        isFav: vi.fn(() => true),
+        toggle: mockToggle,
+        reload: vi.fn(),
+        clearAll: mockClearAll,
+        restoreAll: mockRestoreAll,
+      });
+      render(<FavoritesRoute />);
+      fireEvent.click(screen.getByRole("button", { name: /delete all/i }));
+      const dialog = screen.getByRole("dialog", { name: /delete all favorites/i });
+      fireEvent.click(within(dialog).getByRole("button", { name: /^delete all$/i }));
+      await waitFor(() => {
+        expect(mockClearAll).toHaveBeenCalled();
+      });
+      await waitFor(() => {
+        expect(screen.getByText(/favorites cleared/i)).toBeInTheDocument();
+      });
+      expect(screen.getByRole("button", { name: /^undo$/i })).toBeInTheDocument();
+    });
+
+    it("Undo calls restoreAll with the snapshot", async () => {
+      mockClearAll.mockResolvedValue([mockMovie, mockChannel]);
+      mockRestoreAll.mockResolvedValue(undefined);
+      mockUseFavorites.mockReturnValue({
+        favorites: [mockMovie, mockChannel],
+        loading: false,
+        error: null,
+        isFav: vi.fn(() => true),
+        toggle: mockToggle,
+        reload: vi.fn(),
+        clearAll: mockClearAll,
+        restoreAll: mockRestoreAll,
+      });
+      render(<FavoritesRoute />);
+      fireEvent.click(screen.getByRole("button", { name: /delete all/i }));
+      const dialog = screen.getByRole("dialog", { name: /delete all favorites/i });
+      fireEvent.click(within(dialog).getByRole("button", { name: /^delete all$/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /^undo$/i })).toBeInTheDocument();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /^undo$/i }));
+      await waitFor(() => {
+        expect(mockRestoreAll).toHaveBeenCalledWith([mockMovie, mockChannel]);
+      });
+    });
   });
 });

@@ -147,3 +147,42 @@ export function isFavorited(
     (f) => f.content_type === contentType && f.content_id === contentId,
   );
 }
+
+/**
+ * Delete every favorite. Returns the pre-clear snapshot so the caller can
+ * pass it to `restoreAllFavorites()` if the user undoes within the toast
+ * window. localStorage is cleared synchronously; per-item DELETEs are fired
+ * in parallel and resolved best-effort. A partial server failure leaves the
+ * server slightly out of sync until the next reload — acceptable for a bulk
+ * destructive action that the user has already confirmed.
+ */
+export async function clearAllFavorites(): Promise<FavoriteItem[]> {
+  const snapshot = lsRead();
+  lsWrite([]);
+  await Promise.allSettled(
+    snapshot.map((f) => removeFavorite(f.content_id, f.content_type)),
+  );
+  return snapshot;
+}
+
+/**
+ * Restore a snapshot returned by `clearAllFavorites()`. Writes the snapshot
+ * back to localStorage synchronously, then issues per-item POSTs in
+ * parallel. The frontend state is correct immediately; the server catches
+ * up in the background.
+ */
+export async function restoreAllFavorites(
+  snapshot: FavoriteItem[],
+): Promise<void> {
+  lsWrite(snapshot);
+  await Promise.allSettled(
+    snapshot.map((f) =>
+      addFavorite(f.content_id, {
+        content_type: f.content_type,
+        ...(f.content_name ? { content_name: f.content_name } : {}),
+        ...(f.content_icon ? { content_icon: f.content_icon } : {}),
+        ...(f.category_name ? { category_name: f.category_name } : {}),
+      }),
+    ),
+  );
+}
