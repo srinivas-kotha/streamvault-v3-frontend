@@ -10,7 +10,7 @@ describe("classifyFailure", () => {
     expect(classifyFailure("vod", 120, 0, "any")).toBe("generic");
   });
 
-  it("flags live HTTP 503 as live-offline", () => {
+  it("flags live HTTP 503 (mpegts.js error string) as stream-offline", () => {
     expect(
       classifyFailure(
         "live",
@@ -18,7 +18,42 @@ describe("classifyFailure", () => {
         0,
         "NetworkError: Unrecoverable HTTP code: 503",
       ),
-    ).toBe("live-offline");
+    ).toBe("stream-offline");
+  });
+
+  it("flags VOD with stream-offline marker (post-error HEAD probe) as stream-offline", () => {
+    expect(
+      classifyFailure(
+        "vod",
+        0,
+        0,
+        "stream-offline: upstream returned 503",
+      ),
+    ).toBe("stream-offline");
+  });
+
+  it("flags series-episode with stream-offline marker as stream-offline", () => {
+    expect(
+      classifyFailure(
+        "series-episode",
+        0,
+        0,
+        "stream-offline: upstream returned 503",
+      ),
+    ).toBe("stream-offline");
+  });
+
+  it("stream-offline marker takes priority over the tier-lock heuristic", () => {
+    // Both conditions fire (zero duration + the marker); offline wins because
+    // tier-lock copy would mislead the user into thinking it's a plan issue.
+    expect(
+      classifyFailure(
+        "vod",
+        0,
+        0,
+        "stream-offline: upstream returned 503",
+      ),
+    ).toBe("stream-offline");
   });
 
   it("falls back to generic for live without 503 in message", () => {
