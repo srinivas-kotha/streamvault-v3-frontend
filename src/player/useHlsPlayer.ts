@@ -263,6 +263,30 @@ export function useHlsPlayer(
       const err = video.error;
       setError(new Error(err?.message ?? "Video playback error"));
       setStatus("error");
+      // The browser swallows HTTP status into a generic MediaError on the
+      // native VOD/series path, so a backend 503 + X-Stream-Status: offline
+      // (placeholder substitution) would otherwise surface as the misleading
+      // "tier-lock" overlay. Probe the URL with HEAD and rewrite the error
+      // message to include the "stream-offline:" marker that classifyFailure
+      // recognises. Fire-and-forget — happy path pays no extra latency, and
+      // probe failures fall through to the existing generic copy.
+      if (src) {
+        void fetch(src, {
+          method: "HEAD",
+          credentials: "include",
+        })
+          .then((res) => {
+            if (
+              res.status === 503 &&
+              res.headers.get("X-Stream-Status") === "offline"
+            ) {
+              setError(new Error("stream-offline: upstream returned 503"));
+            }
+          })
+          .catch(() => {
+            /* network blip during probe — keep the original error */
+          });
+      }
     };
     const onPlaying = () => setStatus("playing");
 

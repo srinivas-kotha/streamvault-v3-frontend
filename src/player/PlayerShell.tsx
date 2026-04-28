@@ -17,7 +17,7 @@ import {
   FocusContext,
   setFocus,
 } from "@noriginmedia/norigin-spatial-navigation";
-import { usePlayerStore } from "./PlayerProvider";
+import { usePlayerStore, type PlayerKind } from "./PlayerProvider";
 import { useHlsPlayer } from "./useHlsPlayer";
 import { PlayerControls } from "./PlayerControls";
 import { useReducedMotion } from "./useReducedMotion";
@@ -259,6 +259,7 @@ export function PlayerShell() {
         {showFailure && (
           <FailureOverlay
             kind={failureClass ?? "generic"}
+            playerKind={kind}
             onRetry={retry}
             onClose={close}
           />
@@ -309,6 +310,7 @@ export function PlayerShell() {
 
 interface FailureOverlayProps {
   kind: FailureClass;
+  playerKind: PlayerKind;
   onRetry: () => void;
   onClose: () => void;
 }
@@ -316,14 +318,22 @@ interface FailureOverlayProps {
 /**
  * Amber glass overlay per spec §9. Never red, never auto-retry.
  *
- *   tier-lock     → "format not supported by plan", no Try again button
- *   live-offline  → "Channel offline", Try again still available (provider
- *                   may come back; user can retry)
- *   generic       → Try again + Back to browse
+ *   tier-lock        → "format not supported by plan", no Try again button
+ *   stream-offline   → "Channel offline" / "Title offline", Try again still
+ *                      available (provider may come back; user can retry).
+ *                      Copy branches on `playerKind` since the same backend
+ *                      condition (HTTP 503 + X-Stream-Status: offline) covers
+ *                      both live channels and VOD/series episodes.
+ *   generic          → Try again + Back to browse
  *
  * Focus: auto-seeds on the most-useful action for the class.
  */
-function FailureOverlay({ kind, onRetry, onClose }: FailureOverlayProps) {
+function FailureOverlay({
+  kind,
+  playerKind,
+  onRetry,
+  onClose,
+}: FailureOverlayProps) {
   const showRetry = kind !== "tier-lock";
   const { ref: retryRef, focused: retryFocused } = useFocusable({
     focusKey: FK_RETRY,
@@ -401,7 +411,11 @@ function FailureOverlay({ kind, onRetry, onClose }: FailureOverlayProps) {
       >
         <span style={{ fontSize: "32px" }} aria-hidden="true">⚠</span>
         <p style={{ fontSize: "var(--text-title-size)", fontWeight: 600, margin: 0 }}>
-          {kind === "live-offline" ? "Channel offline" : "Playback failed"}
+          {kind === "stream-offline"
+            ? playerKind === "live"
+              ? "Channel offline"
+              : "Title offline"
+            : "Playback failed"}
         </p>
         <p
           style={{
@@ -413,8 +427,10 @@ function FailureOverlay({ kind, onRetry, onClose }: FailureOverlayProps) {
         >
           {kind === "tier-lock"
             ? "This title is delivered in a format your Xtream plan doesn't support. Try a different title or see if a similar one is available."
-            : kind === "live-offline"
-            ? "This channel is offline upstream right now. Try a different channel, or hit Try again in a moment."
+            : kind === "stream-offline"
+            ? playerKind === "live"
+              ? "This channel is offline upstream right now. Try a different channel, or hit Try again in a moment."
+              : "This title is offline upstream right now. Try another episode or title, or hit Try again in a moment."
             : "This title couldn't be played right now. It may be a format your plan doesn't support, or the provider is temporarily unavailable."}
         </p>
         <div
