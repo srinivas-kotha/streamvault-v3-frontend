@@ -14,7 +14,7 @@
  * skip-guard pattern as auth.spec.ts). CI runs them with real-backend secrets.
  */
 import { test, expect } from "@playwright/test";
-import { helpers } from "./helpers";
+import { seedFakeAuth } from "./helpers";
 
 const MOBILE_UA =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
@@ -60,7 +60,7 @@ test.describe("mobile tap-to-toggle controls", () => {
       test.skip(true, SKIP);
       return;
     }
-    await helpers.seedFakeAuth(page);
+    await seedFakeAuth(page);
     await page.goto("/live");
     await page.waitForLoadState("networkidle");
 
@@ -86,7 +86,7 @@ test.describe("mobile tap-to-toggle controls", () => {
       test.skip(true, SKIP);
       return;
     }
-    await helpers.seedFakeAuth(page);
+    await seedFakeAuth(page);
     await page.goto("/live");
     await page.waitForLoadState("networkidle");
 
@@ -126,7 +126,7 @@ test.describe("mobile tap-to-toggle controls", () => {
       test.skip(true, SKIP);
       return;
     }
-    await helpers.seedFakeAuth(page);
+    await seedFakeAuth(page);
     await page.goto("/live");
     await page.waitForLoadState("networkidle");
 
