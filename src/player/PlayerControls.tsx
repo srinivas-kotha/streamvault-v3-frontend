@@ -1232,30 +1232,33 @@ export function PlayerControls({
                   isEdgeRight={rightEdgeKey === FK.AUDIO}
                   upTarget={FK.PLAY_PAUSE}
                 />
-                {openMenu === "audio" && (
-                  // eslint-disable-next-line jsx-a11y/no-noninteractive-element-to-interactive-role -- intentional listbox pattern
-                  <ul
-                    style={menuStyle}
-                    role="listbox"
-                    aria-label="Audio tracks"
-                  >
-                    {audioTracks.map((track) => (
-                      <MenuItem
-                        key={track.index}
-                        label={
-                          track.name || track.lang || `Audio ${track.index}`
-                        }
-                        isActive={currentAudioTrack === track.index}
-                        focusKey={`PLAYER_AUDIO_${track.index}`}
-                        onSelect={() => {
-                          onSelectAudioTrack(track.index);
-                          closeMenu();
-                        }}
-                        {...buildDismiss(FK.AUDIO)}
-                      />
-                    ))}
-                  </ul>
-                )}
+                {
+                  openMenu === "audio" && (
+                    /* eslint-disable jsx-a11y/no-noninteractive-element-to-interactive-role -- intentional listbox/option pattern */
+                    <ul
+                      style={menuStyle}
+                      role="listbox"
+                      aria-label="Audio tracks"
+                    >
+                      {audioTracks.map((track) => (
+                        <MenuItem
+                          key={track.index}
+                          label={
+                            track.name || track.lang || `Audio ${track.index}`
+                          }
+                          isActive={currentAudioTrack === track.index}
+                          focusKey={`PLAYER_AUDIO_${track.index}`}
+                          onSelect={() => {
+                            onSelectAudioTrack(track.index);
+                            closeMenu();
+                          }}
+                          {...buildDismiss(FK.AUDIO)}
+                        />
+                      ))}
+                    </ul>
+                  )
+                  /* eslint-enable jsx-a11y/no-noninteractive-element-to-interactive-role */
+                }
               </div>
             )}
 
