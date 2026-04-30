@@ -11,7 +11,7 @@
  * opens, and Left/Right on any popover item dismisses it and advances
  * to the next sibling control (spec §5).
  */
-import type { RefObject, CSSProperties } from "react";
+import type { MutableRefObject, RefObject, CSSProperties } from "react";
 import { useEffect, useRef, useState, useCallback } from "react";
 import {
   useFocusable,
@@ -118,6 +118,12 @@ export interface PlayerControlsProps {
    */
   onPrev?: () => void;
   onNext?: () => void;
+  /**
+   * When set, PlayerControls exposes a toggle() fn via this ref (show↔hide).
+   * Also wires "tap on empty controls area → hide" for mobile touch UX
+   * (master plan §5 PR-FE-2).
+   */
+  toggleRef?: MutableRefObject<(() => void) | null>;
 }
 
 type MenuName = "audio" | "subtitles" | "quality" | "volume";
@@ -166,12 +172,15 @@ function MenuItem({
         ref={ref as RefObject<HTMLButtonElement>}
         type="button"
         className="focus-ring"
+        data-player-control
         onClick={onSelect}
         style={{
           display: "block",
           width: "100%",
           padding: "var(--space-2) var(--space-4)",
-          background: highlighted ? "var(--accent-copper)" : "var(--bg-elevated)",
+          background: highlighted
+            ? "var(--accent-copper)"
+            : "var(--bg-elevated)",
           color: highlighted ? "var(--bg-base)" : "var(--text-primary)",
           border: "none",
           borderRadius: "var(--radius-sm)",
@@ -205,7 +214,9 @@ interface ControlButtonProps {
    * nav is blocked. Used by transport buttons (Play/Pause + ±10s) for
    * arrow-seek + ArrowDown-to-settings-row (6d prod feedback).
    */
-  arrowOverrides?: Partial<Record<"left" | "right" | "up" | "down", () => void>>;
+  arrowOverrides?: Partial<
+    Record<"left" | "right" | "up" | "down", () => void>
+  >;
   /**
    * Where ArrowUp lands. Defaults to FK.BACK per spec §4.2. Right-side
    * settings (Volume/Audio/Subs/Quality) override this to FK.PLAY_PAUSE
@@ -260,6 +271,7 @@ function ControlButton({
       aria-disabled={!focusable}
       aria-expanded={ariaExpanded}
       aria-haspopup={ariaHasPopup}
+      data-player-control
       onClick={focusable ? onPress : undefined}
       tabIndex={focusable ? 0 : -1}
       style={{
@@ -346,6 +358,7 @@ function VolumeSlider({
       aria-valuemax={100}
       aria-live="polite"
       tabIndex={0}
+      data-player-control
       style={{
         position: "absolute",
         bottom: "calc(100% + var(--space-2))",
@@ -426,6 +439,7 @@ export function PlayerControls({
   onSelectSubtitleTrack,
   onPrev,
   onNext,
+  toggleRef,
 }: PlayerControlsProps) {
   const reducedMotion = useReducedMotion();
 
@@ -474,6 +488,26 @@ export function PlayerControls({
     setVisible(true);
     scheduleHide();
   }, [scheduleHide]);
+
+  // toggle() is the single entry point for touch-tap show↔hide (PR-FE-2).
+  const toggle = useCallback(() => {
+    if (visibleRef.current) {
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+      setVisible(false);
+      setOpenMenu(null);
+    } else {
+      wake();
+    }
+  }, [wake]);
+
+  // Expose toggle via toggleRef so PlayerShell can wire the gesture layer.
+  useEffect(() => {
+    if (!toggleRef) return;
+    toggleRef.current = toggle;
+    return () => {
+      toggleRef.current = null;
+    };
+  }, [toggle, toggleRef]);
 
   const togglePlayPause = useCallback(() => {
     if (isPlaying) {
@@ -581,10 +615,7 @@ export function PlayerControls({
       const kc = e.keyCode;
 
       const isBack =
-        k === "Escape" ||
-        k === "Back" ||
-        k === "GoBack" ||
-        kc === 4;
+        k === "Escape" || k === "Back" || k === "GoBack" || kc === 4;
       if (isBack) {
         e.preventDefault();
         if (openMenuRef.current) {
@@ -619,8 +650,7 @@ export function PlayerControls({
         return;
       }
 
-      const isFfKey =
-        k === "MediaFastForward" || k === "l" || kc === 90;
+      const isFfKey = k === "MediaFastForward" || k === "l" || kc === 90;
       if (isFfKey && !isLiveRef.current) {
         e.preventDefault();
         seekWithRateRef.current(1);
@@ -798,7 +828,9 @@ export function PlayerControls({
     FK.SUBTITLES,
     FK.QUALITY,
   ];
-  const firstRightSideKey = orderedKeys.find((k) => RIGHT_SIDE_KEYS.includes(k));
+  const firstRightSideKey = orderedKeys.find((k) =>
+    RIGHT_SIDE_KEYS.includes(k),
+  );
 
   // 6d — prod feedback: users expect ArrowLeft/Right to seek (Netflix
   // convention), not walk the bar. Both directions route through the
@@ -897,6 +929,21 @@ export function PlayerControls({
         ref={containerRef as RefObject<HTMLDivElement>}
         data-testid="player-controls"
         aria-hidden={!visible}
+        // "Visible → hide" path for mobile tap-toggle (PR-FE-2): when the user
+        // taps on the empty area of the controls overlay (not on a button), hide
+        // the controls. Control buttons carry [data-player-control] so we can
+        // distinguish background taps from button taps.
+        onTouchEnd={
+          toggleRef
+            ? (e) => {
+                const target = e.target as Element;
+                if (!target.closest("[data-player-control]")) {
+                  e.preventDefault();
+                  toggle();
+                }
+              }
+            : undefined
+        }
         style={{
           position: "absolute",
           inset: 0,
@@ -907,6 +954,7 @@ export function PlayerControls({
           display: "flex",
           flexDirection: "column",
           justifyContent: "space-between",
+          zIndex: 2,
         }}
       >
         {/* ─── TOP BAR ─────────────────────────────────────────────────── */}
@@ -925,10 +973,13 @@ export function PlayerControls({
             type="button"
             className="focus-ring"
             aria-label="Back"
+            data-player-control
             onClick={onClose}
             style={{
               ...controlButtonStyle,
-              outline: backFocused ? "2px solid var(--accent-copper)" : undefined,
+              outline: backFocused
+                ? "2px solid var(--accent-copper)"
+                : undefined,
             }}
           >
             ←
@@ -952,10 +1003,13 @@ export function PlayerControls({
               type="button"
               className="focus-ring"
               aria-label="Previous episode"
+              data-player-control
               onClick={() => onPrev?.()}
               style={{
                 ...controlButtonStyle,
-                outline: prevFocused ? "2px solid var(--accent-copper)" : undefined,
+                outline: prevFocused
+                  ? "2px solid var(--accent-copper)"
+                  : undefined,
               }}
             >
               ⏮
@@ -967,10 +1021,13 @@ export function PlayerControls({
               type="button"
               className="focus-ring"
               aria-label="Next episode"
+              data-player-control
               onClick={() => onNext?.()}
               style={{
                 ...controlButtonStyle,
-                outline: nextFocused ? "2px solid var(--accent-copper)" : undefined,
+                outline: nextFocused
+                  ? "2px solid var(--accent-copper)"
+                  : undefined,
               }}
             >
               ⏭
@@ -1175,24 +1232,33 @@ export function PlayerControls({
                   isEdgeRight={rightEdgeKey === FK.AUDIO}
                   upTarget={FK.PLAY_PAUSE}
                 />
-                {openMenu === "audio" && (
-                  // eslint-disable-next-line jsx-a11y/no-noninteractive-element-to-interactive-role -- intentional listbox pattern
-                  <ul style={menuStyle} role="listbox" aria-label="Audio tracks">
-                    {audioTracks.map((track) => (
-                      <MenuItem
-                        key={track.index}
-                        label={track.name || track.lang || `Audio ${track.index}`}
-                        isActive={currentAudioTrack === track.index}
-                        focusKey={`PLAYER_AUDIO_${track.index}`}
-                        onSelect={() => {
-                          onSelectAudioTrack(track.index);
-                          closeMenu();
-                        }}
-                        {...buildDismiss(FK.AUDIO)}
-                      />
-                    ))}
-                  </ul>
-                )}
+                {
+                  openMenu === "audio" && (
+                    /* eslint-disable jsx-a11y/no-noninteractive-element-to-interactive-role -- intentional listbox/option pattern */
+                    <ul
+                      style={menuStyle}
+                      role="listbox"
+                      aria-label="Audio tracks"
+                    >
+                      {audioTracks.map((track) => (
+                        <MenuItem
+                          key={track.index}
+                          label={
+                            track.name || track.lang || `Audio ${track.index}`
+                          }
+                          isActive={currentAudioTrack === track.index}
+                          focusKey={`PLAYER_AUDIO_${track.index}`}
+                          onSelect={() => {
+                            onSelectAudioTrack(track.index);
+                            closeMenu();
+                          }}
+                          {...buildDismiss(FK.AUDIO)}
+                        />
+                      ))}
+                    </ul>
+                  )
+                  /* eslint-enable jsx-a11y/no-noninteractive-element-to-interactive-role */
+                }
               </div>
             )}
 
@@ -1202,7 +1268,8 @@ export function PlayerControls({
                   focusKey={FK.SUBTITLES}
                   label="Subtitles"
                   icon={`CC ${
-                    currentSubtitleTrack >= 0 && subtitleTracks[currentSubtitleTrack]
+                    currentSubtitleTrack >= 0 &&
+                    subtitleTracks[currentSubtitleTrack]
                       ? subtitleTracks[currentSubtitleTrack]!.name
                       : "Off"
                   }`}
