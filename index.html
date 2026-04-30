@@ -20,6 +20,12 @@
     <meta name="apple-mobile-web-app-title" content="StreamVault" />
 
     <title>StreamVault</title>
+
+    <!-- Atomic-rollback marker. Vite injects the deploy_id at build time
+         (see vite.config.ts). Used by support tooling to identify which
+         build the user is on, and by the rollback drill to verify
+         post-rollback state. Falls back to `dev` for local builds. -->
+    <meta name="sv-deploy-id" content="%VITE_DEPLOY_ID%" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link

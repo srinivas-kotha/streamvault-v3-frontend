@@ -6,6 +6,8 @@ import "./index.css";
 import "./primitives/index.css"; // aggregator — all primitive stylesheets
 import App from "./App.tsx";
 import { initSpatialNav } from "./nav/spatialNav";
+import { InputModeProvider } from "./nav/InputModeProvider";
+import { refreshFlags } from "./config/featureFlags";
 import { captureInstallPrompt } from "./features/install/installPrompt";
 
 // Must run before createRoot so norigin is ready when React mounts.
@@ -40,8 +42,15 @@ if (import.meta.env.DEV) {
     setFocus;
 }
 
+// Kick off a feature-flag fetch as early as possible so the cache is
+// warm by the time components mount. Fire-and-forget — the hook handles
+// the loading state. Per master plan A13: 5s TTL, fail-closed.
+void refreshFlags();
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <App />
+    <InputModeProvider>
+      <App />
+    </InputModeProvider>
   </StrictMode>,
 );
