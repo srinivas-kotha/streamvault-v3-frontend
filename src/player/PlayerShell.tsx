@@ -20,12 +20,15 @@ import {
 import { usePlayerStore, type PlayerKind } from "./PlayerProvider";
 import { useHlsPlayer } from "./useHlsPlayer";
 import { PlayerControls } from "./PlayerControls";
+import { PlayerGestureLayer } from "./PlayerGestureLayer";
 import { useReducedMotion } from "./useReducedMotion";
 import { classifyFailure, type FailureClass } from "./classifyFailure";
 import { markTierLocked } from "../features/movies/tierLockCache";
 import { recordHistory } from "../api/history";
 import { getLangPref } from "../lib/langPref";
 import { pickAudioTrackForLang } from "../lib/inferLanguage";
+import { getFlag } from "../config/featureFlags";
+import { getInputMode } from "../nav/inputMode";
 
 // Failure-overlay focus keys — kept local, only the overlay reads them.
 const FK_RETRY = "PLAYER_FAIL_RETRY";
@@ -65,6 +68,12 @@ export function PlayerShell() {
   const [currentAudioTrack, setCurrentAudioTrack] = useState(-1);
   const [currentSubtitleTrack, setCurrentSubtitleTrack] = useState(-1);
   const [volume, setVolumeState] = useState(1);
+
+  // PR-FE-2: tap-toggle controls visibility on mobile touch.
+  // Evaluated once at render (flag cache is synchronous); re-renders update it.
+  const tapToggleEnabled =
+    getFlag("adaptive.player.tap_toggle", false) && getInputMode() !== "dpad";
+  const controlsToggleRef = useRef<(() => void) | null>(null);
 
   const { ref: shellRef, focusKey } = useFocusable({
     focusKey: "PLAYER_SHELL",
@@ -265,6 +274,12 @@ export function PlayerShell() {
           />
         )}
 
+        {!showFailure && tapToggleEnabled && (
+          <PlayerGestureLayer
+            onTapToggle={() => controlsToggleRef.current?.()}
+          />
+        )}
+
         {!showFailure && (
           <PlayerControls
             title={title}
@@ -289,6 +304,7 @@ export function PlayerShell() {
             onSelectSubtitleTrack={handleSelectSubtitleTrack}
             {...(onPrev && { onPrev })}
             {...(onNext && { onNext })}
+            {...(tapToggleEnabled ? { toggleRef: controlsToggleRef } : {})}
           />
         )}
       </div>
@@ -409,8 +425,16 @@ function FailureOverlay({
           color: "var(--text-primary)",
         }}
       >
-        <span style={{ fontSize: "32px" }} aria-hidden="true">⚠</span>
-        <p style={{ fontSize: "var(--text-title-size)", fontWeight: 600, margin: 0 }}>
+        <span style={{ fontSize: "32px" }} aria-hidden="true">
+          ⚠
+        </span>
+        <p
+          style={{
+            fontSize: "var(--text-title-size)",
+            fontWeight: 600,
+            margin: 0,
+          }}
+        >
           {kind === "stream-offline"
             ? playerKind === "live"
               ? "Channel offline"
@@ -428,10 +452,10 @@ function FailureOverlay({
           {kind === "tier-lock"
             ? "This title is delivered in a format your Xtream plan doesn't support. Try a different title or see if a similar one is available."
             : kind === "stream-offline"
-            ? playerKind === "live"
-              ? "This channel is offline upstream right now. Try a different channel, or hit Try again in a moment."
-              : "This title is offline upstream right now. Try another episode or title, or hit Try again in a moment."
-            : "This title couldn't be played right now. It may be a format your plan doesn't support, or the provider is temporarily unavailable."}
+              ? playerKind === "live"
+                ? "This channel is offline upstream right now. Try a different channel, or hit Try again in a moment."
+                : "This title is offline upstream right now. Try another episode or title, or hit Try again in a moment."
+              : "This title couldn't be played right now. It may be a format your plan doesn't support, or the provider is temporarily unavailable."}
         </p>
         <div
           style={{
@@ -447,7 +471,9 @@ function FailureOverlay({
               className="focus-ring"
               onClick={onRetry}
               style={{
-                background: retryFocused ? "var(--accent-copper)" : "rgba(255,255,255,0.15)",
+                background: retryFocused
+                  ? "var(--accent-copper)"
+                  : "rgba(255,255,255,0.15)",
                 color: retryFocused ? "var(--bg-base)" : "var(--text-primary)",
                 border: "none",
                 borderRadius: "var(--radius-sm)",
@@ -465,7 +491,9 @@ function FailureOverlay({
             className="focus-ring"
             onClick={onClose}
             style={{
-              background: backFocused ? "var(--accent-copper)" : "rgba(255,255,255,0.15)",
+              background: backFocused
+                ? "var(--accent-copper)"
+                : "rgba(255,255,255,0.15)",
               color: backFocused ? "var(--bg-base)" : "var(--text-primary)",
               border: "none",
               borderRadius: "var(--radius-sm)",
