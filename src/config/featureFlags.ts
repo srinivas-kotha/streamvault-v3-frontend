@@ -71,7 +71,7 @@ function isFresh(entry: CacheEntry | null): entry is CacheEntry {
 }
 
 async function fetchOnce(): Promise<FlagMap> {
-  let signal: AbortSignal | undefined;
+  let signal: AbortSignal | null = null;
   try {
     signal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
   } catch {
@@ -125,10 +125,7 @@ export async function refreshFlags(): Promise<FlagMap> {
  * localStorage) or `defaultValue` if absent. Triggers a background
  * refresh if the cache is stale.
  */
-export function getFlag<T extends FlagValue>(
-  key: string,
-  defaultValue: T,
-): T {
+export function getFlag<T extends FlagValue>(key: string, defaultValue: T): T {
   const entry = memCache ?? readStorage();
   if (entry) {
     if (!isFresh(entry)) {
