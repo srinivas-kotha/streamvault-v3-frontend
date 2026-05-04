@@ -158,7 +158,12 @@ export function useHlsPlayer(
         video as HTMLVideoElement & {
           audioTracks?: {
             length: number;
-            [i: number]: { id?: string; label?: string; language?: string; enabled?: boolean };
+            [i: number]: {
+              id?: string;
+              label?: string;
+              language?: string;
+              enabled?: boolean;
+            };
             onaddtrack?: (() => void) | null;
             onchange?: (() => void) | null;
           };
@@ -192,6 +197,11 @@ export function useHlsPlayer(
         maxMaxBufferLength: 180,
         enableWorker: true,
         lowLatencyMode: false,
+        // ABR ceiling: never request a level above the rendered video size.
+        // Saves bandwidth on Fire TV / desktop windows below 1080p where the
+        // higher levels are wasted pixels — without affecting the manual
+        // quality picker (which sets currentLevel ≥ 0 and overrides ABR).
+        capLevelToPlayerSize: true,
       });
       hlsRef.current = hls;
 
@@ -255,8 +265,7 @@ export function useHlsPlayer(
     const onPause = () => setStatus("paused");
     const onWaiting = () => setStatus("buffering");
     const onSeeking = () => setStatus("seeking");
-    const onSeeked = () =>
-      setStatus(video.paused ? "paused" : "playing");
+    const onSeeked = () => setStatus(video.paused ? "paused" : "playing");
     const onTimeUpdate = () => setCurrentTime(video.currentTime);
     const onDurationChange = () => setDuration(video.duration ?? 0);
     const onError = () => {
