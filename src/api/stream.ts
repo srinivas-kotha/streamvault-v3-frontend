@@ -11,8 +11,13 @@
  * We construct the URL directly — no extra fetch needed, the backend
  * streams the content at this URL.
  *
- * NOTE: The backend stream.router.ts at /:type/:id expects a numeric ID.
- * The URL is constructed here and fed directly to hls.js / <video src>.
+ * Phase 3 content-identity update:
+ *  When a content item carries a `content_uid` (16-char hex), we send it as
+ *  the path id. The backend stream.router.ts discriminates via isContentUid()
+ *  and routes to resolveStreamUrl() directly, bypassing the legacy provider
+ *  numeric-id lookup. This fixes episode plays (synthetic episode keys) and
+ *  movies not in sv_content_provider_map under SV_USE_CONTENT_UID=1.
+ *  Legacy numeric ids are still sent as a fallback when content_uid is absent.
  *
  * For series episodes with season/episode, we encode them as query params
  * (the backend provider uses the stream ID from the database, so season/episode
@@ -26,29 +31,52 @@ import type { PlayerKind } from "../player/PlayerProvider";
 
 const BASE_URL = import.meta.env.DEV ? "http://localhost:3001" : "";
 
-interface FetchStreamUrlOptions {
+interface BuildStreamPathOptions {
   kind: PlayerKind;
+  /** Legacy numeric id (fallback when content_uid is absent). */
   id: string;
+  /** Phase 3: 16-char hex content_uid. Preferred over numeric id. */
+  content_uid?: string;
   season?: number;
   episode?: number;
 }
 
+// Keep backwards-compatible alias.
+type FetchStreamUrlOptions = BuildStreamPathOptions;
+
+const TYPE_MAP: Record<PlayerKind, string> = {
+  live: "live",
+  vod: "vod",
+  "series-episode": "series",
+};
+
 /**
- * Builds the proxied stream URL for a given content item.
- * Returns a URL string that can be passed directly to hls.js or <video>.
+ * buildStreamPath — returns just the path portion `/api/stream/<type>/<id>`.
+ * Exported for unit testing without the BASE_URL prefix.
  *
- * The backend streams the content (no redirect, no JSON) at this URL,
- * so we return the URL for the player to load directly.
+ * Prefers `content_uid` when present; falls back to legacy `id`.
+ */
+export function buildStreamPath({
+  kind,
+  id,
+  content_uid,
+}: BuildStreamPathOptions): string {
+  const type = TYPE_MAP[kind];
+  const resolvedId = content_uid ?? id;
+  return `/api/stream/${type}/${encodeURIComponent(resolvedId)}`;
+}
+
+/**
+ * fetchStreamUrl — full URL including BASE_URL, ready for hls.js / <video src>.
+ *
+ * Prefers `content_uid` when present; falls back to legacy numeric `id`.
+ * The backend streams the content (no redirect, no JSON) at this URL.
  */
 export function fetchStreamUrl({
   kind,
   id,
+  content_uid,
 }: FetchStreamUrlOptions): string {
-  const typeMap: Record<PlayerKind, string> = {
-    live: "live",
-    vod: "vod",
-    "series-episode": "series",
-  };
-  const type = typeMap[kind];
-  return `${BASE_URL}/api/stream/${type}/${encodeURIComponent(id)}`;
+  // exactOptionalPropertyTypes: only spread content_uid when defined.
+  return `${BASE_URL}${buildStreamPath({ kind, id, ...(content_uid ? { content_uid } : {}) })}`;
 }

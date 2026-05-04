@@ -1,6 +1,15 @@
 import { z } from "zod";
 
 /**
+ * ContentUidSchema — 16-char lowercase hex string produced by sha1[:16] of the
+ * canonical content title (see backend content-identity.service.ts).
+ * Optional on all catalog/history/favorites shapes in Phase 3; becomes required
+ * in Phase 4 after 30-day clean observation.
+ */
+export const ContentUidSchema = z.string().regex(/^[a-f0-9]{16}$/);
+export type ContentUid = z.infer<typeof ContentUidSchema>;
+
+/**
  * RatingSchema — the Xtream provider returns `rating` as any of:
  *   - a string ("3.8", "0")
  *   - a number (3.8, 0)
@@ -74,6 +83,8 @@ export const ChannelSchema = z.object({
   epgChannelId: z.string().optional(),
   /** Language inferred server-side from category name (backend PR #45 / frontend issue #52). */
   inferredLang: InferredLangSchema,
+  /** Phase 3 content-identity: provider-stable content uid (optional until Phase 4). */
+  content_uid: ContentUidSchema.optional(),
 });
 export type Channel = z.infer<typeof ChannelSchema>;
 
@@ -84,6 +95,8 @@ export const EpgEntrySchema = z.object({
   start: z.string().datetime(),
   end: z.string().datetime(),
   description: z.string().optional(),
+  /** Phase 3 content-identity: provider-stable content uid (optional until Phase 4). */
+  content_uid: ContentUidSchema.optional(),
 });
 export type EpgEntry = z.infer<typeof EpgEntrySchema>;
 
@@ -95,6 +108,8 @@ export const VodItemSchema = z.object({
   posterUrl: z.string().optional(),
   rating: z.number().optional(),
   addedAt: z.string().datetime().optional(),
+  /** Phase 3 content-identity: provider-stable content uid (optional until Phase 4). */
+  content_uid: ContentUidSchema.optional(),
 });
 export type VodItem = z.infer<typeof VodItemSchema>;
 
@@ -106,6 +121,8 @@ export const SeriesPreviewSchema = z.object({
   categoryId: z.string(),
   posterUrl: z.string().optional(),
   seasons: z.number().optional(),
+  /** Phase 3 content-identity: provider-stable content uid (optional until Phase 4). */
+  content_uid: ContentUidSchema.optional(),
 });
 export type SeriesPreview = z.infer<typeof SeriesPreviewSchema>;
 
@@ -227,6 +244,8 @@ export const CatalogItemSchema = z.object({
   year: z.string().optional(),
   /** Language inferred server-side from category name (backend PR #45 / frontend issue #52). */
   inferredLang: InferredLangSchema,
+  /** Phase 3 content-identity: provider-stable content uid (optional until Phase 4). */
+  content_uid: ContentUidSchema.optional(),
 });
 export type CatalogItem = z.infer<typeof CatalogItemSchema>;
 
@@ -313,6 +332,8 @@ export const FavoriteItemSchema = z.object({
   category_name: z.string().nullable(),
   sort_order: z.number(),
   added_at: z.string(),
+  /** Phase 3 content-identity: provider-stable content uid (optional until Phase 4). */
+  content_uid: ContentUidSchema.optional(),
 });
 export type FavoriteItem = z.infer<typeof FavoriteItemSchema>;
 
@@ -335,6 +356,15 @@ export const HistoryItemSchema = z.object({
   progress_seconds: z.number(),
   duration_seconds: z.number(),
   watched_at: z.string(),
+  /**
+   * Phase 3 content-identity: set by a DB trigger when content_uid transitions
+   * NULL→non-NULL (i.e. when a dormant history item's content is found on the
+   * new provider). Used as a sort key in Continue Watching to re-surface revived
+   * content above older items (optional until Phase 4).
+   */
+  revived_at: z.string().optional(),
+  /** Phase 3 content-identity: provider-stable content uid (optional until Phase 4). */
+  content_uid: ContentUidSchema.optional(),
 });
 export type HistoryItem = z.infer<typeof HistoryItemSchema>;
 

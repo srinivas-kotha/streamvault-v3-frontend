@@ -23,6 +23,7 @@ import { PlayerControls } from "./PlayerControls";
 import { PlayerGestureLayer } from "./PlayerGestureLayer";
 import { useReducedMotion } from "./useReducedMotion";
 import { classifyFailure, type FailureClass } from "./classifyFailure";
+import { DormantContentOverlay } from "../components/DormantContentOverlay";
 import { markTierLocked } from "../features/movies/tierLockCache";
 import { recordHistory } from "../api/history";
 import { getLangPref } from "../lib/langPref";
@@ -265,7 +266,11 @@ export function PlayerShell() {
           </div>
         )}
 
-        {showFailure && (
+        {showFailure && failureClass === "dormant" && (
+          <DormantContentOverlay onDismiss={close} />
+        )}
+
+        {showFailure && failureClass !== "dormant" && (
           <FailureOverlay
             kind={failureClass ?? "generic"}
             playerKind={kind}
