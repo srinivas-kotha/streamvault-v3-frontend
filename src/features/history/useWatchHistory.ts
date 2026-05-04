@@ -5,8 +5,17 @@
  * on mount. Exposes `record()` for playback components to log progress.
  */
 import { useState, useEffect, useCallback } from "react";
-import { fetchHistory, recordHistory, removeHistoryItem } from "../../api/history";
-import type { HistoryItem, RecordHistoryBody, ContentType } from "../../api/schemas";
+import {
+  fetchHistory,
+  recordHistory,
+  removeHistoryItem,
+} from "../../api/history";
+import type {
+  HistoryItem,
+  RecordHistoryBody,
+  ContentType,
+} from "../../api/schemas";
+import { sortByActivity } from "./sortByActivity";
 
 export interface UseWatchHistoryReturn {
   history: HistoryItem[];
@@ -27,7 +36,9 @@ export function useWatchHistory(): UseWatchHistoryReturn {
     setError(null);
     try {
       const items = await fetchHistory();
-      setHistory(items);
+      // Phase 3 content-identity: sort by MAX(watched_at, revived_at) so
+      // dormant rows revived by the backend trigger surface back to the top.
+      setHistory(sortByActivity(items));
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to load watch history",

@@ -5,6 +5,11 @@ import type { PlayerKind } from "./PlayerProvider";
  * and decide whether to memo a tier-lock hit (spec §9.2 / §9.3).
  *
  * Heuristics:
+ *  - Backend returns HTTP 410 + `{ error: "DORMANT" }` when a content_uid is
+ *    found in sv_content_master but has no row in sv_content_provider_map for
+ *    the active provider. The useHlsPlayer HEAD probe detects 410 and sets
+ *    the error message to include `"dormant:"` so this classifier picks it up.
+ *    PlayerShell renders DormantContentOverlay instead of FailureOverlay.
  *  - VOD/series-episode that errors with zero duration + zero playhead, before
  *    any frame ever arrived, is almost always the Xtream account plan refusing
  *    the container extension → "tier-lock".
@@ -22,7 +27,11 @@ import type { PlayerKind } from "./PlayerProvider";
  *    wording.
  *  - Everything else → "generic".
  */
-export type FailureClass = "tier-lock" | "stream-offline" | "generic";
+export type FailureClass =
+  | "dormant"
+  | "tier-lock"
+  | "stream-offline"
+  | "generic";
 
 export function classifyFailure(
   kind: PlayerKind,
@@ -30,6 +39,9 @@ export function classifyFailure(
   currentTime: number,
   errorMessage: string | undefined,
 ): FailureClass {
+  if (errorMessage && errorMessage.includes("dormant:")) {
+    return "dormant";
+  }
   if (errorMessage && errorMessage.includes("stream-offline:")) {
     return "stream-offline";
   }
